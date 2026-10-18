@@ -34,7 +34,9 @@ typedef struct {
 	int8_t pad[26];
 } MapState;
 
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 long RotTransPers3(SVECTOR *v0, SVECTOR *v1, SVECTOR *v2, long *sxy0, long *sxy1, long *sxy2, long *p, long *flag);
+#endif
 int abs(int x);
 int32_t addObject(int32_t objectId, int16_t instanceId, void (*tick)(int32_t), void (*render)(int32_t));
 void checkArenaMap(uint8_t mapId);

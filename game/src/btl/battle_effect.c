@@ -292,7 +292,9 @@ void BTL_tickBuffRings(int32_t idx);
 void BTL_renderBuffRingsSpark(VECTOR *pos, int32_t scale, SVECTOR *dir, uint8_t *col);
 void BTL_initializeUnk2(void);
 int32_t BTL_addBuffRingsEffect(int32_t idx, Entity *e);
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 long RotTransPers4(SVECTOR *v0, SVECTOR *v1, SVECTOR *v2, SVECTOR *v3, long *sxy0, long *sxy1, long *sxy2, long *sxy3, long *p, long *flag);
+#endif
 
 static void *battle_effect_functions[] = {
 	BTL_removeAllBuffRingsEffects,

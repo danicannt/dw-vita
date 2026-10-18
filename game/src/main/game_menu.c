@@ -261,7 +261,9 @@ void drawString(char *str, int32_t x, int32_t y);
 void renderBorderBox(int16_t x, int16_t y, int16_t w, int16_t h,
                      int32_t c1, int32_t c2, uint8_t r, uint8_t g, uint8_t b,
                      int32_t a10);
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 int32_t strlen(char *s);
+#endif
 void startAnimation(Entity *entity, uint8_t animId);
 void tickAnimation(Entity *entity);
 int32_t drawCardViewStrings(void);

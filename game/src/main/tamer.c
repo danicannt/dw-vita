@@ -230,8 +230,12 @@ int32_t handleBattleStart(int32_t instanceId);
 void loadBattleData(int32_t a, int32_t b);
 int32_t BTL_battleMain(void);
 int32_t isKeyDown(uint32_t key);
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 void memcpy(uint8_t *dst, uint8_t *src, uint32_t size);
+#endif
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 int32_t strlen(char *s);
+#endif
 void setupPartnerOnWarp(int32_t x, int32_t y, int32_t z, int32_t rotationY);
 extern int32_t DRAWING_OFFSET_X;
 extern int32_t DRAWING_OFFSET_Y;

@@ -265,9 +265,13 @@ int32_t VS_addConfusionEffect(Entity *entity);
 void VS_removeConfusionEffect(int32_t i, Entity *entity);
 int32_t VS_addStunEffect(Entity *entity, int32_t val);
 void VS_removeStunEffect(int32_t i, Entity *entity);
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 long RotTransPers4(SVECTOR *v0, SVECTOR *v1, SVECTOR *v2, SVECTOR *v3, long *sxy0, long *sxy1, long *sxy2, long *sxy3, long *p, long *flag);
+#endif
 void setRotTransMatrix(MATRIX *m);
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 long RotTransPers(SVECTOR *v0, long *sxy, long *p, long *flag);
+#endif
 int32_t VS_interpolateClamped(int32_t lo, int32_t hi, long t, int32_t a, int32_t b);
 
 void EFECreateFlash();

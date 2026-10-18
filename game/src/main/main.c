@@ -3786,7 +3786,9 @@ void setImmortalHour(void);
 extern int8_t PREV_TILE_X;
 extern int8_t PREV_TILE_Y;
 void uploadMapTileImages(MapTileData *tiles, int32_t index);
+#ifndef DW1_NATIVE /* PS1 prototype; the native SDK declares it */
 void memcpy(uint8_t *dst, uint8_t *src, uint32_t size);
+#endif
 
 void initializeLoadedMap(void)
 {
