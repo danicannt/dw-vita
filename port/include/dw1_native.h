@@ -41,9 +41,31 @@ void dw1_overlay_reset(int lib);
  * host/main.c passes it the same .cue PSY-Z mounts. */
 void dw1_disc_set_path(const char *cue);
 
+/* ---- division ---------------------------------------------------------------
+ * DW1 was built without zero-division checks and relies on what the R3000
+ * gives: quotient -1 (1 for a negative dividend, all ones unsigned) and the
+ * dividend as remainder; INT_MIN / -1 stays INT_MIN. x86 traps and ARM returns
+ * 0, so sites that divide by zero use these (crash_handler.c logs new ones). */
+static inline int dw1_div(int a, int b)
+{
+    if (b == 0)
+        return a >= 0 ? -1 : 1;
+    if (b == -1 && a == (int)0x80000000u)
+        return a;
+    return a / b;
+}
+static inline unsigned int dw1_divu(unsigned int a, unsigned int b)
+{
+    return b == 0 ? 0xFFFFFFFFu : a / b;
+}
+
 /* ---- crashes ---------------------------------------------------------------
  * Linux: print the call stack on SIGSEGV and friends (port/src/crash_handler.c). */
 void dw1_crash_handler_install(void);
+
+/* ---- test drivers ----------------------------------------------------------
+ * DW1_WARP / DW1_SMOKE (port/src/smoke.c), stepped from the top of gameLoop. */
+void dw1_smoke_frame(void);
 
 #ifdef __cplusplus
 }

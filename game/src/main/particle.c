@@ -141,7 +141,13 @@ void tickHealingParticles(int32_t instance) {
         entry2 = &entries2[particle->frameId % 5];
         for (i = 0; i < 4; i++) {
             angle = lerp(0, 512, 0, 13, particle->frameId);
+#ifdef DW1_NATIVE
+            /* i = 0 divides by zero; the PS1's R3000 returns -1 for it, ARM 0
+             * and x86 traps */
+            angle += dw1_div(512, i * 13 / 4);
+#else
             angle += 512 / (i * 13 / 4);
+#endif
 
             entry2->counter = 5;
 

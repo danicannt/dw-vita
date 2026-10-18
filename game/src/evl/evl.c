@@ -25,7 +25,7 @@
 
 #include "common.h"
 
-#define EVL_MMD_BUFFER	0x80020000
+#define EVL_MMD_BUFFER	((int32_t)DW1_PS1_ADDR(0x80020000)) /* DW1_NATIVE */
 
 typedef struct {
 	int16_t timer;
@@ -1245,9 +1245,9 @@ void EVL_renderSparkStreak(int32_t id)
 	lenSq = ((b.vx * b.vx) + (b.vy * b.vy)) + (b.vz * b.vz);
 	scale = customRandom(0x190, 0x1f4);
 	scale = scale * scale;
-	b.vx = a.vx + ((b.vx * scale) / lenSq);
-	b.vy = a.vy + ((b.vy * scale) / lenSq);
-	b.vz = a.vz + ((b.vz * scale) / lenSq);
+	b.vx = a.vx + dw1_div(b.vx * scale, lenSq); /* DW1_NATIVE: lenSq can be 0 */
+	b.vy = a.vy + dw1_div(b.vy * scale, lenSq); /* DW1_NATIVE: lenSq can be 0 */
+	b.vz = a.vz + dw1_div(b.vz * scale, lenSq); /* DW1_NATIVE: lenSq can be 0 */
 	c.vx = b.vx + customRandom(-0x50, 0x50);
 	c.vy = b.vy + customRandom(-0x50, 0x50);
 	c.vz = b.vz + customRandom(-0x50, 0x50);

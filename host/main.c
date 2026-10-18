@@ -45,6 +45,11 @@ int main(int argc, char **argv)
         return 1;
     }
 
+#if defined(__linux__)
+    /* SDL's HIDAPI retries dlopen("libusb") on every joystick poll when there
+     * is no i386 libusb; the kernel hidraw path is enough for pads */
+    setenv("SDL_HIDAPI_LIBUSB", "0", 0);
+#endif
     /* DW1_TURBO=1: no frame pacing, for fast replays (they count pad reads,
      * not time, so they play the same at any speed) */
     if (getenv("DW1_TURBO") != NULL) {

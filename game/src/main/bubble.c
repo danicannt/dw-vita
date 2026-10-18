@@ -494,7 +494,7 @@ void renderConditionBubble(int32_t instanceId)
 		} else {
 			top = 32;
 		}
-		top = (top * ((scale * VIEWPORT_DISTANCE) / depth)) >> 12;
+		top = (top * dw1_div(scale * VIEWPORT_DISTANCE, depth)) >> 12; /* DW1_NATIVE: depth can be 0 */
 
 		if ((screen.vy + DRAWING_OFFSET_Y) < top) {
 			screen.vy = -DRAWING_OFFSET_Y + top;
@@ -504,7 +504,7 @@ void renderConditionBubble(int32_t instanceId)
 		if (value < 36) {
 			value = 36;
 		}
-		scale = ((int32_t)scale * value) / (depth >> 4);
+		scale = dw1_div((int32_t)scale * value, depth >> 4); /* DW1_NATIVE */
 		depth = value << 4;
 	}
 

@@ -1052,12 +1052,12 @@ void BTL_renderPartnerStatusBars(int16_t idx)
 			x0 = BTL_STATUS_BAR_X[BTL_HP_BAR_STEP];
 			y0 = -0x64;
 			cur = PARTNER_ENTITY.digimonEntity.stats.current.currentHP;
-			fill = *hpPtr * 50 / maxHp;
+			fill = dw1_div(*hpPtr * 50, maxHp); /* DW1_NATIVE: maxHp can be 0 */
 		} else {
 			x0 = BTL_STATUS_BAR_X[BTL_MP_BAR_STEP];
 			y0 = -0x58;
 			cur = PARTNER_ENTITY.digimonEntity.stats.current.currentMP;
-			fill = *mpPtr * 50 / maxMp;
+			fill = dw1_div(*mpPtr * 50, maxMp); /* DW1_NATIVE: maxMp can be 0 */
 		}
 		BTL_renderNumber(0, 4, x0 + 0x49, y0 - 3, cur, 0xa);
 		prim = (POLY_FT4 *)GsGetWorkBase();

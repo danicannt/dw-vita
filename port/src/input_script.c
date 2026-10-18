@@ -17,6 +17,7 @@
 #include <stdlib.h>
 
 unsigned int __real_PadRead(int id);
+int dw1_smoke_pad(void);
 
 enum { MODE_UNSET, MODE_OFF, MODE_RECORD, MODE_REPLAY };
 
@@ -66,12 +67,25 @@ static void init(void)
     }
 }
 
+/* a replay is still feeding the pad (port/src/smoke.c waits for it) */
+int dw1_replay_running(void)
+{
+    if (mode == MODE_UNSET)
+        init();
+    return mode == MODE_REPLAY && (!replay_done || calls <= tail_end);
+}
+
 unsigned int __wrap_PadRead(int id)
 {
     unsigned int state;
+    int smoke;
 
     if (mode == MODE_UNSET)
         init();
+    if (!dw1_replay_running() && (smoke = dw1_smoke_pad()) >= 0) {
+        calls++;
+        return (unsigned int)smoke;
+    }
 
     if (mode == MODE_REPLAY && (!replay_done || calls <= tail_end)) {
         while (!replay_done && next_call <= calls) {

@@ -108,6 +108,7 @@ target_link_libraries(dw1 PRIVATE dw1_port psyz_extra psyz)
 target_link_options(dw1 PRIVATE -Wl,-T,${DW1_GEN_DIR}/overlays.ld
     -Wl,--wrap=PadRead          # port/src/input_script.c: DW1_RECORD / DW1_REPLAY
     -Wl,--wrap=GsSwapDispBuff,--wrap=VSync  # port/src/frame_dump.c: DW1_DUMP*
+    -Wl,--wrap=CdRead           # port/src/read_log.c: DW1_READLOG
     # port/src/movie_stream.c and movie_extra.c: STR streaming and the MDEC
     -Wl,--wrap=CdControl,--wrap=CdRead2,--wrap=StSetRing,--wrap=StUnSetRing
     -Wl,--wrap=StSetStream,--wrap=StFreeRing,--wrap=StGetBackloc,--wrap=StGetNext

@@ -345,6 +345,11 @@ static void *script_interp_sbss_order[] = {
 uint8_t MAPHEAD_SCRIPT_BUFFER[0x6800];
 #elif !VERSION_IS(US)
 uint8_t MAPHEAD_SCRIPT_BUFFER[0x6000];
+#elif defined(DW1_NATIVE)
+/* MAPHEAD.SCN (24686 bytes) is read in whole sectors, 0x6800 bytes; natively
+ * the tail of a [0x61a8] landed on the script interpreter's own state
+ * (WAIT_FOR_ENTITY_ID, SCRIPT_SECTION_IS_EVENT) on every map load */
+uint8_t MAPHEAD_SCRIPT_BUFFER[0x6800];
 #else
 uint8_t MAPHEAD_SCRIPT_BUFFER[0x61a8];
 #endif

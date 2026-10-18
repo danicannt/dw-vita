@@ -2954,8 +2954,13 @@ void FISH_tickFishPopulation(void)
 				total++;
 			}
 			for (i = 0; i < 6U; i++) {
+#ifdef DW1_NATIVE /* no active fish, or a spot of weight 0: divides by zero */
+				counts[i] = dw1_div(counts[i] * 10000,
+				                    total * FISHING_DATA_PTR->mapData->fishingSpots[i].unk0);
+#else
 				counts[i] = counts[i] * 10000 /
 				            (total * FISHING_DATA_PTR->mapData->fishingSpots[i].unk0);
+#endif
 			}
 			bestIdx = 0;
 			best = 0x2711;

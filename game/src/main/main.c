@@ -3950,6 +3950,9 @@ void recalculatePPandArena(void)
 
 void gameLoop(void)
 {
+#ifdef DW1_NATIVE
+	dw1_smoke_frame(); /* DW1_WARP / DW1_SMOKE test drivers */
+#endif
 	pollInputGame();
 	ACTIVE_FRAMEBUFFER = GsGetActiveBuff();
 	GsSetWorkBase(GS_WORK_BASES[ACTIVE_FRAMEBUFFER]);

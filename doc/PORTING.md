@@ -56,6 +56,7 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 | Renderer | PSY-Z SDL_GPU / GL | desktop only; no Vita backend |
 | Vita build | not started | VitaSDK toolchain, PSY-Z Vita platform, `.vpk` |
 | Debug aids | done | pad record/replay (`DW1_RECORD`/`DW1_REPLAY`), VRAM dumps (`DW1_DUMP`, `DW1_DUMP_VSYNC`), `DW1_TURBO`, crash stacks |
+| Test batteries | maps | `DW1_WARP`, `DW1_SMOKE=maps` (`port/src/smoke.c`), run in parallel by `tools/smoke.py`; disc read audit `DW1_READLOG` + `tools/check_reads.py` |
 
 ## Backlog, in order
 

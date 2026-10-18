@@ -97,7 +97,15 @@ VECTOR MOVE_BOULDER_SCALE = { 4096, 4096, 4096, 0 };
 
 Chest CHEST_ARRAY[NUM_CHESTS];
 GsCOORDINATE2 DOOR_COORDS[4];
+#ifdef DW1_NATIVE
+/* DOOR26.TMD is two sectors; loaded into slot 3 it runs 0x800 past the
+ * array. On the PS1 that hits DOOR_OBJECTS / MAP_3D_OBJ, which the door
+ * loader rewrites right after; natively it hit the chest and dirt cart
+ * state, so a fifth slot absorbs it */
+char GENERAL_MESH_BUFFER[5][0x800];
+#else
 char GENERAL_MESH_BUFFER[4][0x800];
+#endif
 GsDOBJ2 DOOR_OBJECTS[4];
 Map3DObject MAP_3D_OBJ[NUM_MAP_3D_OBJECTS];
 GsDOBJ2 GENERAL_OBJECTS[2];
