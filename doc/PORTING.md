@@ -126,6 +126,10 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
   `patches/psyz/0001-signed-draw-offset.patch` (sign-extend, no wrap); apply it
   after checking out the submodule:
   `git -C external/psyz apply ../../patches/psyz/0001-signed-draw-offset.patch`.
+- `libgte.c`: `NormalColorCol`, `NormalColorDpq` and `DpqColor` took their
+  sf/lm bits from byte-swapped GTE command words (`0x1B04084B` for NCCS
+  `0x0108041B`, ...), so sf = lm = 0: every lit TMD came out saturated
+  white or black. `patches/psyz/0002-gte-command-constants.patch`.
 
 - `include/libmcrd.h` defines its own `struct DIRENTRY` behind
   `#ifndef DIRENTRY`, which is always true, so it clashes with `kernel.h`'s

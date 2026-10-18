@@ -55,6 +55,17 @@ int main(int argc, char **argv)
     if (getenv("DW1_TURBO") != NULL) {
         Psyz_VideoSetVsyncMode(PSYZ_VSYNC_LIMITLESS);
     }
+    /* picture options: DW1_RES=2..8 internal resolution (default 1, the PS1's
+     * 320x240), DW1_DITHER=0 no PS1 dithering, DW1_ASPECT=square 1:1 pixels */
+    if (getenv("DW1_RES") != NULL) {
+        Psyz_VideoSetInternalResolution((unsigned)atoi(getenv("DW1_RES")));
+    }
+    if (getenv("DW1_DITHER") != NULL && atoi(getenv("DW1_DITHER")) == 0) {
+        Psyz_VideoSetDitheringMode(PSYZ_DITHER_OFF);
+    }
+    if (getenv("DW1_ASPECT") != NULL && strcmp(getenv("DW1_ASPECT"), "square") == 0) {
+        Psyz_VideoSetAspectMode(PSYZ_ASPECT_SQUARE);
+    }
     dw1_disc_set_path(disc);
     dw1_memcard_set_dir(DW1_DATA_DIR);
     dw1_overlay_init();

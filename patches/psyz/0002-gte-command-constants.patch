@@ -1,0 +1,34 @@
+diff --git a/psyz/src/psyz/libgte.c b/psyz/src/psyz/libgte.c
+index 7fa3b21..1ce03ad 100644
+--- a/psyz/src/psyz/libgte.c
++++ b/psyz/src/psyz/libgte.c
+@@ -2607,7 +2607,9 @@ long NormalClip(long sxy0, long sxy1, long sxy2) {
+ }
+ 
+ void NormalColorCol(SVECTOR* v0, CVECTOR* v1, CVECTOR* v2) {
+-    int sf = CMD_SF(0x1B04084B), lm = CMD_LM(0x1B04084B);
++    // NCCS 0x0108041B (the constant here had its bytes swapped: sf = lm = 0
++    // left every lit TMD at up to 16x brightness)
++    int sf = CMD_SF(0x0108041B), lm = CMD_LM(0x0108041B);
+     Psyz_GteLdRgb(v1);
+     FLAG = 0;
+     LIGHT_MATRIX(sf, lm, *v0);
+@@ -2620,7 +2622,8 @@ void NormalColorCol(SVECTOR* v0, CVECTOR* v1, CVECTOR* v2) {
+ }
+ 
+ void NormalColorDpq(SVECTOR* v0, CVECTOR* v1, long p, CVECTOR* v2) {
+-    int sf = CMD_SF(0x1304E84A), lm = CMD_LM(0x1304E84A);
++    // NCDS 0x00E80413 (was byte-swapped like NormalColorCol's)
++    int sf = CMD_SF(0x00E80413), lm = CMD_LM(0x00E80413);
+     Psyz_GteLdRgb(v1);
+     IR0 = (short)p;
+     FLAG = 0;
+@@ -2636,7 +2639,7 @@ void NormalColorDpq(SVECTOR* v0, CVECTOR* v1, long p, CVECTOR* v2) {
+ void DpqColor(CVECTOR* v0, long p, CVECTOR* v1) {
+     Psyz_GteLdRgb(v0);
+     IR0 = (short)p;
+-    DPCS(0x1000784A);
++    DPCS(0x00780010); // was byte-swapped (sf = 0)
+     Psyz_GteStRgb(v1);
+ }
+ 
