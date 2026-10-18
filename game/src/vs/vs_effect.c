@@ -2411,7 +2411,7 @@ void VS_renderRadialWaves(void)
 					(long *)&prim->x2, (long *)&prim->x3, &EFE_PROJ_SCRATCH->p,
 					&EFE_PROJ_SCRATCH->flag);
 				if ((EFE_PROJ_SCRATCH->flag & 0x80000000) == 0) {
-					((int32_t *)prim)[1] = VS_RADIAL_WAVE_COLOR;
+					*(int32_t *)&prim->r0 = VS_RADIAL_WAVE_COLOR; /* DW1_NATIVE: word 1 is the length natively */
 					prim->clut = EFE_WAVE_SCRATCH->clut;
 					prim->tpage = EFE_WAVE_SCRATCH->tpage;
 					uv = (EFE_WAVE_SCRATCH->radius == 0x12c)   ? (int16_t *)&VS_RADIAL_WAVE_UVS[8]
@@ -4500,7 +4500,14 @@ void VS_spawnEFESubEffect(void)
 			break;
 		}
 		EFE_SCRIPT_CONTEXT++;
+#ifdef DW1_NATIVE
+		/* the PS1 compares its KSEG0 (0x80...) addresses as signed: for an effect
+		 * without a model (modelPtr NULL) this bound is never reached there */
+		if (EFE_DATA_ITERATOR->model->modelPtr != NULL &&
+		    (uintptr_t)EFE_SCRIPT_CONTEXT >= (uintptr_t)EFE_DATA_ITERATOR->model->modelPtr) {
+#else
 		if ((int32_t)EFE_SCRIPT_CONTEXT >= (int32_t)EFE_DATA_ITERATOR->model->modelPtr) {
+#endif
 			VS_returnFromEFESubroutine();
 			return;
 		}
@@ -5096,12 +5103,12 @@ void VS_renderRibbonStrip(void)
 			*(int16_t *)&prim->u1 = *(int16_t *)&VS_RIBBON_UVS[2];
 			*(int16_t *)&prim->u2 = *(int16_t *)&VS_RIBBON_UVS[4];
 			*(int16_t *)&prim->u3 = *(int16_t *)&VS_RIBBON_UVS[6];
-			((uint8_t *)prim)[3] = 0xc;
+			setlen(prim, 0xc); /* DW1_NATIVE: was ((uint8_t *)prim)[3], the PS1 tag's length byte */
 			prim->code = 0x3c;
 			setSemiTrans(prim, 1);
 			setShadeTex(prim, 0);
 			addPrim(ACTIVE_ORDERING_TABLE->org + (EFE_RIBBON_SCRATCH->proj.otz >> 2), prim);
-			GsSetWorkBase((PACKET *)((char *)prim + 0x34));
+			GsSetWorkBase((PACKET *)(prim + 1)); /* DW1_NATIVE: was prim + 0x34, the PS1 size */
 		}
 	}
 

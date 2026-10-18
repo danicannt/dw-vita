@@ -472,9 +472,10 @@ void addScreenPolyFT3(void *prim, SVECTOR *v0, SVECTOR *v1, SVECTOR *v2)
 
 	SetRotMatrix(&GsWSMATRIX);
 	SetTransMatrix(&GsWSMATRIX);
-	otz = RotTransPers3(v0, v1, v2, (long *)((char *)prim + 8),
-			    (long *)((char *)prim + 0x10),
-			    (long *)((char *)prim + 0x18),
+	/* DW1_NATIVE: the PS1 offsets 8, 0x10, 0x18 of x0, x1, x2 assume its 4-byte tag */
+	otz = RotTransPers3(v0, v1, v2, (long *)&((POLY_FT3 *)prim)->x0,
+			    (long *)&((POLY_FT3 *)prim)->x1,
+			    (long *)&((POLY_FT3 *)prim)->x2,
 			    &p, &flag);
 	otz = otz >> 2;
 	addPolyFT3Prim(prim, otz);

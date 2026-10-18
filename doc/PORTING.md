@@ -101,6 +101,15 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
   dividend), e.g. `tickHealingParticles`. On Linux/i386 the SIGFPE handler in
   `port/src/crash_handler.c` returns that result and logs each site once; the
   Vita's ARM returns 0 instead, so logged sites need a fix in the source.
+- **Signed pointer compares**: the game sometimes compares pointers cast to
+  `int32_t`; PS1 KSEG0 addresses (0x80...) are negative there, Linux ones
+  positive, so a compare against NULL flips (the EFE sub-effect bound broke
+  every model-less move). Fixed where found; the Vita (0x81000000+) behaves like
+  the PS1, but fixes belong in the source.
+- **PS1 primitive layout**: code that writes primitives at raw PS1 offsets
+  (4-byte tag) corrupts PSY-Z's 8-byte-tag primitives; fixed so far in
+  `addScreenPolyFT3` and the EFE ribbon / radial wave. "unsupported command"
+  warnings during play point at more.
 - **TMD subdivision** ("div" drivers) is not done; large textured polygons near
   the camera will warp more than on the PS1.
 
