@@ -5,7 +5,7 @@ How the port works, what is done, what is not, and what comes next.
 ## How it works
 
 ```
-game/ (decompiled game C, US)          unchanged logic; ~40 lines marked DW1_NATIVE
+game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 files, marked DW1_NATIVE
   │ calls PSY-Q
   ├─ port/   libgs, libmcrd, heap3, overlays, PS1 RAM arena, GTE/libsnd/libpress extras
   └─ PSY-Z   libgpu, libgte, libcd (emulated drive on the user's .cue/.bin),
