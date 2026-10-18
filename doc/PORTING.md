@@ -130,6 +130,10 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
   sf/lm bits from byte-swapped GTE command words (`0x1B04084B` for NCCS
   `0x0108041B`, ...), so sf = lm = 0: every lit TMD came out saturated
   white or black. `patches/psyz/0002-gte-command-constants.patch`.
+- `sdl3_audio.c`: the SPU only advances in the audio callback, so without
+  an audio device voices never end and anything waiting on one (dialogue)
+  waits forever. Falls back to SDL's silent dummy driver and logs the driver
+  in use. `patches/psyz/0003-audio-dummy-fallback.patch`.
 
 - `include/libmcrd.h` defines its own `struct DIRENTRY` behind
   `#ifndef DIRENTRY`, which is always true, so it clashes with `kernel.h`'s

@@ -10,6 +10,13 @@ set_property(CACHE DW1_VERSION PROPERTY STRINGS us)
 
 # PSY-Z: PSY-Q replacement (libgs, libgpu, libgte, libcd, libsnd, libspu, ...)
 # plus the SDL3 platform layer. It vendors SDL3 under external/psyz/external/SDL.
+# 32-bit build on Debian/Ubuntu multiarch: SDL finds the i386 audio libraries
+# (libpulse-dev:i386) only through the i386 pkg-config path, else it builds with
+# ALSA alone, which has no PipeWire plugin on i386 and opens no device. Set here
+# so automatic re-configures keep it (tools/configure_linux32.sh sets it too).
+if(CMAKE_C_FLAGS MATCHES "-m32" AND EXISTS /usr/lib/i386-linux-gnu/pkgconfig)
+    set(ENV{PKG_CONFIG_PATH} "/usr/lib/i386-linux-gnu/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+endif()
 add_subdirectory(external/psyz/psyz psyz EXCLUDE_FROM_ALL)
 include(cmake/psyz_extra.cmake)
 
