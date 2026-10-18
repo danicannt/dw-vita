@@ -1,0 +1,6 @@
+/build/
+*.cue
+*.bin
+*.img
+*.iso
+*.mcd

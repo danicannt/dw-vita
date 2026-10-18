@@ -1,0 +1,5969 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <inline_n.h>
+#include <libcd.h>
+#include <libetc.h>
+#include <libgpu.h>
+#include <libgs.h>
+#include <libgte.h>
+
+#include <dw/aabb.h>
+#include <dw/attack_object.h>
+#include <dw/efe.h>
+#include <dw/entity.h>
+#include <dw/garbage.h>
+#include <dw/graphics.h>
+#include <dw/line.h>
+#include <dw/math.h>
+#include <dw/model.h>
+#include <dw/params.h>
+#include <dw/rng.h>
+#include <dw/sound.h>
+#include <dw/types.h>
+#include <dw/vecmath.h>
+#include <dw/version.h>
+#include <dw/vs.h>
+#include <dw/world_object.h>
+
+#include "common.h"
+
+extern int32_t DRAWING_OFFSET_X;
+extern int32_t DRAWING_OFFSET_Y;
+extern GsOT *ACTIVE_ORDERING_TABLE;
+extern int32_t VIEWPORT_DISTANCE;
+extern DigimonEntity *BATTLE_TARGETED_DIGIMON;
+extern DigimonEntity *BATTLE_ATTACKING_DIGIMON;
+extern int16_t MAIN_D_80134CDC;
+extern int32_t UNKNOWN_MODEL_TAKEN[16];
+
+int32_t doSomethingWithSomePoints(int16_t *rect, DVECTOR *line);
+void downloadSomeImage();
+void modifySomeImage(long dim);
+int32_t addFileReadRequest(char *path, uint8_t *buffer, uint8_t *isRunning, void *callback, void *callbackParam, CdlLOC *loc, int32_t size);
+char *VS_initializeParticleEmitters(char *base);
+void VS_tickEFEEngine(void);
+void VS_renderEFEEngine(void);
+void VS_clearEFESoundChannels(void);
+void VS_stopEFESounds(void);
+void VS_loadNextEFEFile(EfeLoad *arg);
+void VS_unloadEFESlot(int32_t idx);
+void VS_runEFESlotScript(int32_t idx);
+int32_t VS_setupLoadedEFEFile(EfeLoad *load);
+void updateTMDTextureData(char *tmd, int32_t clutX, int32_t x, int32_t y, int32_t tpage);
+void VS_handleEFEFileLoaded(EfeLoad *load);
+void VS_tickEFEUVAnimation(int32_t idx);
+void VS_tickParticleEmitters(void);
+void VS_renderParticleEmitters(void);
+void renderFXParticle(SVECTOR *worldPos, int32_t scale, RGB8 *rgb);
+int16_t VS_offsetEFEPrimitiveUVs(char *base, int32_t idx, int8_t du, int8_t dv);
+int32_t VS_startEFE(int32_t i);
+char *VS_getEFEHeapPointer(void);
+char *VS_getEFETextureSection(char *p);
+char *VS_getEFEModelSection(char *p);
+int32_t VS_getEFEFileId(char *data);
+void VS_isTargetUnhit(void);
+void VS_markEFEFinished(void);
+void VS_getViewportDistance2(void);
+void VS_disableMapLayer(void);
+void VS_renderScreenFade(void);
+void VS_applyBoxAttackHit(void);
+void VS_applyRadiusAttackHit(void);
+void VS_applyLineAttackHit(void);
+void VS_faceTargetEntity(void);
+void VS_renderScreenOverlay(void);
+void VS_renderRingTube(void);
+void VS_renderRibbonStrip(void);
+void VS_tickRibbonPoints(void);
+void VS_initializeRibbonPoints(void);
+void VS_renderRadialWaves(void);
+void VS_getViewportDistance(void);
+void VS_addClutLoadPrim(void);
+void VS_drawTMDScreenSpace(void);
+void VS_loadClutColors(void);
+void VS_drawTMDYXZ(void);
+void VS_getCameraRotation(void);
+void VS_selectRandomTargetEntity(void);
+void VS_convertToViewSpace(void);
+void VS_maskVectorByScalar(void);
+void VS_divideVectorByScalar(void);
+void VS_multiplyVectorByScalar(void);
+void VS_render3DTexturedQuad(void);
+void VS_setTransformToBoneMatrix(void);
+void VS_renderWireframeBox(void);
+void VS_discardEFEOperand(void);
+void VS_renderWireframeGrid(void);
+void VS_render2DTexturedQuad(void);
+void VS_restoreCameraView(void);
+void VS_setupFixedCamera(void);
+void VS_getSourceBoneTransform(void);
+void VS_copyToParentTransform(void);
+void VS_renderEFELine(void);
+void VS_combineRotations(void);
+void VS_normalizeRotationAngles2(void);
+void VS_rotateVectorByAngles(void);
+void VS_getTargetBoneTransform(void);
+void VS_centerTransformOnEntities(void);
+void VS_shiftVectorsRight(void);
+void VS_maskVectors(void);
+void VS_divideVectors(void);
+void VS_multiplyVectors(void);
+void VS_subtractVectors(void);
+void VS_addVectors(void);
+void VS_copyVector(void);
+void VS_getVectorLength(void);
+void VS_setTargetToHitEntity(void);
+void VS_normalizeRotationAngles(void);
+void VS_findHitEntity(void);
+void VS_getVectorEulerAngles(void);
+void VS_printDebugValue(void);
+void VS_getRandomInRange(void);
+void VS_interpolateValue(void);
+void VS_calculateCosine(void);
+void VS_calculateSine(void);
+void VS_getSourceDigimonSize(void);
+void VS_applyHomingMovement(void);
+void VS_getUVAnimTimer(void);
+void VS_checkTargetCollision(void);
+void VS_rotateTransformTowardPoint(void);
+void VS_setTransformToSourceBone(void);
+void VS_renderParallaxSprites(void);
+void VS_renderScrollingBackground(void);
+void VS_setTransformToBoneOffset(void);
+void VS_playEFESound(void);
+void VS_addSourceEntityParticleFX(void);
+void VS_copyFromParentTransform(void);
+void VS_calculatePolarOffset(void);
+void VS_renderProjectedSprite(void);
+void VS_getTargetDigimonSize(void);
+void VS_renderParticleFlashSprite(void);
+void VS_projectPositionToScreen(void);
+void VS_renderScreenSprite(void);
+void VS_addCloudEffect(void);
+void VS_selectNextTargetEntity(void);
+void VS_addParticleEmitter(void);
+void VS_setEFEModelObjectColor(void);
+void VS_copyTargetEntityPosition(void);
+void VS_steerTransformTowardPoint(void);
+void VS_interpolateVector(void);
+void VS_discardEFEOperandPair(void);
+void VS_getScatteredSpawnPosition(void);
+void VS_checkCollisionWithDefaultPower(void);
+void VS_addAttackObjectToTarget(void);
+void VS_setTransformToTargetBone(void);
+void VS_renderCenteredSprite(void);
+void VS_initializeEFETransform(void);
+void VS_drawTMD(void);
+void VS_initializeSubEffectInstructions(void);
+void VS_initializeUVAnim(void);
+void VS_checkTechCompatibility(void);
+void VS_spawnEFESubEffect(void);
+void VS_popEFEValueToVariable(void);
+void VS_returnFromEFESubroutine(void);
+void VS_dispatchEFESubOpcode(void);
+void VS_callEFESubroutine(void);
+void VS_pushEFEVariableAddress(void);
+void VS_pushEFEVariable(void);
+void VS_pushEFEImmediate(void);
+void VS_jumpEFEScript(void);
+void VS_stopEFEScript(void);
+void VS_branchEFEOnComparison(void);
+void VS_applyEFEVariableOperator(void);
+void VS_loadEFEIndexedVariable(void);
+void VS_loadEFERandomValue(void);
+void VS_loadEFEVariable(void);
+void VS_loadEFEImmediate(void);
+int32_t VS_shiftRightInt32Variable(int32_t p);
+int32_t VS_shiftLeftInt32Variable(int32_t p);
+int32_t VS_moduloInt32Variable(int32_t p);
+int32_t VS_divideInt32Variable(int32_t p);
+int32_t VS_multiplyInt32Variable(int32_t p);
+int32_t VS_subtractInt32Variable(int32_t p);
+int32_t VS_addInt32Variable(int32_t p);
+int32_t VS_setInt32Variable(int32_t p);
+int32_t VS_shiftRightInt8Variable(int32_t p);
+int32_t VS_shiftLeftInt8Variable(int32_t p);
+int32_t VS_moduloInt8Variable(int32_t p);
+int32_t VS_divideInt8Variable(int32_t p);
+int32_t VS_multiplyInt8Variable(int32_t p);
+int32_t VS_subtractInt8Variable(int32_t p);
+int32_t VS_addInt8Variable(int32_t p);
+int32_t VS_setInt8Variable(int32_t p);
+int32_t VS_shiftRightInt16Variable(int32_t p);
+int32_t VS_shiftLeftInt16Variable(int32_t p);
+int32_t VS_moduloInt16Variable(int32_t p);
+int32_t VS_divideInt16Variable(int32_t p);
+int32_t VS_multiplyInt16Variable(int32_t p);
+int32_t VS_subtractInt16Variable(int32_t p);
+int32_t VS_addInt16Variable(int32_t p);
+int32_t VS_setInt16Variable(int32_t p);
+int32_t VS_compareGreaterOrEqual(int32_t x);
+int32_t VS_compareGreater(int32_t x);
+int32_t VS_compareLessOrEqual(int32_t x);
+int32_t VS_compareLess(int32_t x);
+int32_t VS_compareNotEqual(int32_t x);
+int32_t VS_compareEqual(int32_t x);
+int16_t VS_calculateAttackHitPosition(SVECTOR *out, Entity *self, Entity *other, int32_t y);
+void VS_renderParallelLines(SVECTOR *a, SVECTOR *b, int16_t n, SVECTOR *from, SVECTOR *to, int32_t *col);
+int32_t VS_interpolateClamped(int32_t lo, int32_t hi, long t, int32_t start, int32_t end);
+void VS_initializeEFESubOpcodeTable(void);
+void VS_dispatchEFEOpcode(int32_t op);
+int32_t VS_runEFEScript(int32_t script);
+void VS_resetPoisonBubbles(void);
+int32_t VS_addPoisonBubble(Entity *entity);
+void VS_tickPoisonBubble(int32_t i);
+void VS_renderPoisonBubble(int32_t i);
+void VS_tickPoisonEffect(int32_t i);
+void VS_renderPoisonEffect(void);
+void VS_initializePoisonBubble(void);
+void VS_tickConfusionEffect(int32_t i);
+void VS_renderConfusionEffect(int32_t idx);
+void VS_initializeConfusionEffect(char *base);
+void VS_resetStunSubEffects(void);
+void VS_tickStunEffect(int32_t i);
+void VS_renderStunEffect(int32_t idx);
+void VS_removeAllStunSubEffects(void);
+int32_t VS_addStunSubEffect(Entity *entity);
+void VS_tickStunSubEffect(int32_t i);
+void VS_renderStunSubEffect(int32_t i);
+void VS_initializeStunEffect(char *base);
+void VS_setTMDObjectColor(int32_t idx, VECTOR *color, int32_t base);
+void VS_tickFinisherAura(int32_t i);
+void VS_renderFinisherAura(int32_t idx);
+void VS_renderFinisherAuraSpark(VECTOR *pos, int32_t scale, SVECTOR *dir, uint8_t *col);
+void VS_initializeFinisherAuraModel(char *tim, char *base);
+void VS_removeFinisherAura(int32_t i);
+void VS_tickAuraProjectile(int32_t id);
+void VS_renderAuraProjectile(int32_t i);
+char *VS_initializeAuraProjectiles(char *base);
+void setInt16WithStride(int16_t *ptr, int16_t value, int32_t count, int32_t stride);
+void createCloudFX(SVECTOR *pos);
+int32_t addEntityParticleFX(Entity *owner, int32_t timer);
+int32_t lerp(int32_t start, int32_t end, int32_t t0, int32_t t1, int32_t t);
+int32_t getOriginalType(int32_t type);
+int32_t worldPosToScreenPos(SVECTOR *pos, DVECTOR *out);
+void calculateBoneMatrix(Entity *entity, int32_t boneId, MATRIX *out);
+void entityLookAtLocation(Entity *entity, VECTOR *pos);
+void renderParticleFlash(ParticleFlashData *params);
+char *initializeFlashData(char *base);
+void addScreenPolyFT3(void *prim, SVECTOR *v0, SVECTOR *v1, SVECTOR *v2);
+void getDrawingOffsetCopy(int32_t *x, int32_t *y);
+void getRViewCopy(GsRVIEW2 *view);
+void getViewportDistanceCopy(int32_t *out);
+int32_t addScreenPolyFT4(POLY_FT4 *poly, SVECTOR *v0, SVECTOR *v1, SVECTOR *v2, SVECTOR *v3);
+void setFileReadCallback2(void *callback, void *param);
+void renderTMDModel(uint8_t *buffer, int32_t id, GsCOORDINATE2 *coord, GsCOORDINATE2 *super, VECTOR *trans, SVECTOR *rot, VECTOR *scale);
+void translateConditionFXToEntity(Entity *entity, SVECTOR *out);
+void renderSprite(GsSPRITE *sprite, int32_t x, int32_t y, int32_t distance, int32_t width, int32_t height);
+void GsGetTimInfo(unsigned long *tim, GsIMAGE *img);
+void setMapLayerEnabled(int32_t enabled);
+void VS_stopEFESubEffect(int32_t a, int32_t b);
+int32_t VS_addPoisonEffect(Entity *entity);
+void VS_removePoisonEffect(int32_t i, Entity *entity);
+int32_t VS_addConfusionEffect(Entity *entity);
+void VS_removeConfusionEffect(int32_t i, Entity *entity);
+int32_t VS_addStunEffect(Entity *entity, int32_t val);
+void VS_removeStunEffect(int32_t i, Entity *entity);
+long RotTransPers4(SVECTOR *v0, SVECTOR *v1, SVECTOR *v2, SVECTOR *v3, long *sxy0, long *sxy1, long *sxy2, long *sxy3, long *p, long *flag);
+void setRotTransMatrix(MATRIX *m);
+long RotTransPers(SVECTOR *v0, long *sxy, long *p, long *flag);
+int32_t VS_interpolateClamped(int32_t lo, int32_t hi, long t, int32_t a, int32_t b);
+
+void EFECreateFlash();
+void EFERotateVector();
+
+static void *vs_effect_functions[] = {
+	VS_removeAllAuraProjectiles,
+	VS_addAuraProjectile,
+	VS_initializeAuraProjectiles,
+#if VERSION_IS(EU)
+	VS_tickAuraProjectile,
+	VS_renderAuraProjectile,
+	VS_removeAllFinisherAuras,
+	VS_removeFinisherAura,
+	VS_addFinisherAura,
+	VS_initializeFinisherAuraModel,
+	VS_renderFinisherAuraSpark,
+	VS_tickFinisherAura,
+	VS_renderFinisherAura,
+	VS_setTMDObjectColor,
+	VS_removeAllStunEffects,
+	VS_removeStunEffect,
+	VS_addStunEffect,
+	VS_initializeStunEffect,
+	VS_tickStunSubEffect,
+	VS_renderStunSubEffect,
+	VS_addStunSubEffect,
+	VS_removeAllStunSubEffects,
+	VS_tickStunEffect,
+	VS_renderStunEffect,
+	VS_resetStunSubEffects,
+	VS_removeConfusionEffect,
+	VS_addConfusionEffect,
+	VS_initializeConfusionEffect,
+	VS_tickConfusionEffect,
+	VS_renderConfusionEffect,
+	VS_removeAllPoisonEffects,
+	VS_removePoisonEffect,
+	VS_addPoisonEffect,
+	VS_initializePoisonBubble,
+	VS_tickPoisonEffect,
+	VS_renderPoisonEffect,
+	VS_addPoisonBubble,
+	VS_tickPoisonBubble,
+	VS_renderPoisonBubble,
+	VS_resetPoisonBubbles,
+	VS_runEFEScript,
+	VS_dispatchEFEOpcode,
+	VS_initializeEFESubOpcodeTable,
+	VS_interpolateClamped,
+	VS_renderParallelLines,
+	VS_calculateAttackHitPosition,
+	VS_compareEqual,
+	VS_compareNotEqual,
+	VS_compareLess,
+	VS_compareLessOrEqual,
+	VS_compareGreater,
+	VS_compareGreaterOrEqual,
+	VS_setInt16Variable,
+	VS_addInt16Variable,
+	VS_subtractInt16Variable,
+	VS_multiplyInt16Variable,
+	VS_divideInt16Variable,
+	VS_moduloInt16Variable,
+	VS_shiftLeftInt16Variable,
+	VS_shiftRightInt16Variable,
+	VS_setInt8Variable,
+	VS_addInt8Variable,
+	VS_subtractInt8Variable,
+	VS_multiplyInt8Variable,
+	VS_divideInt8Variable,
+	VS_moduloInt8Variable,
+	VS_shiftLeftInt8Variable,
+	VS_shiftRightInt8Variable,
+	VS_setInt32Variable,
+	VS_addInt32Variable,
+	VS_subtractInt32Variable,
+	VS_multiplyInt32Variable,
+	VS_divideInt32Variable,
+	VS_moduloInt32Variable,
+	VS_shiftLeftInt32Variable,
+	VS_shiftRightInt32Variable,
+	VS_loadEFEImmediate,
+	VS_loadEFEVariable,
+	VS_loadEFERandomValue,
+	VS_loadEFEIndexedVariable,
+	VS_applyEFEVariableOperator,
+	VS_branchEFEOnComparison,
+	VS_stopEFEScript,
+	VS_jumpEFEScript,
+	VS_pushEFEImmediate,
+	VS_pushEFEVariable,
+	VS_pushEFEVariableAddress,
+	VS_callEFESubroutine,
+	VS_dispatchEFESubOpcode,
+	VS_returnFromEFESubroutine,
+	VS_popEFEValueToVariable,
+	VS_spawnEFESubEffect,
+	VS_checkTechCompatibility,
+	VS_initializeUVAnim,
+	VS_initializeSubEffectInstructions,
+	VS_drawTMD,
+	VS_initializeEFETransform,
+	VS_renderCenteredSprite,
+	VS_setTransformToTargetBone,
+	VS_addAttackObjectToTarget,
+	VS_checkCollisionWithDefaultPower,
+	VS_getScatteredSpawnPosition,
+	VS_discardEFEOperandPair,
+	VS_interpolateVector,
+	VS_steerTransformTowardPoint,
+	VS_copyTargetEntityPosition,
+	VS_setEFEModelObjectColor,
+	VS_addParticleEmitter,
+	VS_selectNextTargetEntity,
+	VS_addCloudEffect,
+	VS_renderScreenSprite,
+	VS_projectPositionToScreen,
+	VS_renderParticleFlashSprite,
+	VS_getTargetDigimonSize,
+	VS_renderProjectedSprite,
+	VS_calculatePolarOffset,
+	VS_copyFromParentTransform,
+	VS_addSourceEntityParticleFX,
+	VS_playEFESound,
+	VS_setTransformToBoneOffset,
+	VS_renderScrollingBackground,
+	VS_renderParallaxSprites,
+	VS_setTransformToSourceBone,
+	VS_rotateTransformTowardPoint,
+	VS_checkTargetCollision,
+	VS_getUVAnimTimer,
+	VS_applyHomingMovement,
+	VS_getSourceDigimonSize,
+	VS_calculateSine,
+	VS_calculateCosine,
+	VS_interpolateValue,
+	VS_getRandomInRange,
+	VS_printDebugValue,
+	VS_getVectorEulerAngles,
+	VS_findHitEntity,
+	VS_normalizeRotationAngles,
+	VS_setTargetToHitEntity,
+	VS_getVectorLength,
+	VS_copyVector,
+	VS_addVectors,
+	VS_subtractVectors,
+	VS_multiplyVectors,
+	VS_divideVectors,
+	VS_maskVectors,
+	VS_shiftVectorsRight,
+	VS_centerTransformOnEntities,
+	VS_getTargetBoneTransform,
+	VS_rotateVectorByAngles,
+	VS_normalizeRotationAngles2,
+	VS_combineRotations,
+	VS_renderEFELine,
+	VS_copyToParentTransform,
+	VS_getSourceBoneTransform,
+	VS_setupFixedCamera,
+	VS_restoreCameraView,
+	VS_render2DTexturedQuad,
+	VS_renderWireframeGrid,
+	VS_discardEFEOperand,
+	VS_renderWireframeBox,
+	VS_setTransformToBoneMatrix,
+	VS_render3DTexturedQuad,
+	VS_multiplyVectorByScalar,
+	VS_divideVectorByScalar,
+	VS_maskVectorByScalar,
+	VS_convertToViewSpace,
+	VS_selectRandomTargetEntity,
+	VS_getCameraRotation,
+	VS_drawTMDYXZ,
+	VS_loadClutColors,
+	VS_drawTMDScreenSpace,
+	VS_addClutLoadPrim,
+	VS_getViewportDistance,
+	VS_renderRadialWaves,
+	VS_initializeRibbonPoints,
+	VS_tickRibbonPoints,
+	VS_renderRibbonStrip,
+	VS_renderRingTube,
+	VS_renderScreenOverlay,
+	VS_faceTargetEntity,
+	VS_applyLineAttackHit,
+	VS_applyRadiusAttackHit,
+	VS_applyBoxAttackHit,
+	VS_renderScreenFade,
+	VS_disableMapLayer,
+	VS_getViewportDistance2,
+	VS_markEFEFinished,
+	VS_isTargetUnhit,
+	VS_getEFEFileId,
+	VS_getEFEModelSection,
+	VS_getEFETextureSection,
+	VS_getEFEHeapPointer,
+	VS_stopEFESubEffect,
+	VS_startEFE,
+	VS_unloadAllEFESlots,
+	VS_loadMoveEFE,
+	VS_removeEFEEngine,
+	VS_initializeEFEEngine,
+	VS_offsetEFEPrimitiveUVs,
+	VS_renderParticleEmitters,
+	VS_tickParticleEmitters,
+	VS_tickEFEUVAnimation,
+	VS_handleEFEFileLoaded,
+	VS_setupLoadedEFEFile,
+	VS_runEFESlotScript,
+	VS_unloadEFESlot,
+	VS_loadNextEFEFile,
+	VS_stopEFESounds,
+	VS_clearEFESoundChannels,
+	VS_initializeParticleEmitters,
+	VS_tickEFEEngine,
+	VS_renderEFEEngine,
+#else
+	VS_renderAuraProjectile,
+	VS_tickAuraProjectile,
+	VS_removeAllFinisherAuras,
+	VS_removeFinisherAura,
+	VS_addFinisherAura,
+	VS_initializeFinisherAuraModel,
+	VS_renderFinisherAuraSpark,
+	VS_renderFinisherAura,
+	VS_tickFinisherAura,
+	VS_setTMDObjectColor,
+	VS_removeAllStunEffects,
+	VS_removeStunEffect,
+	VS_addStunEffect,
+	VS_initializeStunEffect,
+	VS_renderStunSubEffect,
+	VS_tickStunSubEffect,
+	VS_addStunSubEffect,
+	VS_removeAllStunSubEffects,
+	VS_renderStunEffect,
+	VS_tickStunEffect,
+	VS_resetStunSubEffects,
+	VS_removeConfusionEffect,
+	VS_addConfusionEffect,
+	VS_initializeConfusionEffect,
+	VS_renderConfusionEffect,
+	VS_tickConfusionEffect,
+	VS_removeAllPoisonEffects,
+	VS_removePoisonEffect,
+	VS_addPoisonEffect,
+	VS_initializePoisonBubble,
+	VS_renderPoisonEffect,
+	VS_tickPoisonEffect,
+	VS_renderPoisonBubble,
+	VS_tickPoisonBubble,
+	VS_addPoisonBubble,
+	VS_resetPoisonBubbles,
+	VS_runEFEScript,
+	VS_dispatchEFEOpcode,
+	VS_initializeEFESubOpcodeTable,
+	VS_interpolateClamped,
+	VS_renderParallelLines,
+	VS_calculateAttackHitPosition,
+	VS_compareEqual,
+	VS_compareNotEqual,
+	VS_compareLess,
+	VS_compareLessOrEqual,
+	VS_compareGreater,
+	VS_compareGreaterOrEqual,
+	VS_setInt16Variable,
+	VS_addInt16Variable,
+	VS_subtractInt16Variable,
+	VS_multiplyInt16Variable,
+	VS_divideInt16Variable,
+	VS_moduloInt16Variable,
+	VS_shiftLeftInt16Variable,
+	VS_shiftRightInt16Variable,
+	VS_setInt8Variable,
+	VS_addInt8Variable,
+	VS_subtractInt8Variable,
+	VS_multiplyInt8Variable,
+	VS_divideInt8Variable,
+	VS_moduloInt8Variable,
+	VS_shiftLeftInt8Variable,
+	VS_shiftRightInt8Variable,
+	VS_setInt32Variable,
+	VS_addInt32Variable,
+	VS_subtractInt32Variable,
+	VS_multiplyInt32Variable,
+	VS_divideInt32Variable,
+	VS_moduloInt32Variable,
+	VS_shiftLeftInt32Variable,
+	VS_shiftRightInt32Variable,
+	VS_loadEFEImmediate,
+	VS_loadEFEVariable,
+	VS_loadEFERandomValue,
+	VS_loadEFEIndexedVariable,
+	VS_applyEFEVariableOperator,
+	VS_branchEFEOnComparison,
+	VS_stopEFEScript,
+	VS_jumpEFEScript,
+	VS_pushEFEImmediate,
+	VS_pushEFEVariable,
+	VS_pushEFEVariableAddress,
+	VS_callEFESubroutine,
+	VS_dispatchEFESubOpcode,
+	VS_returnFromEFESubroutine,
+	VS_popEFEValueToVariable,
+	VS_spawnEFESubEffect,
+	VS_checkTechCompatibility,
+	VS_initializeUVAnim,
+	VS_initializeSubEffectInstructions,
+	VS_drawTMD,
+	VS_initializeEFETransform,
+	VS_renderCenteredSprite,
+	VS_setTransformToTargetBone,
+	VS_addAttackObjectToTarget,
+	VS_checkCollisionWithDefaultPower,
+	VS_getScatteredSpawnPosition,
+	VS_discardEFEOperandPair,
+	VS_interpolateVector,
+	VS_steerTransformTowardPoint,
+	VS_copyTargetEntityPosition,
+	VS_setEFEModelObjectColor,
+	VS_addParticleEmitter,
+	VS_selectNextTargetEntity,
+	VS_addCloudEffect,
+	VS_renderScreenSprite,
+	VS_projectPositionToScreen,
+	VS_renderParticleFlashSprite,
+	VS_getTargetDigimonSize,
+	VS_renderProjectedSprite,
+	VS_calculatePolarOffset,
+	VS_copyFromParentTransform,
+	VS_addSourceEntityParticleFX,
+	VS_playEFESound,
+	VS_setTransformToBoneOffset,
+	VS_renderScrollingBackground,
+	VS_renderParallaxSprites,
+	VS_setTransformToSourceBone,
+	VS_rotateTransformTowardPoint,
+	VS_checkTargetCollision,
+	VS_getUVAnimTimer,
+	VS_applyHomingMovement,
+	VS_getSourceDigimonSize,
+	VS_calculateSine,
+	VS_calculateCosine,
+	VS_interpolateValue,
+	VS_getRandomInRange,
+	VS_printDebugValue,
+	VS_getVectorEulerAngles,
+	VS_findHitEntity,
+	VS_normalizeRotationAngles,
+	VS_setTargetToHitEntity,
+	VS_getVectorLength,
+	VS_copyVector,
+	VS_addVectors,
+	VS_subtractVectors,
+	VS_multiplyVectors,
+	VS_divideVectors,
+	VS_maskVectors,
+	VS_shiftVectorsRight,
+	VS_centerTransformOnEntities,
+	VS_getTargetBoneTransform,
+	VS_rotateVectorByAngles,
+	VS_normalizeRotationAngles2,
+	VS_combineRotations,
+	VS_renderEFELine,
+	VS_copyToParentTransform,
+	VS_getSourceBoneTransform,
+	VS_setupFixedCamera,
+	VS_restoreCameraView,
+	VS_render2DTexturedQuad,
+	VS_renderWireframeGrid,
+	VS_discardEFEOperand,
+	VS_renderWireframeBox,
+	VS_setTransformToBoneMatrix,
+	VS_render3DTexturedQuad,
+	VS_multiplyVectorByScalar,
+	VS_divideVectorByScalar,
+	VS_maskVectorByScalar,
+	VS_convertToViewSpace,
+	VS_selectRandomTargetEntity,
+	VS_getCameraRotation,
+	VS_drawTMDYXZ,
+	VS_loadClutColors,
+	VS_drawTMDScreenSpace,
+	VS_addClutLoadPrim,
+	VS_getViewportDistance,
+	VS_renderRadialWaves,
+	VS_initializeRibbonPoints,
+	VS_tickRibbonPoints,
+	VS_renderRibbonStrip,
+	VS_renderRingTube,
+	VS_renderScreenOverlay,
+	VS_faceTargetEntity,
+	VS_applyLineAttackHit,
+	VS_applyRadiusAttackHit,
+	VS_applyBoxAttackHit,
+	VS_renderScreenFade,
+	VS_disableMapLayer,
+	VS_getViewportDistance2,
+	VS_markEFEFinished,
+	VS_isTargetUnhit,
+	VS_getEFEFileId,
+	VS_getEFEModelSection,
+	VS_getEFETextureSection,
+	VS_getEFEHeapPointer,
+	VS_stopEFESubEffect,
+	VS_startEFE,
+	VS_unloadAllEFESlots,
+	VS_loadMoveEFE,
+	VS_removeEFEEngine,
+	VS_initializeEFEEngine,
+	VS_offsetEFEPrimitiveUVs,
+	VS_renderParticleEmitters,
+	VS_tickParticleEmitters,
+	VS_tickEFEUVAnimation,
+	VS_handleEFEFileLoaded,
+	VS_setupLoadedEFEFile,
+	VS_runEFESlotScript,
+	VS_unloadEFESlot,
+	VS_loadNextEFEFile,
+	VS_stopEFESounds,
+	VS_clearEFESoundChannels,
+	VS_renderEFEEngine,
+	VS_tickEFEEngine,
+	VS_initializeParticleEmitters,
+#endif
+};
+
+char VS_FMT_D[] = "%d\n";
+int8_t VS_LINE_OFFSET_X[4] = { 1, 0, -1, 0 };
+int8_t VS_LINE_OFFSET_Y[4] = { 0, 1, 0, -1 };
+int8_t VS_WIREFRAME_BOX_SIGN_X[8] = { -1, 1, 1, -1, -1, 1, 1, -1 };
+int8_t VS_WIREFRAME_BOX_SIGN_Y[8] = { -1, -1, 1, 1, -1, -1, 1, 1 };
+int8_t VS_WIREFRAME_BOX_SIGN_Z[8] = { -1, -1, -1, -1, 1, 1, 1, 1 };
+int32_t VS_RADIAL_WAVE_COLOR = 0x808080;
+uint8_t VS_RIBBON_UVS[8] = { 104, 0, 135, 0, 104, 31, 135, 31 };
+int8_t VS_POISON_BUBBLE_FRAME_U[6] = { 0, 16, 32, 48, 64, 80 };
+SVECTOR VS_STUN_FX_ROTATION = { 0 };
+int16_t VS_FINISHER_AURA_OBJECTS[3] = { 0, 1, 2 };
+SVECTOR VS_FINISHER_AURA_ROTATION = { 0 };
+RGB8 VS_FINISHER_AURA_COLOR = { 0xcc, 0xa8, 0x28 };
+SVECTOR VS_AURA_PROJECTILE_VERTEX_0 = { 0, -50, -50, 0 };
+SVECTOR VS_AURA_PROJECTILE_VERTEX_1 = { 0, -50, 50, 0 };
+SVECTOR VS_AURA_PROJECTILE_VERTEX_2 = { 0, 50, -50, 0 };
+SVECTOR VS_AURA_PROJECTILE_VERTEX_3 = { 0, 50, 50, 0 };
+
+int32_t VS_EFE_LOAD_STATE;
+int32_t VS_EFE_LOAD_SLOT;
+int32_t VS_SAVED_DRAWING_OFFSET_X;
+int32_t VS_SAVED_DRAWING_OFFSET_Y;
+int32_t VS_CONFUSION_FX_MODEL;
+char *VS_STUN_FX_MODEL;
+int32_t VS_FINISHER_AURA_MODEL;
+EfeAura *VS_FLAT_BULLET_PTR;
+
+static void *vs_effect_sbss_order[] = {
+	&VS_FLAT_BULLET_PTR,
+	&VS_FINISHER_AURA_MODEL,
+	&VS_STUN_FX_MODEL,
+	&VS_CONFUSION_FX_MODEL,
+#if VERSION_IS(EU)
+	&VS_SAVED_DRAWING_OFFSET_X,
+	&VS_SAVED_DRAWING_OFFSET_Y,
+#else
+	&VS_SAVED_DRAWING_OFFSET_Y,
+	&VS_SAVED_DRAWING_OFFSET_X,
+#endif
+	&VS_EFE_LOAD_SLOT,
+	&VS_EFE_LOAD_STATE,
+};
+
+// clang-format off
+VsEfeSubOpcode VS_EFE_SUB_OPCODES[97] = {
+	{ 0x00000000, VS_checkTechCompatibility },
+	{ 0x00000001, VS_initializeUVAnim },
+	{ 0x00000002, VS_initializeSubEffectInstructions },
+	{ 0x00000003, VS_drawTMD },
+	{ 0x00000005, VS_initializeEFETransform },
+	{ 0x00000007, EFERotateVector },
+	{ 0x00000004, VS_renderCenteredSprite },
+	{ 0x00000008, VS_setTransformToTargetBone },
+	{ 0x00000009, VS_addAttackObjectToTarget },
+	{ 0x00000006, VS_checkCollisionWithDefaultPower },
+	{ 0x0000000a, VS_getScatteredSpawnPosition },
+	{ 0x0000000b, VS_discardEFEOperandPair },
+	{ 0x0000000c, VS_interpolateVector },
+	{ 0x0000000d, VS_steerTransformTowardPoint },
+	{ 0x0000000e, VS_copyTargetEntityPosition },
+	{ 0x0000000f, VS_setEFEModelObjectColor },
+	{ 0x00000010, VS_addParticleEmitter },
+	{ 0x00000011, VS_selectNextTargetEntity },
+	{ 0x00000012, EFECreateFlash },
+	{ 0x00000013, VS_addCloudEffect },
+	{ 0x00000014, VS_renderScreenSprite },
+	{ 0x00000015, VS_projectPositionToScreen },
+	{ 0x00000016, VS_renderParticleFlashSprite },
+	{ 0x00000017, VS_getTargetDigimonSize },
+	{ 0x00000018, VS_renderProjectedSprite },
+	{ 0x00000019, VS_calculatePolarOffset },
+	{ 0x0000001a, VS_copyFromParentTransform },
+	{ 0x0000001b, VS_addSourceEntityParticleFX },
+	{ 0x0000001c, VS_playEFESound },
+	{ 0x0000001d, VS_setTransformToBoneOffset },
+	{ 0x0000001e, VS_renderScrollingBackground },
+	{ 0x0000001f, VS_renderParallaxSprites },
+	{ 0x00000020, VS_setTransformToSourceBone },
+	{ 0x00000021, VS_rotateTransformTowardPoint },
+	{ 0x00000022, VS_checkTargetCollision },
+	{ 0x00000023, VS_getUVAnimTimer },
+	{ 0x00000024, VS_applyHomingMovement },
+	{ 0x00000025, VS_getSourceDigimonSize },
+	{ 0x00000026, VS_calculateSine },
+	{ 0x00000027, VS_calculateCosine },
+	{ 0x00000028, VS_interpolateValue },
+	{ 0x00000029, VS_getRandomInRange },
+	{ 0x0000002a, VS_printDebugValue },
+	{ 0x0000002b, VS_getVectorEulerAngles },
+	{ 0x0000002c, VS_findHitEntity },
+	{ 0x0000002d, VS_normalizeRotationAngles },
+	{ 0x0000002e, VS_setTargetToHitEntity },
+	{ 0x0000002f, VS_getVectorLength },
+	{ 0x00000030, VS_copyVector },
+	{ 0x00000031, VS_addVectors },
+	{ 0x00000032, VS_subtractVectors },
+	{ 0x00000033, VS_multiplyVectors },
+	{ 0x00000034, VS_divideVectors },
+	{ 0x00000035, VS_maskVectors },
+	{ 0x00000036, VS_shiftVectorsRight },
+	{ 0x00000037, VS_centerTransformOnEntities },
+	{ 0x00000038, VS_getTargetBoneTransform },
+	{ 0x00000039, VS_rotateVectorByAngles },
+	{ 0x0000003a, VS_normalizeRotationAngles2 },
+	{ 0x0000003b, VS_combineRotations },
+	{ 0x0000003c, VS_renderEFELine },
+	{ 0x0000003d, VS_copyToParentTransform },
+	{ 0x0000003e, VS_getSourceBoneTransform },
+	{ 0x0000003f, VS_setupFixedCamera },
+	{ 0x00000040, VS_restoreCameraView },
+	{ 0x00000041, VS_render2DTexturedQuad },
+	{ 0x00000042, VS_renderWireframeGrid },
+	{ 0x00000043, VS_discardEFEOperand },
+	{ 0x00000044, VS_renderWireframeBox },
+	{ 0x00000045, VS_setTransformToBoneMatrix },
+	{ 0x00000046, VS_render3DTexturedQuad },
+	{ 0x00000047, VS_multiplyVectorByScalar },
+	{ 0x00000048, VS_divideVectorByScalar },
+	{ 0x00000049, VS_maskVectorByScalar },
+	{ 0x0000004a, VS_convertToViewSpace },
+	{ 0x0000004b, VS_selectRandomTargetEntity },
+	{ 0x0000004c, VS_getCameraRotation },
+	{ 0x0000004d, VS_drawTMDYXZ },
+	{ 0x0000004e, VS_loadClutColors },
+	{ 0x0000004f, VS_drawTMDScreenSpace },
+	{ 0x00000050, VS_addClutLoadPrim },
+	{ 0x00000051, VS_getViewportDistance },
+	{ 0x00000052, VS_renderRadialWaves },
+	{ 0x00000053, VS_initializeRibbonPoints },
+	{ 0x00000054, VS_tickRibbonPoints },
+	{ 0x00000055, VS_renderRibbonStrip },
+	{ 0x00000056, VS_renderRingTube },
+	{ 0x00000057, VS_renderScreenOverlay },
+	{ 0x00000058, VS_faceTargetEntity },
+	{ 0x00000059, VS_applyLineAttackHit },
+	{ 0x0000005a, VS_applyRadiusAttackHit },
+	{ 0x0000005b, VS_applyBoxAttackHit },
+	{ 0x0000005c, VS_renderScreenFade },
+	{ 0x0000005d, VS_disableMapLayer },
+	{ 0x0000005e, VS_getViewportDistance2 },
+	{ 0x0000005f, VS_markEFEFinished },
+	{ 0x00000060, VS_isTargetUnhit },
+};
+
+void (*VS_jtbl_80070E4C[18])(void) = {
+	VS_loadEFEImmediate,
+	VS_loadEFEVariable,
+	VS_loadEFERandomValue,
+	VS_loadEFEIndexedVariable,
+	VS_applyEFEVariableOperator,
+	VS_stopEFEScript,
+	VS_stopEFEScript,
+	VS_branchEFEOnComparison,
+	VS_stopEFEScript,
+	VS_jumpEFEScript,
+	VS_pushEFEImmediate,
+	VS_pushEFEVariable,
+	VS_pushEFEVariableAddress,
+	VS_callEFESubroutine,
+	VS_dispatchEFESubOpcode,
+	VS_returnFromEFESubroutine,
+	VS_popEFEValueToVariable,
+	VS_spawnEFESubEffect,
+};
+
+int32_t (*VS_EFE_VARIABLE_OPERATORS[5][8])() = {
+	VS_setInt8Variable,
+	VS_addInt8Variable,
+	VS_subtractInt8Variable,
+	VS_multiplyInt8Variable,
+	VS_divideInt8Variable,
+	VS_moduloInt8Variable,
+	VS_shiftLeftInt8Variable,
+	VS_shiftRightInt8Variable,
+	VS_setInt8Variable,
+	VS_addInt8Variable,
+	VS_subtractInt8Variable,
+	VS_multiplyInt8Variable,
+	VS_divideInt8Variable,
+	VS_moduloInt8Variable,
+	VS_shiftLeftInt8Variable,
+	VS_shiftRightInt8Variable,
+	VS_setInt16Variable,
+	VS_addInt16Variable,
+	VS_subtractInt16Variable,
+	VS_multiplyInt16Variable,
+	VS_divideInt16Variable,
+	VS_moduloInt16Variable,
+	VS_shiftLeftInt16Variable,
+	VS_shiftRightInt16Variable,
+	VS_setInt8Variable,
+	VS_addInt8Variable,
+	VS_subtractInt8Variable,
+	VS_multiplyInt8Variable,
+	VS_divideInt8Variable,
+	VS_moduloInt8Variable,
+	VS_shiftLeftInt8Variable,
+	VS_shiftRightInt8Variable,
+	VS_setInt32Variable,
+	VS_addInt32Variable,
+	VS_subtractInt32Variable,
+	VS_multiplyInt32Variable,
+	VS_divideInt32Variable,
+	VS_moduloInt32Variable,
+	VS_shiftLeftInt32Variable,
+	VS_shiftRightInt32Variable,
+};
+
+int32_t (*VS_EFE_COMPARISONS[6])(int32_t) = {
+	VS_compareEqual,
+	VS_compareNotEqual,
+	VS_compareLess,
+	VS_compareLessOrEqual,
+	VS_compareGreater,
+	VS_compareGreaterOrEqual,
+};
+
+uint8_t VS_WIREFRAME_BOX_LINES[16] = {
+	0x00, 0x01, 0x02, 0x03, 0x05, 0x04, 0x07, 0x06,
+	0x01, 0x05, 0x06, 0x02, 0x04, 0x00, 0x03, 0x07,
+};
+
+uint8_t VS_RADIAL_WAVE_UVS[24] = {
+	0x07, 0x10, 0x07, 0x1f, 0x00, 0x10, 0x00, 0x1f,
+	0x08, 0x00, 0x08, 0x0f, 0x17, 0x00, 0x17, 0x0f,
+	0x17, 0x00, 0x17, 0x0f, 0x08, 0x00, 0x08, 0x0f,
+};
+
+CVECTOR VS_RIBBON_COLORS[3] = {
+	{ 0x7c, 0x7c, 0x7c, 0x00 },
+	{ 0x00, 0x7c, 0x7c, 0x00 },
+	{ 0x3c, 0x7c, 0x3c, 0x00 },
+};
+
+GsSPRITE VS_POISON_BUBBLE_SPRITE = {
+	0x50000000,
+	0x0000,
+	0x0000,
+	0x0010,
+	0x0010,
+	0x005f,
+	0x20,
+	0xb0,
+	0x0110,
+	0x01e7,
+	0x80,
+	0x80,
+	0x80,
+	0x0008,
+	0x0008,
+	0x0000,
+	0x0000,
+	0x00000000,
+};
+
+VECTOR VS_CONFUSION_SCALE = { 0x00001000, 0x00001000, 0x00001000, 0x00000000 };
+
+GsSPRITE VS_D_80070FB4 = {
+	0x50000000,
+	0x0000,
+	0x0000,
+	0x0028,
+	0x0016,
+	0x003e,
+	0x00,
+	0x80,
+	0x0100,
+	0x01e0,
+	0x80,
+	0x80,
+	0x80,
+	0x0014,
+	0x002c,
+	0x1000,
+	0x1000,
+	0x00000000,
+};
+
+GsSPRITE VS_D_80070FD8 = {
+	0x50000000,
+	0x0000,
+	0x0000,
+	0x000c,
+	0x0016,
+	0x003e,
+	0x28,
+	0x80,
+	0x0100,
+	0x01e0,
+	0x80,
+	0x80,
+	0x80,
+	0x0006,
+	0x0016,
+	0x1000,
+	0x1000,
+	0x00000000,
+};
+
+GsSPRITE VS_STUN_DIGIT_SPRITE = {
+	0x50000000,
+	0x0000,
+	0x0000,
+	0x0008,
+	0x0009,
+	0x003e,
+	0x00,
+	0xb7,
+	0x0100,
+	0x01e2,
+	0x80,
+	0x80,
+	0x80,
+	0x000d,
+	0x0026,
+	0x1000,
+	0x1000,
+	0x00000000,
+};
+
+GsSPRITE VS_STUN_SMALL_DIGIT_SPRITE = {
+	0x50000000,
+	0x0000,
+	0x0000,
+	0x0004,
+	0x0007,
+	0x003e,
+	0x00,
+	0x96,
+	0x0100,
+	0x01e2,
+	0x80,
+	0x80,
+	0x80,
+	0xfffe,
+	0x0025,
+	0x1000,
+	0x1000,
+	0x00000000,
+};
+
+VECTOR VS_STUN_SUB_EFFECT_SCALE = { 0x00003000, 0x00003000, 0x00003000, 0x00000000 };
+
+VECTOR VS_D_80071054 = { 0x0000003c, 0x0000003c, 0x0000003c, 0x00000000 };
+
+VECTOR VS_D_80071064 = { 0x0000005a, 0x0000005a, 0x0000005a, 0x00000000 };
+
+VECTOR VS_FINISHER_AURA_SCALE = { 0x00001000, 0x00001000, 0x00001000, 0x00000000 };
+
+EfeAuraType VS_AURA_PROJECTILE_TYPES[129] = {
+	{ 0x0000, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x0001, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x0002, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x0003, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0004, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0018 },
+	{ 0x0005, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0006, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0007, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x0008, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0009, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x000a, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x000b, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x000c, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0000 },
+	{ 0x000d, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0030 },
+	{ 0x000e, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0038 },
+	{ 0x000f, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x0010, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x0011, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0012, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0018 },
+	{ 0x0013, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0014, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0015, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x0016, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0017, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0018, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x0019, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x001a, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0000 },
+	{ 0x001b, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0030 },
+	{ 0x001c, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0048 },
+	{ 0x001d, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x001e, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x001f, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0020, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0018 },
+	{ 0x0021, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0022, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0023, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x0024, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0025, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0026, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x0027, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x0028, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0000 },
+	{ 0x0029, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0030 },
+	{ 0x002a, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0048 },
+	{ 0x002b, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x002c, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0070 },
+	{ 0x002d, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x002e, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0018 },
+	{ 0x002f, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0030, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0031, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x0032, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0033, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0034, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0060 },
+	{ 0x0035, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x0036, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0000 },
+	{ 0x0037, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0030 },
+	{ 0x0038, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0050 },
+	{ 0x0039, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x003a, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0068 },
+	{ 0x003b, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x003c, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x003d, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x003e, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x003f, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0040, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0000 },
+	{ 0x0041, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0038 },
+	{ 0x0042, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0050 },
+	{ 0x0043, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x0044, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0045, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0046, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0038 },
+	{ 0x0047, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0048, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0049, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x004a, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0018 },
+	{ 0x004b, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x004c, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0000 },
+	{ 0x004d, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x004e, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0060 },
+	{ 0x004f, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x0050, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0060 },
+	{ 0x0051, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0052, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0053, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0018 },
+	{ 0x0054, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0055, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0056, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0018 },
+	{ 0x0057, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x0058, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0059, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x005a, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x005b, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x005c, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x005d, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x005e, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x005f, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x0060, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0061, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0060 },
+	{ 0x0062, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0063, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0040 },
+	{ 0x0064, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0065, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0010 },
+	{ 0x0066, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x0067, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0060 },
+	{ 0x0068, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0069, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0008 },
+	{ 0x006a, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x006b, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x006c, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x006d, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x006e, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0020 },
+	{ 0x006f, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x0070, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x0071, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0028 },
+	{ 0x0072, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x0073, 0x0000, 0x0000, 0xff6a, 0xff38, 0x0058 },
+	{ 0x0074, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x0075, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x0076, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x0077, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x0078, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x0079, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x007a, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x007b, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x007c, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x007d, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x007e, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0x007f, 0x0000, 0x0000, 0xff6a, 0xff38, 0xffff },
+	{ 0xffff, 0xffff, 0x0000, 0x0000, 0x0000, 0x0000 },
+};
+// clang-format on
+
+#if !VERSION_IS(US)
+VECTOR VS_AURA_PROJECTILE_SCALE = { 0x00001000, 0x00001000, 0x00001000, 0x00000000 };
+#endif
+
+char *VS_initializeParticleEmitters(char *base)
+{
+	int32_t i;
+
+	EFE_PARTICLE_EMITTERS = (EfeParticleEffect *)base;
+	for (i = 0; i < 4; i++) {
+		EFE_PARTICLE_EMITTERS[i].transform = NULL;
+	}
+
+	return base + 0x23c4;
+}
+
+void VS_tickEFEEngine(void)
+{
+	int32_t n;
+	int32_t i;
+	int32_t j;
+	EfeSound *p;
+
+	setMapLayerEnabled(1);
+
+	COMBAT_EFFECT_ITR = 0;
+	while (COMBAT_EFFECT_ITR < 0x10) {
+		if (UNUSED_EFE_ARRAY[COMBAT_EFFECT_ITR] == 0) {
+			UNUSED_EFE_ARRAY[COMBAT_EFFECT_ITR] = 1;
+		}
+		COMBAT_EFFECT_ITR++;
+	}
+
+	EFE_DATA_ITERATOR = EFE_DATA_PTR;
+	COMBAT_EFFECT_ITR = 0;
+	while (COMBAT_EFFECT_ITR < 0x10) {
+		if (EFE_DATA_ITERATOR->data != 0L) {
+			EFE_SCRIPT_HEAD = EFE_DATA_ITERATOR->data;
+			n = EFE_DATA_ITERATOR->numSubEffects;
+			EFE_SUB_EFFECT_INDEX = 0;
+			while (EFE_SUB_EFFECT_INDEX < n) {
+				EFE_SCRIPT_CONTEXT = &EFE_DATA_ITERATOR->subEffects[EFE_SUB_EFFECT_INDEX];
+				if ((int32_t)EFE_SCRIPT_CONTEXT->inst != 0) {
+					EFE_CURRENT_DATA_SEGMENT = EFE_SCRIPT_CONTEXT->instance;
+					EFE_PREVIOUS_DATA_SEGMENT = (int32_t)EFE_SCRIPT_CONTEXT->parentInstance;
+					((EfeInstance *)(int32_t)EFE_CURRENT_DATA_SEGMENT)->frame++;
+					VS_runEFEScript((int32_t)EFE_SCRIPT_CONTEXT->inst);
+				}
+				EFE_SUB_EFFECT_INDEX++;
+			}
+			n = EFE_DATA_ITERATOR->numObjects;
+			for (j = 0; j < n; j++) {
+				VS_tickEFEUVAnimation(j);
+			}
+		}
+		EFE_DATA_ITERATOR++;
+		COMBAT_EFFECT_ITR++;
+	}
+
+	VS_tickParticleEmitters();
+
+	p = EFE_SOUND_DATA;
+	for (i = 0; i < 0xa; i++) {
+		if ((p->mask >= 0L) && (p->context->instance->frame < 0)) {
+			thunkStopSoundMask(p->mask);
+			p->mask = -1;
+		}
+		p++;
+	}
+}
+
+void VS_renderEFEEngine(void)
+{
+	int32_t i;
+	int32_t j;
+	int32_t n;
+
+	EFE_DATA_ITERATOR = EFE_DATA_PTR;
+	for (i = 0; i < 0x10; i++) {
+		n = EFE_DATA_ITERATOR->numObjects;
+		for (j = 0; j < n; j++) {
+			EFE_DATA_ITERATOR->uvAnims[j].unk2 = 0;
+		}
+		if (EFE_DATA_ITERATOR->data != 0L) {
+			EFE_SCRIPT_HEAD = EFE_DATA_ITERATOR->data;
+			n = EFE_DATA_ITERATOR->numSubEffects;
+			for (j = 0; j < n; j++) {
+				EFE_SCRIPT_CONTEXT = &EFE_DATA_ITERATOR->subEffects[j];
+				if ((int32_t)EFE_SCRIPT_CONTEXT->inst != 0) {
+					EFE_CURRENT_DATA_SEGMENT = EFE_SCRIPT_CONTEXT->instance;
+					EFE_PREVIOUS_DATA_SEGMENT = (int32_t)EFE_SCRIPT_CONTEXT->parentInstance;
+					VS_runEFEScript((int32_t)EFE_SCRIPT_CONTEXT->someInst);
+				}
+			}
+		}
+		EFE_DATA_ITERATOR++;
+	}
+
+	VS_renderParticleEmitters();
+}
+
+void VS_clearEFESoundChannels(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 0xa; i++) {
+		EFE_SOUND_DATA[i].mask = -1;
+	}
+}
+
+void VS_stopEFESounds(void)
+{
+	int32_t i;
+	int32_t *p;
+
+	p = &EFE_SOUND_DATA[0].mask;
+	for (i = 0; i < 10; i++) {
+		if (*p >= 0L) {
+			thunkStopSoundMask(*p);
+			*p = -1;
+		}
+	}
+}
+
+char *VS_getEFEHeapPointer(void)
+{
+	return EFE_HEAP_POINTER;
+}
+
+void VS_loadNextEFEFile(EfeLoad *arg)
+{
+	EfeLoad *p;
+	ModelComponent *m;
+	int32_t id;
+	int16_t *moves;
+	int32_t i;
+	char path[32];
+	CdlLOC loc;
+
+	p = (EfeLoad *)(int32_t)arg;
+	moves = p->moves;
+	p->state++;
+	id = *p->moves++;
+	if (id < 0) {
+		*p->isLoaded = 0;
+		return;
+	}
+
+	id -= 0x100;
+	if ((id < 0) || (id >= 0x17a)) {
+		*p->isLoaded = -4;
+		return;
+	}
+
+	for (m = UNKNOWN_MODEL, i = 0; i < 16; m++, i++) {
+		if (m->useCount == 0) {
+			break;
+		}
+	}
+
+	if (i == 16) {
+		*p->isLoaded = -5;
+		return;
+	}
+
+	m->useCount = id + 0x100;
+	m->mmdPtr = (void *)VS_getEFEHeapPointer();
+	p->model = m;
+	loc = *getEFEDATEntry(id + 0x100);
+	addFileReadRequest(path, (uint8_t *)m->mmdPtr, NULL, (void *)VS_handleEFEFileLoaded, arg, &loc, 0x5000);
+}
+
+void VS_unloadEFESlot(int32_t idx)
+{
+	int32_t i;
+	int32_t n;
+	EfeUvAnim *anim;
+
+	EFE_DATA_ITERATOR = &EFE_DATA_PTR[idx];
+	n = EFE_DATA_ITERATOR->numObjects;
+	for (i = 0; i < n; i++) {
+		anim = &EFE_DATA_ITERATOR->uvAnims[i];
+		if (anim->unk0 != 0) {
+			anim->unk0 = 0;
+			anim->numKeyframes = 0;
+		}
+	}
+
+	unloadModel(EFE_DATA_ITERATOR->effectId, 1);
+	EFE_DATA_ITERATOR->data = 0;
+}
+
+void VS_runEFESlotScript(int32_t idx)
+{
+	EFE_CURRENT_DATA_SEGMENT = NULL;
+
+	EFE_DATA_ITERATOR = &EFE_DATA_PTR[idx];
+	EFE_SCRIPT_HEAD = EFE_DATA_ITERATOR->data;
+	EFE_SCRIPT_CONTEXT = EFE_DATA_ITERATOR->subEffects;
+	EFE_ACTIVE_SECTION = -1;
+	VS_runEFEScript((int32_t)EFE_DATA_PTR[idx].startScript);
+}
+
+char *VS_getEFETextureSection(char *p)
+{
+	EfeFileHeader *hdr;
+	char *section;
+
+	hdr = (EfeFileHeader *)p;
+	p = (char *)((uint32_t)p + 0x34);
+	if ((hdr->dataEnd - hdr->timStart) == 0) {
+		section = NULL;
+	} else {
+		section = p + hdr->timStart;
+	}
+
+	return section;
+}
+
+char *VS_getEFEModelSection(char *p)
+{
+	EfeFileHeader *hdr;
+	char *section;
+
+	hdr = (EfeFileHeader *)p;
+	p = (char *)((uint32_t)p + 0x34);
+	if ((hdr->tmdEnd - hdr->tmdStart) == 0) {
+		section = NULL;
+	} else {
+		section = p + hdr->tmdStart;
+	}
+
+	return section;
+}
+
+int32_t VS_getEFEFileId(char *data)
+{
+	EfeFileHeader *header;
+
+	header = (EfeFileHeader *)data;
+	return header->effectId;
+}
+
+int32_t VS_setupLoadedEFEFile(EfeLoad *load)
+{
+	ModelComponent *m;
+	EfeLoad *ld;
+	int32_t k;
+	int32_t fileMove;
+	int16_t *moves;
+	int32_t lastMove;
+	int32_t idx;
+	char *data;
+	int32_t fileId;
+	char *tim;
+	char *tmd;
+	int32_t i;
+	GsIMAGE im;
+	RECT rect;
+	GsIMAGE im2;
+	RECT rect2;
+	int32_t j;
+	int32_t n;
+	EfeFileHeader hdr;
+	char *base;
+	char *heap;
+	int32_t *tmdp;
+	int32_t ce;
+	int32_t s;
+
+	ld = ld = load;
+	moves = ld->moves;
+	m = ld->model;
+	data = (char *)m->mmdPtr;
+	tim = VS_getEFETextureSection(data);
+	m->modelPtr = (TMDModel *)(tmd = VS_getEFEModelSection(data));
+	fileId = VS_getEFEFileId(data);
+
+	switch (VS_EFE_LOAD_STATE) {
+	case 0:
+		if (tim != NULL) {
+			for (i = 0; UNKNOWN_MODEL_TAKEN[i] != 0 && i < 0x10; i++) {
+			}
+			if (i == 0x10) {
+				*ld->isLoaded = -2;
+				goto end;
+			}
+			UNKNOWN_MODEL_TAKEN[i] = 1;
+			m->pixelPage = i / 8 + 0x19;
+			m->clutPage = ((i % 4 * 6 + 0x1e8) << 6) | ((i / 4 * 16 + 0x80) >> 4 & 0x3f);
+			m->pixelOffsetX = 0;
+			m->pixelOffsetY = i % 8 << 5;
+			m->modelId = i;
+			GsGetTimInfo((unsigned long *)(tim + 4), &im);
+			im.px = (m->pixelPage % 16 << 6) + m->pixelOffsetX;
+			im.py = (m->pixelPage / 16 << 8) + m->pixelOffsetY;
+			setRECT(&rect, im.px, im.py, im.pw, im.ph);
+			LoadImage(&rect, im.pixel);
+		}
+		GsGetTimInfo((unsigned long *)(tim + 4), &im2);
+		im2.cx = (m->clutPage & 0x3f) << 4;
+		im2.cy = m->clutPage >> 6;
+		if ((im2.pmode >> 3 & 1) != 0) {
+			setRECT(&rect2, im2.cx, im2.cy, im2.cw, im2.ch);
+			LoadImage(&rect2, im2.clut);
+		}
+		VS_EFE_LOAD_STATE = 1;
+	case 1:
+		if (tmd != NULL) {
+			GsMapModelingData((unsigned long *)&m->modelPtr->flags);
+			updateTMDTextureData((char *)m->modelPtr, m->pixelPage, m->pixelOffsetX, m->pixelOffsetY,
+			                     m->clutPage - 0x7a08);
+		}
+		VS_EFE_LOAD_STATE = 2;
+	case 2:
+		fileMove = ((EfeFileHeader *)m->mmdPtr)->effectId;
+		lastMove = ld->moves[-1];
+		if (fileMove != lastMove) {
+			*ld->isLoaded = -3;
+			goto end;
+		}
+		EFE_LOADED_MOVE_DATA[16] = -1;
+		k = 0;
+		while (1) {
+			if (EFE_LOADED_MOVE_DATA[k] == -1) {
+				break;
+			}
+			k++;
+		}
+		if (k == 0x10) {
+			*ld->isLoaded = -1;
+			goto end;
+		}
+		VS_EFE_LOAD_SLOT = k;
+		if (EFE_LOADED_MOVE_DATA[k] == -1) {
+			VS_EFE_LOAD_STATE = 0x15;
+		} else {
+			VS_EFE_LOAD_STATE = 3;
+		}
+		return 1;
+	case 0x15:
+		idx = VS_EFE_LOAD_SLOT;
+		EFE_DATA_ITERATOR = &EFE_DATA_PTR[idx];
+		EFE_DATA_ITERATOR->model = m;
+		hdr = *(EfeFileHeader *)m->mmdPtr;
+		base = (char *)m->mmdPtr + 0x34;
+		EFE_HEAP_POINTER += (uint32_t)hdr.tmdEnd + 0x34;
+		EFE_DATA_ITERATOR->data = (int32_t)base;
+		heap = EFE_HEAP_POINTER;
+		tmdp = (int32_t *)m->modelPtr;
+		if (hdr.tmdEnd - hdr.tmdStart == 0) {
+			EFE_DATA_ITERATOR->numObjects = 0;
+		} else {
+			EFE_DATA_ITERATOR->numObjects = tmdp[2];
+		}
+		EFE_DATA_ITERATOR->numSubEffects = hdr.numSubEffects;
+		EFE_DATA_ITERATOR->subEffects = (EfeSubEffect *)((uint32_t)base + hdr.subEffects);
+		for (j = 0; j < hdr.numSubEffects; j++) {
+			EFE_DATA_ITERATOR->subEffects[j].inst = NULL;
+		}
+		n = EFE_DATA_ITERATOR->numObjects;
+		if (n != 0) {
+			EFE_DATA_ITERATOR->uvAnims = (EfeUvAnim *)((uint32_t)base + hdr.uvAnims);
+			for (j = 0; j < n; j++) {
+				EFE_DATA_ITERATOR->uvAnims[j].unk0 = 0;
+				EFE_DATA_ITERATOR->uvAnims[j].numKeyframes = 0;
+			}
+		}
+		EFE_DATA_ITERATOR->effectId = hdr.effectId;
+		EFE_DATA_ITERATOR->startScript = (int16_t *)((int32_t)base + hdr.startScript);
+		EFE_DATA_ITERATOR->initScript = (int16_t *)((int32_t)base + hdr.initScript);
+		EFE_DATA_ITERATOR->uvAnimsEnd = (EfeUvAnim *)((int32_t)base + hdr.uvAnimsEnd);
+		EFE_CURRENT_DATA_SEGMENT = NULL;
+		EFE_SCRIPT_HEAD = EFE_DATA_ITERATOR->data;
+		EFE_SCRIPT_CONTEXT = EFE_DATA_ITERATOR->subEffects;
+		EFE_ACTIVE_SECTION = -1;
+		EFE_SCRIPT_PTR = EFE_DATA_ITERATOR->initScript;
+		EFE_DATA_STACK = EFE_SCRIPT_MEM1_DATA;
+		EFE_CALL_STACK = EFE_CALL_STACK_BUFFER;
+		*EFE_CALL_STACK++ = 0;
+		VS_EFE_LOAD_STATE = 0x16;
+		return 1;
+	case 0x16:
+		idx = VS_EFE_LOAD_SLOT;
+		EFE_DATA_ITERATOR = &EFE_DATA_PTR[idx];
+		for (s = 0; s < 4; s++) {
+			EFE_SCRIPT_CURRENT_VALUE = *EFE_SCRIPT_PTR;
+			VS_dispatchEFEOpcode(EFE_SCRIPT_CURRENT_VALUE & 0xff);
+			if (EFE_SCRIPT_PTR == NULL) {
+				break;
+			}
+		}
+		if (s == 4) {
+			return 1;
+		}
+		if (EFE_SCRIPT_CONTEXT->instance->frame == -1) {
+			EFE_SCRIPT_CONTEXT->inst = NULL;
+		}
+		ce = EFE_ACTIVE_SECTION;
+		k = VS_EFE_LOAD_SLOT;
+		if (ce >= -1L) {
+			EFE_LOADED_MOVE_DATA[k] = EFE_DATA_ITERATOR->effectId;
+		} else {
+			EFE_LOADED_MOVE_DATA[k] = ce;
+		}
+		k = VS_EFE_LOAD_SLOT;
+		*ld->effectIds++ = k;
+		VS_loadNextEFEFile(load);
+		VS_EFE_LOAD_STATE = 3;
+		return 0;
+	}
+end:;
+}
+
+void VS_handleEFEFileLoaded(EfeLoad *load)
+{
+	EfeLoad *ld;
+	int16_t *moves;
+	ModelComponent *model;
+
+	ld = load;
+	moves = ld->moves;
+	model = ld->model;
+	VS_EFE_LOAD_STATE = 0;
+	setFileReadCallback2(VS_setupLoadedEFEFile, load);
+}
+
+void VS_tickEFEUVAnimation(int32_t idx)
+{
+	EfeUvAnim *anim;
+
+	anim = &EFE_DATA_ITERATOR->uvAnims[idx];
+	if (anim->numKeyframes != 0) {
+		++anim->uvFrame;
+		if (anim->uvFrame >= anim->uv->frames) {
+			anim->uvFrame = 0;
+			anim->keyframe++;
+			if (anim->keyframe >= anim->numKeyframes) {
+				anim->uv = anim->uvData;
+				anim->keyframe = 0;
+			} else {
+				anim->uv = anim->uv + 1;
+			}
+
+			VS_offsetEFEPrimitiveUVs((char *)EFE_DATA_ITERATOR->model->modelPtr, idx,
+			                         *(int8_t *)((uint32_t)anim->uv + 2),
+			                         *(int8_t *)((uint32_t)anim->uv + 3));
+		}
+		anim->frame++;
+		anim->frame %= anim->numFrames;
+	}
+}
+
+void VS_tickParticleEmitters(void)
+{
+	int32_t i;
+	EfeInstance *owner;
+	SVECTOR rot;
+	MATRIX m;
+	EfeParticleEffect *e;
+	EfeParticle *pt;
+	int32_t k;
+
+	e = EFE_PARTICLE_EMITTERS;
+	for (i = 0; i < 4; e++, i++) {
+		if (e->transform == NULL) {
+			continue;
+		}
+		owner = e->transform;
+		if (owner->frame == -1) {
+			e->transform = NULL;
+			continue;
+		}
+
+		k = 0;
+		while (1) {
+			if (e->particles[k].distance <= 0) {
+				break;
+			}
+			k++;
+		}
+
+		if (k != 0x14) {
+			pt = &e->particles[k];
+			pt->distance = e->startOffset;
+			pt->velocity = e->startVelocity;
+			rot.vx = (((rand() & 0x7f) - 0x40) << 12) / 64;
+			rot.vy = (((rand() & 0x7f) - 0x40) << 12) / 64;
+			rot.vz = (((rand() & 0x7f) - 0x40) << 12) / 64;
+			pt->direction.vx = pt->direction.vy = 0;
+			pt->direction.vz = e->startOffset;
+			RotMatrixZYX(&rot, &m);
+			ApplyMatrixSV(&m, &pt->direction, &pt->direction);
+
+			pt->position.vx = *(int32_t *)((uint32_t)&owner->transform.position.vx);
+			pt->position.vy = *(int32_t *)((uint32_t)&owner->transform.position.vy);
+			pt->position.vz = *(int32_t *)((uint32_t)&owner->transform.position.vz);
+		}
+
+		for (k = 0; k < 0x14; k++) {
+			if (e->particles[k].distance > 0) {
+				pt = &e->particles[k];
+				pt->distance -= pt->velocity;
+				pt->velocity -= e->acceleration;
+			}
+		}
+
+		if (--e->frames <= 0) {
+			e->transform = NULL;
+		}
+	}
+}
+
+void VS_renderParticleEmitters(void)
+{
+	int32_t i;
+	int32_t k;
+	int32_t f0;
+	int32_t f1;
+	EfeInstance *owner;
+	SVECTOR a;
+	SVECTOR b;
+	int32_t depth;
+	int32_t z;
+	DVECTOR s0v;
+	DVECTOR s1v;
+	int8_t kind;
+	EfeParticleEffect *e;
+	EfeParticle *pt;
+
+	e = EFE_PARTICLE_EMITTERS;
+	for (i = 0; i < 4; e++, i++) {
+		if (e->transform == NULL) {
+			continue;
+		}
+
+		owner = e->transform;
+		kind = e->type;
+		for (k = 0; k < 0x14; k++) {
+			if (e->particles[k].distance <= 0) {
+				continue;
+			}
+
+			pt = &e->particles[k];
+			switch (kind) {
+			case 0:
+				f0 = pt->distance << 4;
+				f1 = (pt->distance + 7) << 4;
+				break;
+			case 1:
+				f0 = pt->distance << 4;
+				f1 = pt->distance << 2;
+				break;
+			case 3:
+				f0 = (e->startOffset - pt->distance) << 4;
+				f1 = (e->startOffset - pt->distance) << 2;
+				break;
+			case 2:
+				f0 = (e->startOffset - pt->distance) << 4;
+				f1 = ((e->startOffset - pt->distance) - 5) << 4;
+				break;
+			}
+
+			f0 = f0 / e->startOffset;
+			f1 = f1 / e->startOffset;
+			a.vx = pt->position.vx + ((pt->direction.vx * f0) >> 8);
+			a.vy = pt->position.vy + ((pt->direction.vy * f0) >> 8);
+			a.vz = pt->position.vz + ((pt->direction.vz * f0) >> 8);
+			b.vx = pt->position.vx + ((pt->direction.vx * f1) >> 8);
+			b.vy = pt->position.vy + ((pt->direction.vy * f1) >> 8);
+			b.vz = pt->position.vz + ((pt->direction.vz * f1) >> 8);
+			depth = worldPosToScreenPos(&a, &s0v);
+			depth = depth >> 2;
+			if (depth < 0x3e8) {
+				goto modeTest;
+			}
+drawLine:
+			gte_ldv0(&b);
+			gte_rtps();
+			gte_stsxy(&s1v);
+			gte_stszotz(&z);
+			drawLine2P((e->color.r & 0xff) | ((e->color.g & 0xff) << 8) | ((e->color.b & 0xff) << 16),
+			           s0v.vx, s0v.vy, s1v.vx, s1v.vy,
+			           (depth + z) >> 3, 0);
+			goto nextParticle;
+modeTest:
+			if ((kind & 1) == 1) {
+				goto drawLine;
+			}
+			renderFXParticle(&a, 0x19, (RGB8 *)&e->color);
+nextParticle:;
+		}
+	}
+}
+
+int16_t VS_offsetEFEPrimitiveUVs(char *base, int32_t idx, int8_t du, int8_t dv)
+{
+	uint8_t code;
+	char *p;
+	struct TMD_STRUCT *obj;
+	int32_t i;
+	int32_t n;
+
+	base = (char *)((int32_t)base + 0xc);
+	obj = (struct TMD_STRUCT *)base;
+	obj += idx;
+	n = obj->primn;
+	p = (char *)obj->primtop;
+	for (i = 0; i < n; i++) {
+		code = (*(int32_t *)p >> 24) & 0xff;
+		if (code & 1) {
+			goto setpath;
+		}
+		if (code & 4) {
+			p[4] += du;
+			p[5] += dv;
+			p[8] += du;
+			p[9] += dv;
+			p[0xc] += du;
+			p[0xd] += dv;
+			if (code & 8) {
+				p[0x10] += du;
+				p[0x11] += dv;
+				if (code & 0x10) {
+					goto s1;
+				}
+				p += 0x20;
+				goto next;
+s1:
+				p += 0x24;
+				goto next;
+			} else {
+				if (code & 0x10) {
+					goto s2;
+				}
+				p += 0x18;
+				goto next;
+s2:
+				p += 0x1c;
+				goto next;
+			}
+		}
+		goto next;
+setpath:
+		if (code & 4) {
+			p[4] += du;
+			p[5] += dv;
+			p[8] += du;
+			p[9] += dv;
+			p[0xc] += du;
+			p[0xd] += dv;
+			if (code & 8) {
+				p[0x10] += du;
+				p[0x11] += dv;
+				if (code & 0x10) {
+					goto s3;
+				}
+				p += 0x20;
+				goto next;
+s3:
+				p += 0x2c;
+				goto next;
+			} else {
+				if (code & 0x10) {
+					goto s4;
+				}
+				p += 0x1c;
+				goto next;
+s4:
+				p += 0x24;
+				goto next;
+			}
+		}
+next:;
+	}
+}
+
+char *VS_initializeEFEEngine(char *base)
+{
+	int32_t i;
+
+	base = (char *)((int32_t)base + (4 - ((int32_t)base & 3)));
+	EFE_DATA_PTR = (EfeSlot *)base;
+	for (i = 0; i < 0x10; i++) {
+		EFE_DATA_PTR[i].data = 0;
+		EFE_DATA_PTR[i].numObjects = 0;
+	}
+
+	base = (char *)((int32_t)base + 0x280);
+	base = (char *)((int32_t)base + (4 - ((int32_t)base & 3)));
+	base = VS_initializeParticleEmitters(base);
+	base = (char *)((int32_t)base + (4 - ((int32_t)base & 3)));
+	base = initializeFlashData(base);
+	base = VS_initializeAuraProjectiles(base);
+	base = (char *)((int32_t)base + (4 - ((int32_t)base & 3)));
+	EFE_HEAP_BASE = base;
+	EFE_HEAP_POINTER = EFE_HEAP_BASE;
+	addObject(0x500, 0, (TickFunction)VS_tickEFEEngine, (RenderFunction)VS_renderEFEEngine);
+	VS_initializeEFESubOpcodeTable();
+	base = (char *)((int32_t)base + 0x41000);
+	VS_clearEFESoundChannels();
+
+	return base;
+}
+
+void VS_removeEFEEngine(void)
+{
+	VS_removeAllAuraProjectiles();
+	VS_stopEFESounds();
+	removeObject(0x500, 0);
+}
+
+// clang-format off
+void VS_loadMoveEFE(moves, effectIds, isLoaded)
+	int16_t *moves;
+	int16_t *effectIds;
+	int8_t *isLoaded;
+// clang-format on
+{
+#if VERSION_EQUAL_OR_NEWER(JP_TRIAL)
+	downloadSomeImage();
+#endif
+	EFE_LOAD_REQUEST.state = -1;
+	EFE_LOAD_REQUEST.isLoaded = isLoaded;
+	*EFE_LOAD_REQUEST.isLoaded = 1;
+	EFE_LOAD_REQUEST.moves = moves;
+	EFE_LOAD_REQUEST.effectIds = effectIds;
+	VS_loadNextEFEFile(&EFE_LOAD_REQUEST);
+}
+
+void VS_unloadAllEFESlots(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 0x10; i++) {
+		if (EFE_LOADED_MOVE_DATA[i] != -1) {
+			VS_unloadEFESlot(i);
+			EFE_LOADED_MOVE_DATA[i] = -1;
+		}
+	}
+
+	EFE_HEAP_POINTER = EFE_HEAP_BASE;
+}
+
+int32_t VS_startEFE(int32_t i)
+{
+	if ((i < 0) || (i >= 0x10)) {
+		return -1;
+	}
+
+	if (EFE_LOADED_MOVE_DATA[i] < 0) {
+		return -1;
+	}
+
+	UNUSED_EFE_ARRAY[i] = -1;
+	VS_runEFESlotScript(i);
+}
+
+void VS_stopEFESubEffect(int32_t a, int32_t b)
+{
+	if ((b < 0) || (a < 0) || (a >= 0x10)) {
+		return;
+	}
+
+	if (EFE_DATA_PTR != NULL) {
+	}
+
+	EFE_SCRIPT_CONTEXT = &EFE_DATA_PTR[a].subEffects[b];
+	EFE_SCRIPT_CONTEXT->inst = NULL;
+	EFE_SCRIPT_CONTEXT->instance->frame = -1;
+}
+
+void VS_isTargetUnhit(void)
+{
+	int32_t *out;
+
+	out = EFE_POP1(int32_t *);
+	if (((DigimonEntity *)EFE_SCRIPT_CONTEXT->targetEntity)->stats.current.isHit == 0) {
+		*out = 1;
+	} else {
+		*out = 0;
+	}
+}
+
+void VS_markEFEFinished(void)
+{
+	UNUSED_EFE_ARRAY[COMBAT_EFFECT_ITR] = 0;
+}
+
+void VS_getViewportDistance2(void)
+{
+	int32_t *out;
+
+	out = EFE_POP1(int32_t *);
+	*out = VIEWPORT_DISTANCE;
+}
+
+void VS_disableMapLayer(void)
+{
+	setMapLayerEnabled(0);
+}
+
+void VS_renderScreenFade(void)
+{
+#if VERSION_IS(JP)
+	int32_t ofx;
+	int32_t ofy;
+	POLY_FT4 *p;
+	int32_t c;
+	int32_t z;
+
+	c = EFE_POP1(int32_t);
+	p = (POLY_FT4 *)GsGetWorkBase();
+	z = 0xffe;
+	getDrawingOffsetCopy(&ofx, &ofy);
+	SetPolyFT4(p);
+	SetSemiTrans(p, 1);
+	p->tpage = getTPage(1, 2, 832, 256);
+	p->clut = getClut(0, 487);
+	setXY4(p, -ofx, -ofy, 0x140 - ofx, -ofy, -ofx, 0xf0 - ofy, 0x140 - ofx, 0xf0 - ofy);
+	setUVWH(p, 0, 0x80, 3, 3);
+	setRGB0(p, c, c, c);
+	AddPrim(ACTIVE_ORDERING_TABLE->org + z, p);
+	p++;
+	GsSetWorkBase((PACKET *)p);
+#else
+	int32_t c;
+
+	c = EFE_POP1(int32_t);
+	modifySomeImage(c);
+#endif
+}
+
+void VS_applyBoxAttackHit(void)
+{
+	int32_t r;
+	SVECTOR center;
+	AABB box;
+	int32_t *out;
+	EfeVector *ext;
+	int32_t j;
+
+	r = EFE_POP1(int32_t);
+	out = EFE_POP1(int32_t *);
+	ext = EFE_POP1(EfeVector *);
+	*out = 0;
+	if (r < 0) {
+		r = EFE_SUB_EFFECT_INDEX;
+	}
+
+	center.vx = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	center.vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 8);
+	center.vz = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0xc);
+	box.center = &center;
+	copyVector(&box.extent, ext);
+	EFE_HIT_ENTITY_INDEX = 1;
+	while (1) {
+		if ((EFE_HIT_ENTITY_INDEX = findAABBHitEntity(&box, EFE_SCRIPT_CONTEXT->sourceEntity, EFE_HIT_ENTITY_INDEX)) == -1) {
+			return;
+		}
+		if (((DigimonEntity *)ENTITY_TABLE[EFE_HIT_ENTITY_INDEX])->stats.current.isHit == 0) {
+			for (j = 1; j < 10; j++) {
+				if (ENTITY_TABLE[j] == EFE_SCRIPT_CONTEXT->sourceEntity) {
+					break;
+				}
+			}
+			((DigimonEntity *)ENTITY_TABLE[EFE_HIT_ENTITY_INDEX])->stats.current.isHit = 1;
+			addAttackObject(EFE_HIT_ENTITY_INDEX, 1, &center, COMBAT_EFFECT_ITR, r, j);
+			*out = 1;
+			return;
+		}
+		EFE_HIT_ENTITY_INDEX++;
+	}
+}
+
+void VS_applyRadiusAttackHit(void)
+{
+	int32_t i;
+	int32_t r;
+	int32_t *hitFlag;
+	Entity *e;
+	int32_t dz;
+	int32_t radius;
+	int32_t dx;
+	SVECTOR pos;
+
+	hitFlag = EFE_POP1(int32_t *);
+	r = EFE_POP1(int32_t);
+	*hitFlag = 0;
+	r = r * r;
+	EFE_HIT_ENTITY_INDEX = 1;
+	while (EFE_HIT_ENTITY_INDEX < 10) {
+		e = ENTITY_TABLE[*(int32_t *)&EFE_HIT_ENTITY_INDEX];
+		if (e == EFE_SCRIPT_CONTEXT->sourceEntity) {
+			goto next;
+		}
+		if (e == NULL) {
+			goto next;
+		}
+		if (((DigimonEntity *)e)->stats.current.isHit != 0) {
+			goto next;
+		}
+		if (e->isOnMap == 0) {
+			goto next;
+		}
+		radius = DIGIMON_DATA[e->type].radius;
+		radius *= radius;
+		radius += r;
+		dx = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4) - (int32_t)e->posData->location.vx;
+		dz = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0xc) - (int32_t)e->posData->location.vz;
+		dz = dz * dz + dx * dx;
+		if (radius < dz) {
+			goto next;
+		}
+		for (i = 1; i < 10; i++) {
+			if (ENTITY_TABLE[i] == EFE_SCRIPT_CONTEXT->sourceEntity) {
+				break;
+			}
+		}
+		((DigimonEntity *)ENTITY_TABLE[*(int32_t *)&EFE_HIT_ENTITY_INDEX])->stats.current.isHit = 1;
+		VS_calculateAttackHitPosition(&pos, e, EFE_SCRIPT_CONTEXT->sourceEntity, DIGIMON_DATA[e->type].radius);
+		pos.vy = -DIGIMON_DATA[e->type].height / 2;
+		addAttackObject(EFE_HIT_ENTITY_INDEX, 1, &pos, COMBAT_EFFECT_ITR, EFE_SUB_EFFECT_INDEX, i);
+		*hitFlag = 1;
+next:
+		EFE_HIT_ENTITY_INDEX++;
+	}
+}
+
+void VS_applyLineAttackHit(void)
+{
+	int32_t *out;
+	int32_t *arg;
+	int32_t width;
+	DVECTOR line[2];
+	int16_t rect[4];
+	long r;
+	SVECTOR pos;
+	int32_t j;
+	Entity *e;
+
+	width = EFE_POP1(int32_t);
+	out = EFE_POP1(int32_t *);
+	arg = EFE_POP1(int32_t *);
+	*out = 0;
+	line[0].vx = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	line[0].vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0xc);
+	line[1].vx = EFE_SCRIPT_CONTEXT->sourceEntity->posData->location.vx;
+	line[1].vy = EFE_SCRIPT_CONTEXT->sourceEntity->posData->location.vz;
+	for (EFE_HIT_ENTITY_INDEX = 1; EFE_HIT_ENTITY_INDEX < 10; EFE_HIT_ENTITY_INDEX++) {
+		e = ENTITY_TABLE[(*(int32_t *)&EFE_HIT_ENTITY_INDEX)];
+		if (e == EFE_SCRIPT_CONTEXT->sourceEntity) {
+			continue;
+		}
+		if (e == NULL) {
+			continue;
+		}
+		if (((DigimonEntity *)e)->stats.current.isHit != 0) {
+			continue;
+		}
+		if (e->isOnMap == 0) {
+			continue;
+		}
+		r = DIGIMON_DATA[e->type].radius;
+		rect[0] = e->posData->location.vx - r;
+		rect[2] = e->posData->location.vx + r;
+		rect[1] = e->posData->location.vz - r;
+		rect[3] = e->posData->location.vz + r;
+		if (doSomethingWithSomePoints(rect, line) != -1) {
+			continue;
+		}
+		if (*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 8) < (-DIGIMON_DATA[e->type].height - arg[1])) {
+			continue;
+		}
+		for (j = 1; j < 10; j++) {
+			if (ENTITY_TABLE[j] == EFE_SCRIPT_CONTEXT->sourceEntity) {
+				break;
+			}
+		}
+		((DigimonEntity *)ENTITY_TABLE[EFE_HIT_ENTITY_INDEX])->stats.current.isHit = 1;
+		VS_calculateAttackHitPosition(&pos, e, EFE_SCRIPT_CONTEXT->sourceEntity, DIGIMON_DATA[e->type].radius);
+		pos.vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 8);
+		addAttackObject(EFE_HIT_ENTITY_INDEX, 1, &pos, COMBAT_EFFECT_ITR, EFE_SUB_EFFECT_INDEX, j);
+		*out = 1;
+		return;
+	}
+}
+
+void VS_faceTargetEntity(void)
+{
+	PositionData *pd;
+
+	if (EFE_SCRIPT_CONTEXT->targetEntity == NULL) {
+		return;
+	}
+
+	entityLookAtLocation(EFE_SCRIPT_CONTEXT->sourceEntity, &EFE_SCRIPT_CONTEXT->targetEntity->posData->location);
+	pd = EFE_SCRIPT_CONTEXT->sourceEntity->posData;
+	RotMatrix(&pd->rotation, &pd->posMatrix.coord);
+	ScaleMatrix(&pd->posMatrix.coord, &pd->scale);
+	TransMatrix(&pd->posMatrix.coord, &pd->location);
+	pd->posMatrix.flg = 0;
+}
+
+void VS_renderScreenOverlay(void)
+{
+	POLY_F4 *p;
+	DR_TPAGE *dr;
+	EfeColor *col;
+	int32_t mode;
+	int32_t layer;
+
+	mode = EFE_POP1(int32_t);
+	col = EFE_POP1(EfeColor *);
+	layer = EFE_POP1(int32_t);
+
+	p = (POLY_F4 *)GsGetWorkBase();
+	setXYWH(p, -0xa0, -0x78, 320, 240);
+	setRGB0(p, col->red, col->green, col->blue);
+	setPolyF4(p);
+	setSemiTrans(p, mode >> 2);
+	setShadeTex(p, 0);
+	addPrim(ACTIVE_ORDERING_TABLE->org + layer, p);
+	GsSetWorkBase((PACKET *)(p + 1));
+
+	dr = (DR_TPAGE *)GsGetWorkBase();
+	setDrawTPage(dr, 1, 1, getTPage(0, mode & 3, 0, 0));
+	addPrim(ACTIVE_ORDERING_TABLE->org + layer, dr);
+	GsSetWorkBase((PACKET *)(dr + 1));
+}
+
+void VS_renderRingTube(void)
+{
+	VECTOR *center;
+	int32_t n;
+	int32_t *radius;
+	int32_t *heights;
+	int32_t *colors;
+	int32_t start;
+	SVECTOR pos;
+	int16_t *pts;
+	int32_t r;
+	int32_t ang;
+	int32_t z;
+	int32_t j;
+	int32_t i;
+	DVECTOR screen;
+	int16_t count;
+	POLY_FT4 *p;
+	int16_t *q;
+	ModelComponent *m;
+
+	start = EFE_POP1(int32_t);
+	colors = EFE_POP1(int32_t *);
+	heights = EFE_POP1(int32_t *);
+	radius = EFE_POP1(int32_t *);
+	n = EFE_POP1(int32_t);
+	center = EFE_POP1(VECTOR *);
+
+	if (n < 2) {
+		return;
+	}
+
+	p = (POLY_FT4 *)GsGetWorkBase();
+	count = (n - 1) * 10;
+	q = (int16_t *)&p[count];
+	pts = q;
+	m = EFE_DATA_ITERATOR->model;
+	for (i = 0; i < n; i++) {
+		r = radius[i];
+		for (j = 0; j < 10; j++) {
+			ang = j * 0x200 / 10;
+			pos.vx = center->vx + ((r * _cos(0x80 - ang)) >> 12);
+			pos.vy = (int32_t)center->vy + heights[i];
+			pos.vz = center->vz + ((r * _sin(0x80 - ang)) >> 12);
+			z = worldPosToScreenPos(&pos, &screen);
+			z >>= 4;
+			*q++ = screen.vx;
+			*q++ = screen.vy;
+			if (z >= 0x21 && z < 0x1000) {
+				*q++ = z;
+			} else {
+				*q++ = -1;
+			}
+		}
+	}
+
+	q = pts;
+	for (i = 0; i < n - 1; i++) {
+		for (j = 0; j < 10; q += 3, j++) {
+			SetPolyFT4(p);
+			p->code |= 2;
+			p->r0 = p->g0 = p->b0 = colors[i];
+			p->tpage = m->pixelPage | 0x20;
+			p->clut = GetClut((m->clutPage & 0x3f) << 4, m->clutPage >> 6);
+			setUVWH(p, m->pixelOffsetX + ((i + start) & 1) * 24, m->pixelOffsetY, 0x17, 0x1f);
+			if (j == 9) {
+				goto wrap;
+			}
+			if (q[2] < 0x21 || q[5] < 0x21 || q[32] < 0x21 || q[35] < 0x21) {
+				continue;
+			}
+			setXY2(p, q[33], q[34], q[3], q[4]);
+emit:
+			p->x2 = q[30];
+			p->y2 = q[31];
+			p->x3 = q[0];
+			p->y3 = q[1];
+			AddPrim(&ACTIVE_ORDERING_TABLE->org[q[2]], p);
+			p++;
+			continue;
+wrap:
+			if (q[2] < 0x21 || q[-25] < 0x21 || q[32] < 0x21 || q[5] < 0x21) {
+				continue;
+			}
+			setXY2(p, q[3], q[4], q[-27], q[-26]);
+			goto emit;
+		}
+	}
+	GsSetWorkBase((PACKET *)p);
+}
+
+void VS_tickRibbonPoints(void)
+{
+	SVECTOR *q;
+	int32_t i;
+	int32_t t;
+
+	q = EFE_POP1(SVECTOR *);
+	EFE_RIBBON_SCRATCH->frame = EFE_CURRENT_DATA_SEGMENT->frame;
+	for (i = 0; i < 10; i++) {
+		if (((EFE_RIBBON_SCRATCH->frame + i * 8) % 10) == 0) {
+			q[i].pad = customRandom(-0xf, 0xf);
+		}
+		q[i].vy += q[i].pad;
+		if (q[i].vy < -0x96) {
+			t = -0x96;
+		} else {
+			t = q[i].vy > 0x96 ? 0x96 : q[i].vy;
+		}
+		q[i].vy = t;
+		q[i].vz += q[i].pad;
+		q[i].vz = q[i].vz < -0x96 ? -0x96 : (q[i].vz > 0x96 ? 0x96 : q[i].vz);
+	}
+}
+
+void VS_initializeRibbonPoints(void)
+{
+	int32_t i;
+	SVECTOR *q;
+
+	q = EFE_POP1(SVECTOR *);
+	for (i = 0; i < 10; i++) {
+		q[i].vx = i * 0x190 - 0x708;
+		q[i].vy = customRandom(-0x96, 0x96);
+		q[i].pad = customRandom(-0x1e, 0x1e);
+		q[i].vz = 0;
+	}
+}
+
+void VS_renderRadialWaves(void)
+{
+	POLY_FT4 *prim;
+	int16_t *uv;
+	int32_t i;
+
+	for (i = 0; i < 0x18U; i += 2) {
+		VS_RADIAL_WAVE_UVS[i] += EFE_DATA_ITERATOR->model->pixelOffsetX;
+		VS_RADIAL_WAVE_UVS[i + 1] += EFE_DATA_ITERATOR->model->pixelOffsetY;
+	}
+	EFE_WAVE_SCRATCH->tpage = EFE_DATA_ITERATOR->model->pixelPage | 0x20;
+	EFE_WAVE_SCRATCH->clut = EFE_DATA_ITERATOR->model->clutPage + 0x40;
+	EFE_SCRATCH->scale = EFE_POP1(VECTOR *);
+	EFE_SCRATCH->rot.vx = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[0];
+	EFE_SCRATCH->rot.vy = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[1];
+	EFE_SCRATCH->rot.vz = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[2];
+	EFE_SCRATCH->m1.t[0] = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))[0];
+	EFE_SCRATCH->m1.t[1] = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))[1];
+	EFE_SCRATCH->m1.t[2] = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))[2];
+	EFE_WAVE_SCRATCH->phase = EFE_CURRENT_DATA_SEGMENT->frame * -400;
+
+	for (EFE_WAVE_SCRATCH->ring = 0; EFE_WAVE_SCRATCH->ring < 6; (EFE_WAVE_SCRATCH->ring)++) {
+		EFE_SCRATCH->rot.vy += 0x2aa;
+		RotMatrixYXZ(&EFE_SCRATCH->rot, &EFE_SCRATCH->m1);
+		ScaleMatrix(&EFE_SCRATCH->m1, EFE_SCRATCH->scale);
+		GsMulCoord0(&GsWSMATRIX, &EFE_SCRATCH->m1, &EFE_SCRATCH->m0);
+		GsSetLightMatrix(&EFE_SCRATCH->m1);
+		GsSetLsMatrix(&EFE_SCRATCH->m0);
+		EFE_WAVE_SCRATCH->radius = 0xc8;
+		for (; EFE_WAVE_SCRATCH->radius < 0xbb8;
+		     EFE_WAVE_SCRATCH->radius += 0x64) {
+			EFE_WAVE_SCRATCH->height = (EFE_WAVE_SCRATCH->radius < 0x2ef)
+			                                   ? VS_interpolateClamped(0xc8, 0x2ee, *(long *)&EFE_WAVE_SCRATCH->radius, 0xc8, 0xfa)
+			                           : (EFE_WAVE_SCRATCH->radius < 0x8cb)
+			                                   ? VS_interpolateClamped(0x2ee, 0x8ca, *(long *)&EFE_WAVE_SCRATCH->radius, 0xfa, 0x7d)
+			                                   : VS_interpolateClamped(0x8ca, 0xbb8, *(long *)&EFE_WAVE_SCRATCH->radius, 0x7d, 0xa);
+			i = EFE_WAVE_SCRATCH->phase + EFE_WAVE_SCRATCH->radius * 4 +
+			    EFE_WAVE_SCRATCH->ring * 0x309;
+			EFE_WAVE_SCRATCH->height =
+				((EFE_WAVE_SCRATCH->height * rsin(i)) >> 12) -
+				EFE_WAVE_SCRATCH->height - 0xc8;
+			EFE_WAVE_SCRATCH->halfWidth = EFE_WAVE_SCRATCH->radius / 5;
+			if (EFE_WAVE_SCRATCH->radius != 0xc8) {
+				prim = (POLY_FT4 *)GsGetWorkBase();
+				EFE_WAVE_SCRATCH->quad[0].vx = -EFE_WAVE_SCRATCH->halfWidth;
+				EFE_WAVE_SCRATCH->quad[0].vy = EFE_WAVE_SCRATCH->height;
+				EFE_WAVE_SCRATCH->quad[0].vz = EFE_WAVE_SCRATCH->radius;
+				EFE_WAVE_SCRATCH->quad[1].vx = EFE_WAVE_SCRATCH->halfWidth;
+				EFE_WAVE_SCRATCH->quad[1].vy = EFE_WAVE_SCRATCH->height;
+				EFE_WAVE_SCRATCH->quad[1].vz = EFE_WAVE_SCRATCH->radius;
+				EFE_WAVE_SCRATCH->quad[2].vx = -EFE_WAVE_SCRATCH->prevHalfWidth;
+				EFE_WAVE_SCRATCH->quad[2].vy = EFE_WAVE_SCRATCH->prevHeight;
+				EFE_WAVE_SCRATCH->quad[2].vz = EFE_WAVE_SCRATCH->prevRadius;
+				EFE_WAVE_SCRATCH->quad[3].vx = EFE_WAVE_SCRATCH->prevHalfWidth;
+				EFE_WAVE_SCRATCH->quad[3].vy = EFE_WAVE_SCRATCH->prevHeight;
+				EFE_WAVE_SCRATCH->quad[3].vz = EFE_WAVE_SCRATCH->prevRadius;
+				EFE_PROJ_SCRATCH->otz = RotTransPers4(
+					&EFE_WAVE_SCRATCH->quad[0], &EFE_WAVE_SCRATCH->quad[1], &EFE_WAVE_SCRATCH->quad[2],
+					&EFE_WAVE_SCRATCH->quad[3], (long *)&prim->x0, (long *)&prim->x1,
+					(long *)&prim->x2, (long *)&prim->x3, &EFE_PROJ_SCRATCH->p,
+					&EFE_PROJ_SCRATCH->flag);
+				if ((EFE_PROJ_SCRATCH->flag & 0x80000000) == 0) {
+					((int32_t *)prim)[1] = VS_RADIAL_WAVE_COLOR;
+					prim->clut = EFE_WAVE_SCRATCH->clut;
+					prim->tpage = EFE_WAVE_SCRATCH->tpage;
+					uv = (EFE_WAVE_SCRATCH->radius == 0x12c)   ? (int16_t *)&VS_RADIAL_WAVE_UVS[8]
+					     : (EFE_WAVE_SCRATCH->radius >= 0xb54) ? (int16_t *)&VS_RADIAL_WAVE_UVS[16]
+					                                           : (int16_t *)VS_RADIAL_WAVE_UVS;
+					*(int16_t *)&prim->u0 = uv[0];
+					*(int16_t *)&prim->u1 = uv[1];
+					*(int16_t *)&prim->u2 = uv[2];
+					*(int16_t *)&prim->u3 = uv[3];
+					setlen(prim, 9);
+					prim->code = 0x2c;
+					setSemiTrans(prim, 1);
+					setShadeTex(prim, 0);
+					addPrim(ACTIVE_ORDERING_TABLE->org + (EFE_PROJ_SCRATCH->otz >> 2),
+					        prim);
+					GsSetWorkBase((PACKET *)(prim + 1));
+				}
+			}
+			EFE_WAVE_SCRATCH->prevHalfWidth = EFE_WAVE_SCRATCH->halfWidth;
+			EFE_WAVE_SCRATCH->prevHeight = EFE_WAVE_SCRATCH->height;
+			EFE_WAVE_SCRATCH->prevRadius = EFE_WAVE_SCRATCH->radius;
+		}
+	}
+	for (i = 0; i < 0x18U; i += 2) {
+		VS_RADIAL_WAVE_UVS[i] -= EFE_DATA_ITERATOR->model->pixelOffsetX;
+		VS_RADIAL_WAVE_UVS[i + 1] -= EFE_DATA_ITERATOR->model->pixelOffsetY;
+	}
+}
+
+void VS_getViewportDistance(void)
+{
+	int32_t *out;
+
+	out = EFE_POP1(int32_t *);
+	*out = VIEWPORT_DISTANCE;
+}
+
+void VS_addClutLoadPrim(void)
+{
+	char *src;
+	int32_t z;
+	int32_t y;
+	int32_t idx;
+	RECT rect;
+	DR_LOAD *prim;
+
+	idx = EFE_POP1(int32_t);
+	src = EFE_POP1(char *);
+	y = EFE_POP1(int32_t);
+	z = EFE_POP1(int32_t);
+	src += idx * 2;
+	prim = (DR_LOAD *)GsGetWorkBase();
+	GsSetWorkBase((PACKET *)(prim + 1));
+	setRECT(&rect, (EFE_DATA_ITERATOR->model->clutPage & 0x3f) << 4, ((EFE_DATA_ITERATOR->model->clutPage >> 6) & 0x1ff) + y, 0x10, 1);
+	SetDrawLoad(prim, &rect);
+	memcpy(prim->p, src, 0x20);
+	AddPrim(ACTIVE_ORDERING_TABLE->org + (z >> 4), prim);
+}
+
+void VS_drawTMDScreenSpace(void)
+{
+	EFE_SCRATCH->scale = EFE_POP1(VECTOR *);
+	EFE_SCRATCH->id = EFE_POP1(int32_t);
+	copyVector(&EFE_SCRATCH->rot, (VECTOR *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10));
+	RotMatrixYXZ(&EFE_SCRATCH->rot, &EFE_SCRATCH->m0);
+	ScaleMatrix(&EFE_SCRATCH->m0, EFE_SCRATCH->scale);
+	EFE_SCRATCH->m0.t[0] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	EFE_SCRATCH->m0.t[1] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vy;
+	EFE_SCRATCH->m0.t[2] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vz;
+	EFE_SCRATCH->m0.t[0] += -DRAWING_OFFSET_X + 0xa0;
+	EFE_SCRATCH->m0.t[1] += -DRAWING_OFFSET_Y + 0x78;
+	TransposeMatrix(&GsWSMATRIX, &EFE_SCRATCH->m2);
+	MulMatrix0(&EFE_SCRATCH->m2, &EFE_SCRATCH->m0, &EFE_SCRATCH->m1);
+	GsSetLightMatrix(&EFE_SCRATCH->m1);
+	GsSetLsMatrix(&EFE_SCRATCH->m0);
+	GsLinkObject4((unsigned long)EFE_DATA_ITERATOR->model->modelPtr->obj, &EFE_SCRATCH->obj, EFE_SCRATCH->id);
+	EFE_SCRATCH->obj.coord2 = NULL;
+	EFE_SCRATCH->obj.attribute = 0;
+	GsSortObject4J(&EFE_SCRATCH->obj, ACTIVE_ORDERING_TABLE, 2, EFE_SORT_WORKSPACE);
+}
+
+void VS_loadClutColors(void)
+{
+	int32_t y;
+	int32_t x;
+	int32_t count;
+	uint16_t *src;
+	ModelComponent *m;
+	int32_t i;
+	uint16_t clut[16];
+	RECT rect;
+
+	src = EFE_POP1(uint16_t *);
+	count = EFE_POP1(int32_t);
+	x = EFE_POP1(int32_t);
+	y = EFE_POP1(int32_t);
+
+	if ((count > 0) && (count <= 16)) {
+		m = EFE_DATA_ITERATOR->model;
+		for (i = 0; i < count; i++) {
+			clut[i] = *src++;
+			clut[i] += *src++ << 5;
+			clut[i] += *src++ << 10;
+			clut[i] += *src++ << 15;
+		}
+		setRECT(&rect, ((m->clutPage & 0x3f) << 4) + x, (m->clutPage >> 6) + y, count, 1);
+		LoadImage(&rect, (u_long *)clut);
+		DrawSync(0);
+	}
+}
+
+void VS_drawTMDYXZ(void)
+{
+	EFE_SCRATCH->scale = EFE_POP1(VECTOR *);
+	EFE_SCRATCH->id = EFE_POP1(int32_t);
+	EFE_SCRATCH->rot.vx = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[0];
+	EFE_SCRATCH->rot.vy = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[1];
+	EFE_SCRATCH->rot.vz = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[2];
+	RotMatrixYXZ(&EFE_SCRATCH->rot, &EFE_SCRATCH->m1);
+	ScaleMatrix(&EFE_SCRATCH->m1, EFE_SCRATCH->scale);
+	EFE_SCRATCH->m1.t[0] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	EFE_SCRATCH->m1.t[1] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vy;
+	EFE_SCRATCH->m1.t[2] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vz;
+	GsMulCoord0(&GsWSMATRIX, &EFE_SCRATCH->m1, &EFE_SCRATCH->m0);
+	if (EFE_SCRATCH->m0.t[2] < -0x12c) {
+		return;
+	}
+
+	if (EFE_SCRATCH->m0.t[2] >= 0x10000) {
+		return;
+	}
+
+	GsSetLightMatrix(&EFE_SCRATCH->m1);
+	GsSetLsMatrix(&EFE_SCRATCH->m0);
+	GsLinkObject4((unsigned long)EFE_DATA_ITERATOR->model->modelPtr->obj, &EFE_SCRATCH->obj, EFE_SCRATCH->id);
+	EFE_SCRATCH->obj.coord2 = NULL;
+	EFE_SCRATCH->obj.attribute = 0;
+	GsSortObject4J(&EFE_SCRATCH->obj, ACTIVE_ORDERING_TABLE, 2, EFE_SORT_WORKSPACE);
+}
+
+void VS_getCameraRotation(void)
+{
+	MATRIX m;
+	SVECTOR rot;
+	EfeVector *out;
+
+	out = EFE_POP1(EfeVector *);
+	TransposeMatrix(&GsWSMATRIX, &m);
+	matrixToEuler2(&m, &rot);
+	copyVector(out, &rot);
+}
+
+void VS_selectRandomTargetEntity(void)
+{
+	Entity *entity;
+	int32_t excludeSelf;
+	int32_t n;
+
+	excludeSelf = *--EFE_DATA_STACK;
+	for (n = rand() % 8; n >= 0; n--) {
+		EFE_TARGET_ENTITY_INDEX++;
+		while (1) {
+			while (EFE_TARGET_ENTITY_INDEX < 10) {
+				entity = ENTITY_TABLE[EFE_TARGET_ENTITY_INDEX];
+				if (entity != NULL && entity->isOnMap != 0 && ((DigimonEntity *)entity)->stats.current.currentHP > 0) {
+					if (excludeSelf != 0 || entity != EFE_SCRIPT_CONTEXT->sourceEntity) {
+						goto next;
+					}
+				}
+				EFE_TARGET_ENTITY_INDEX++;
+			}
+			if (++EFE_TARGET_ENTITY_INDEX >= 10) {
+				EFE_TARGET_ENTITY_INDEX = 1;
+			}
+		}
+next:;
+	}
+	EFE_SCRIPT_CONTEXT->targetEntity = entity;
+}
+
+void VS_convertToViewSpace(void)
+{
+	VECTOR *out1;
+	VECTOR *out2;
+	VECTOR *trans;
+	VECTOR *rotIn;
+	MATRIX m1;
+	MATRIX m2;
+	SVECTOR rot;
+
+	rotIn = EFE_POP1(VECTOR *);
+	trans = EFE_POP1(VECTOR *);
+	out2 = EFE_POP1(VECTOR *);
+	out1 = EFE_POP1(VECTOR *);
+	copyVector(&rot, rotIn);
+	copyVector((VECTOR *)m1.t, trans);
+	RotMatrixYXZ(&rot, &m1);
+	GsMulCoord0(&GsWSMATRIX, &m1, &m2);
+	matrixToEuler2(&m2, &rot);
+	copyVector(out1, (VECTOR *)m2.t);
+	copyVector(out2, &rot);
+}
+
+void VS_maskVectorByScalar(void)
+{
+	int32_t mask;
+	EfeVector *v;
+
+	mask = EFE_POP1(int32_t);
+	v = EFE_POP1(EfeVector *);
+	v->vx &= mask;
+	v->vy &= mask;
+	v->vz &= mask;
+}
+
+void VS_divideVectorByScalar(void)
+{
+	int32_t k;
+	EfeVector *v;
+
+	k = EFE_POP1(int32_t);
+	v = EFE_POP1(EfeVector *);
+	v->vx /= k;
+	v->vy /= k;
+	v->vz /= k;
+}
+
+void VS_multiplyVectorByScalar(void)
+{
+	int32_t k;
+	EfeVector *v;
+
+	k = EFE_POP1(int32_t);
+	v = EFE_POP1(EfeVector *);
+	v->vx *= k;
+	v->vy *= k;
+	v->vz *= k;
+}
+
+void VS_render3DTexturedQuad(void)
+{
+	POLY_FT4 *prim;
+	ModelComponent *m;
+	EfeVector *p1;
+	EfeVector *p2;
+	EfeVector *p3;
+	EfeVector *p4;
+	EfeColor *col;
+	int32_t u0off;
+	int32_t v0off;
+	int32_t du;
+	int32_t dv;
+	int32_t clutY;
+	int32_t semi;
+	SVECTOR a;
+	SVECTOR b;
+	SVECTOR c;
+	SVECTOR d;
+
+	semi = EFE_POP1(int32_t);
+	clutY = EFE_POP1(int32_t);
+	dv = EFE_POP1(int32_t);
+	du = EFE_POP1(int32_t);
+	v0off = EFE_POP1(int32_t);
+	u0off = EFE_POP1(int32_t);
+	col = EFE_POP1(EfeColor *);
+	p4 = EFE_POP1(EfeVector *);
+	p3 = EFE_POP1(EfeVector *);
+	p2 = EFE_POP1(EfeVector *);
+	p1 = EFE_POP1(EfeVector *);
+	m = EFE_DATA_ITERATOR->model;
+
+	copyVector(&a, p1);
+	copyVector(&b, p2);
+	copyVector(&c, p3);
+	copyVector(&d, p4);
+
+	prim = (POLY_FT4 *)GsGetWorkBase();
+	SetPolyFT4(prim);
+	if (semi != 0) {
+		prim->code |= 2;
+	}
+
+	setRGB0(prim, col->red, col->green, col->blue);
+	prim->tpage = m->pixelPage | semi;
+	prim->clut = GetClut((m->clutPage & 0x3f) << 4, (m->clutPage >> 6) + clutY);
+	setUVWH(prim, m->pixelOffsetX + u0off, m->pixelOffsetY + v0off, du, dv);
+	addScreenPolyFT4(prim, &a, &b, &c, &d);
+}
+
+void VS_setTransformToBoneMatrix(void)
+{
+	MATRIX m;
+	SVECTOR v;
+	SVECTOR out;
+	long *p;
+
+	p = (long *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4);
+	calculateBoneMatrix(EFE_SCRIPT_CONTEXT->sourceEntity, EFE_SCRIPT_CONTEXT->boneOffset->boneId, &m);
+	v.vx = EFE_SCRIPT_CONTEXT->boneOffset->positionX;
+	v.vy = EFE_SCRIPT_CONTEXT->boneOffset->positionY;
+	v.vz = EFE_SCRIPT_CONTEXT->boneOffset->positionZ;
+	ApplyMatrixSV(&m, &v, &out);
+	p[0] = out.vx;
+	p[1] = out.vy;
+	p[2] = out.vz;
+	*p++ += m.t[0];
+	*p++ += m.t[1];
+	*p++ += m.t[2];
+	matrixToEuler2(&m, &out);
+	*p++ = out.vx;
+	*p++ = out.vy;
+	*p = out.vz;
+}
+
+void VS_renderWireframeBox(void)
+{
+	EfeVector *base;
+	EfeVector *ext;
+	EfeColor *col;
+	SVECTOR p;
+	DVECTOR pts[8];
+	GsOT_TAG *ot;
+	int32_t k;
+	int32_t ox;
+	int32_t oy;
+	MATRIX m;
+	SVECTOR rot;
+	VECTOR scale;
+	uint8_t *idx;
+	LINE_F4 *prim;
+	int32_t i;
+	int16_t bx;
+	int16_t by;
+	int16_t bz;
+	int16_t ex;
+	int16_t ey;
+	int16_t ez;
+
+	col = EFE_POP1(EfeColor *);
+	ext = EFE_POP1(EfeVector *);
+	base = EFE_POP1(EfeVector *);
+
+	PushMatrix();
+	rot.vx = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10);
+	rot.vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14);
+	rot.vz = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18);
+	RotMatrixZYX(&rot, &m);
+	scale.vx = 0x1000;
+	scale.vy = 0x1000;
+	scale.vz = 0x1000;
+	ScaleMatrix(&m, &scale);
+	PopMatrix();
+	setRotTransMatrix(&GsWSMATRIX);
+	ex = ext->vx;
+	ey = ext->vy;
+	ez = ext->vz;
+	bx = base->vx;
+	by = base->vy;
+	bz = base->vz;
+	PushMatrix();
+#if VERSION_IS(JP)
+	getDrawingOffsetCopy(&ox, &oy);
+#else
+	ox = DRAWING_OFFSET_X;
+	oy = DRAWING_OFFSET_Y;
+#endif
+	for (i = 0; i < 8; i++) {
+		p.vx = ex * VS_WIREFRAME_BOX_SIGN_X[i];
+		p.vy = ey * VS_WIREFRAME_BOX_SIGN_Y[i];
+		p.vz = ez * VS_WIREFRAME_BOX_SIGN_Z[i];
+		ApplyMatrixSV(&m, &p, &p);
+		p.vx += bx;
+		p.vy += by;
+		p.vz += bz;
+		setRotTransMatrix(&GsWSMATRIX);
+		gte_ldv0(&p);
+		gte_rtps();
+		gte_stsxy(&pts[i]);
+		pts[i].vx += (int16_t)(0xa0 - ox);
+		pts[i].vy += (int16_t)(0x78 - oy);
+	}
+
+	PopMatrix();
+	ot = ACTIVE_ORDERING_TABLE->org;
+	prim = (LINE_F4 *)GsGetWorkBase();
+	idx = VS_WIREFRAME_BOX_LINES;
+	for (k = 0; k < 4; k++) {
+		SetLineF4(prim);
+		setRGB0(prim, col->red, col->green, col->blue);
+		setXY4(prim, pts[*idx].vx, pts[*idx++].vy, pts[*idx].vx, pts[*idx++].vy, pts[*idx].vx, pts[*idx++].vy, pts[*idx].vx, pts[*idx++].vy);
+		AddPrim(ot + 0x22, prim);
+		prim++;
+	}
+
+	GsSetWorkBase((PACKET *)prim);
+}
+
+void VS_discardEFEOperand(void)
+{
+	int32_t value;
+
+	value = EFE_POP1(int32_t);
+}
+
+void VS_renderWireframeGrid(void)
+{
+	EfeVector *base;
+	EfeVector *rotSrc;
+	int32_t y;
+	int32_t *col;
+	int32_t x1;
+	int32_t x2;
+	int32_t n1;
+	int32_t z1;
+	int32_t z2;
+	int32_t n2;
+	SVECTOR c0;
+	SVECTOR c1;
+	SVECTOR c2;
+	SVECTOR p0;
+	SVECTOR p1;
+	SVECTOR p2;
+	SVECTOR p3;
+	MATRIX m;
+	SVECTOR rot;
+
+	y = EFE_POP1(int32_t);
+	n2 = EFE_POP1(int32_t);
+	z2 = EFE_POP1(int32_t);
+	z1 = EFE_POP1(int32_t);
+	n1 = EFE_POP1(int32_t);
+	x2 = EFE_POP1(int32_t);
+	x1 = EFE_POP1(int32_t);
+	col = EFE_POP1(int32_t *);
+	rotSrc = EFE_POP1(EfeVector *);
+	base = EFE_POP1(EfeVector *);
+
+	PushMatrix();
+	copyVector(&rot, rotSrc);
+	RotMatrixZYX(&rot, &m);
+	p0.vx = x1;
+	p0.vy = y;
+	p0.vz = z1;
+	ApplyMatrixSV(&m, &p0, &p0);
+	p1.vx = x2;
+	p1.vy = y;
+	p1.vz = z1;
+	ApplyMatrixSV(&m, &p1, &p1);
+	p2.vx = x1;
+	p2.vy = y;
+	p2.vz = z2;
+	ApplyMatrixSV(&m, &p2, &p2);
+	p3.vx = x2;
+	p3.vy = y;
+	p3.vz = z2;
+	ApplyMatrixSV(&m, &p3, &p3);
+	PopMatrix();
+
+	c0.vx = c2.vx = base->vx + p0.vx;
+	c0.vy = c2.vy = base->vy + p0.vy;
+	c0.vz = c2.vz = base->vz + p0.vz;
+	c1.vx = base->vx + p2.vx;
+	c1.vy = base->vy + p2.vy;
+	c1.vz = base->vz + p2.vz;
+	VS_renderParallelLines(&c0, &c1, (int16_t)n1, &p0, &p1, col);
+	c1.vx = base->vx + p1.vx;
+	c1.vy = base->vy + p1.vy;
+	c1.vz = base->vz + p1.vz;
+	VS_renderParallelLines(&c2, &c1, (int16_t)n2, &p0, &p2, col);
+}
+
+void VS_render2DTexturedQuad(void)
+{
+	int32_t a;
+	int32_t b;
+	int32_t c;
+	int32_t d;
+	int32_t depth;
+	EfeColor *col;
+	int32_t u0off;
+	int32_t v0off;
+	int32_t du;
+	int32_t dv;
+	POLY_FT4 *prim;
+	ModelComponent *m;
+	int32_t clutY;
+	int32_t semi;
+
+	semi = EFE_POP1(int32_t);
+	clutY = EFE_POP1(int32_t);
+	dv = EFE_POP1(int32_t);
+	du = EFE_POP1(int32_t);
+	v0off = EFE_POP1(int32_t);
+	u0off = EFE_POP1(int32_t);
+	col = EFE_POP1(EfeColor *);
+	depth = EFE_POP1(int32_t);
+	d = EFE_POP1(int32_t);
+	c = EFE_POP1(int32_t);
+	b = EFE_POP1(int32_t);
+	a = EFE_POP1(int32_t);
+
+	if ((depth > 0x20) && (depth < 0x1000)) {
+		m = EFE_DATA_ITERATOR->model;
+		prim = (POLY_FT4 *)GsGetWorkBase();
+		SetPolyFT4(prim);
+		if (semi < 0) {
+			semi = -semi & 0xffff;
+			setXY4(prim, ((int32_t *)a)[0], ((int32_t *)a)[1], ((int32_t *)b)[0], ((int32_t *)b)[1], ((int32_t *)c)[0], ((int32_t *)c)[1], ((int32_t *)d)[0], ((int32_t *)d)[1]);
+		} else {
+			setXYWH(prim, a, b, c, d);
+		}
+		if (semi != 0) {
+			prim->code |= 2;
+		}
+		setRGB0(prim, col->red, col->green, col->blue);
+		prim->tpage = m->pixelPage | semi;
+		prim->clut = GetClut((m->clutPage & 0x3f) << 4, (m->clutPage >> 6) + clutY);
+		setUVWH(prim, m->pixelOffsetX + u0off, m->pixelOffsetY + v0off, du, dv);
+		AddPrim(ACTIVE_ORDERING_TABLE->org + depth, prim);
+		prim++;
+		GsSetWorkBase((PACKET *)prim);
+	}
+}
+
+void VS_restoreCameraView(void)
+{
+#if VERSION_IS(JP)
+	GsRVIEW2 view;
+	int32_t dist;
+	int32_t x;
+	int32_t y;
+
+	getRViewCopy(&view);
+	getViewportDistanceCopy(&dist);
+	getDrawingOffsetCopy(&x, &y);
+	DRAWING_OFFSET_X = x;
+	DRAWING_OFFSET_Y = y;
+	GsSetProjection(dist);
+	GsSetRefView2(&view);
+#else
+	GsSetProjection(VIEWPORT_DISTANCE);
+	DRAWING_OFFSET_X = VS_SAVED_DRAWING_OFFSET_X;
+	DRAWING_OFFSET_Y = VS_SAVED_DRAWING_OFFSET_Y;
+	GsWSMATRIX = VS_SAVED_WS_MATRIX.m;
+	SetRotMatrix(&GsWSMATRIX);
+	SetTransMatrix(&GsWSMATRIX);
+#endif
+}
+
+void VS_setupFixedCamera(void)
+{
+#if VERSION_IS(JP)
+	int32_t ret;
+
+	GsSetProjection(0x200);
+#else
+	VS_SAVED_WS_MATRIX.m = GsWSMATRIX;
+	VS_SAVED_DRAWING_OFFSET_X = DRAWING_OFFSET_X;
+	VS_SAVED_DRAWING_OFFSET_Y = DRAWING_OFFSET_Y;
+#endif
+	EFE_FIXED_VIEW.vpx = 0;
+	EFE_FIXED_VIEW.vpz = -0x7d0;
+	EFE_FIXED_VIEW.vpy = 0;
+	EFE_FIXED_VIEW.vrx = 0;
+	EFE_FIXED_VIEW.vry = 0;
+	EFE_FIXED_VIEW.vrz = 0;
+	EFE_FIXED_VIEW.rz = 0;
+	EFE_FIXED_VIEW.super = NULL;
+#if VERSION_IS(JP)
+	ret = GsSetRefView2(&EFE_FIXED_VIEW);
+#else
+	GsSetRefView2(&EFE_FIXED_VIEW);
+#endif
+	DRAWING_OFFSET_X = 0xa0;
+	DRAWING_OFFSET_Y = 0x78;
+}
+
+void VS_getSourceBoneTransform(void)
+{
+	MATRIX m;
+	SVECTOR rot;
+	EfeVector *posOut;
+	EfeVector *rotOut;
+	int32_t bone;
+
+	rotOut = EFE_POP1(EfeVector *);
+	posOut = EFE_POP1(EfeVector *);
+	bone = EFE_POP1(int32_t);
+	calculateBoneMatrix(EFE_SCRIPT_CONTEXT->sourceEntity, bone, &m);
+	matrixToEuler2(&m, &rot);
+	copyVector(rotOut, &rot);
+	posOut->vx = m.t[0];
+	posOut->vy = m.t[1];
+	posOut->vz = m.t[2];
+}
+
+void VS_copyToParentTransform(void)
+{
+	int32_t *dst;
+	int32_t src;
+	int32_t off;
+	int32_t size;
+
+	size = EFE_POP1(int32_t);
+	off = EFE_POP1(int32_t);
+	src = EFE_POP1(int32_t);
+	dst = (int32_t *)(EFE_PREVIOUS_DATA_SEGMENT + off);
+	switch (size) {
+	case 0xc:
+		*dst++ = *(int32_t *)src;
+		*dst++ = *(int32_t *)(src + 4);
+		*dst = *(int32_t *)(src + 8);
+		break;
+	case 4:
+		*dst = *(int32_t *)src;
+		break;
+	case 8:
+		*dst++ = *(int32_t *)src;
+		*dst = *(int32_t *)(src + 4);
+		break;
+	case 2:
+		*(int16_t *)dst = *(int16_t *)src;
+		break;
+	case 1:
+		*(int8_t *)dst = *(int8_t *)src;
+		break;
+	}
+}
+
+void VS_renderEFELine(void)
+{
+	EfeColor *col;
+	int32_t i;
+	int32_t depth;
+	int32_t y0;
+	int32_t x1;
+	int32_t y1;
+	int32_t x0;
+	int32_t flags;
+
+	flags = EFE_POP1(int32_t);
+	depth = EFE_POP1(int32_t);
+	col = EFE_POP1(EfeColor *);
+	x0 = EFE_POP1(int32_t);
+	y1 = EFE_POP1(int32_t);
+	x1 = EFE_POP1(int32_t);
+	y0 = EFE_POP1(int32_t);
+
+	if ((depth > 0x20) && (depth < 0x1000)) {
+		if ((flags & 0x20) != 0) {
+			for (i = 0; i < 4; i++) {
+				drawLine2P(((col->red * 50 / 100) & 0xff) | (((col->green * 50 / 100) & 0xff) << 8) | (((col->blue * 50 / 100) & 0xff) << 16), y0 + VS_LINE_OFFSET_X[i], x1 + VS_LINE_OFFSET_Y[i], y1 + VS_LINE_OFFSET_X[i], x0 + VS_LINE_OFFSET_Y[i], depth, 5);
+			}
+		} else {
+			drawLine2P((col->red & 0xff) | ((col->green & 0xff) << 8) | ((col->blue & 0xff) << 16), y0, x1, y1, x0, depth, 0);
+		}
+	}
+}
+
+void VS_combineRotations(void)
+{
+	SVECTOR r1;
+	SVECTOR r2;
+	VECTOR *b;
+	VECTOR *a;
+
+	b = EFE_POP1(VECTOR *);
+	a = EFE_POP1(VECTOR *);
+	copyVector(&r1, a);
+	copyVector(&r2, b);
+	multiplyRotations(&r1, &r2);
+	copyVector(a, &r1);
+}
+
+void VS_normalizeRotationAngles2(void)
+{
+	MATRIX m;
+	SVECTOR rot;
+	EfeVector *out;
+	EfeVector *v;
+
+	v = EFE_POP1(EfeVector *);
+	out = EFE_POP1(EfeVector *);
+	copyVector(&rot, v);
+	RotMatrixYXZ(&rot, &m);
+	matrixToEuler1(&m, &rot);
+	copyVector(out, &rot);
+}
+
+void VS_rotateVectorByAngles(void)
+{
+	MATRIX m;
+	VECTOR res;
+	SVECTOR rot;
+	EfeVector *v;
+	EfeVector *w;
+
+	v = EFE_POP1(EfeVector *);
+	w = EFE_POP1(EfeVector *);
+	copyVector(&rot, w);
+	RotMatrixYXZ(&rot, &m);
+	ApplyMatrixLV(&m, (VECTOR *)v, &res);
+	copyVector(v, &res);
+}
+
+void VS_getTargetBoneTransform(void)
+{
+	EfeVector *rotOut;
+	EfeVector *posOut;
+	int32_t idx;
+	GsCOORDINATE2 *coord;
+	MATRIX m;
+	SVECTOR rot;
+	GsCOORDINATE2 *matrix;
+
+	rotOut = EFE_POP1(EfeVector *);
+	posOut = EFE_POP1(EfeVector *);
+	idx = EFE_POP1(int32_t);
+	matrix = (GsCOORDINATE2 *)(((char **)(int32_t)EFE_SCRIPT_CONTEXT->targetEntity)[1] + 0x10);
+	coord = (GsCOORDINATE2 *)(((char **)(int32_t)EFE_SCRIPT_CONTEXT->targetEntity)[1] + (idx * 136) + 0x10);
+	RotMatrix((SVECTOR *)(((char **)(int32_t)EFE_SCRIPT_CONTEXT->targetEntity)[1] + 0x70), &matrix->coord);
+	ScaleMatrix(&matrix->coord, (VECTOR *)(((char **)(int32_t)EFE_SCRIPT_CONTEXT->targetEntity)[1] + 0x60));
+	TransMatrix(&matrix->coord, (VECTOR *)(((char **)(int32_t)EFE_SCRIPT_CONTEXT->targetEntity)[1] + 0x78));
+	calculatePosition(coord, &m);
+	matrixToEuler2(&m, &rot);
+	copyVector(rotOut, &rot);
+	posOut->vx = m.t[0];
+	posOut->vy = m.t[1];
+	posOut->vz = m.t[2];
+}
+
+void VS_centerTransformOnEntities(void)
+{
+	EfeTransform *sum;
+	int32_t i;
+	int32_t count;
+	MATRIX *m;
+
+	sum = (EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4);
+	sum->position.vx = 0;
+	sum->position.vy = 0;
+	sum->position.vz = 0;
+	*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10) = 0;
+	*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14) = 0;
+	*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18) = 0;
+	count = 0;
+	for (i = 1; i < 10; i++) {
+		if (ENTITY_TABLE[i] == NULL) {
+			continue;
+		}
+		if (ENTITY_TABLE[i] == EFE_SCRIPT_CONTEXT->sourceEntity) {
+			continue;
+		}
+		if (ENTITY_TABLE[i]->isOnMap == 0) {
+			continue;
+		}
+		count++;
+		m = &ENTITY_TABLE[i]->posData->posMatrix.workm;
+		sum->position.vx = sum->position.vx + m->t[0];
+		sum->position.vy = sum->position.vy + m->t[1];
+		sum->position.vz = sum->position.vz + m->t[2];
+	}
+
+	sum->position.vx /= count;
+	sum->position.vy /= count;
+	sum->position.vz /= count;
+}
+
+void VS_shiftVectorsRight(void)
+{
+	EfeVector *a;
+	EfeVector *b;
+
+	b = EFE_POP1(EfeVector *);
+	a = EFE_POP1(EfeVector *);
+	a->vx >>= b->vx;
+	a->vy >>= b->vy;
+	a->vz >>= b->vz;
+}
+
+void VS_maskVectors(void)
+{
+	EfeVector *a;
+	EfeVector *b;
+
+	b = EFE_POP1(EfeVector *);
+	a = EFE_POP1(EfeVector *);
+	a->vx &= b->vx;
+	a->vy &= b->vy;
+	a->vz &= b->vz;
+}
+
+void VS_divideVectors(void)
+{
+	EfeVector *a;
+	EfeVector *b;
+
+	b = EFE_POP1(EfeVector *);
+	a = EFE_POP1(EfeVector *);
+	a->vx /= b->vx;
+	a->vy /= b->vy;
+	a->vz /= b->vz;
+}
+
+void VS_multiplyVectors(void)
+{
+	EfeVector *a;
+	EfeVector *b;
+
+	b = EFE_POP1(EfeVector *);
+	a = EFE_POP1(EfeVector *);
+	a->vx *= b->vx;
+	a->vy *= b->vy;
+	a->vz *= b->vz;
+}
+
+void VS_subtractVectors(void)
+{
+	EfeVector *a;
+	EfeVector *b;
+
+	b = EFE_POP1(EfeVector *);
+	a = EFE_POP1(EfeVector *);
+	a->vx -= b->vx;
+	a->vy -= b->vy;
+	a->vz -= b->vz;
+}
+
+void VS_addVectors(void)
+{
+	EfeVector *a;
+	EfeVector *b;
+
+	b = EFE_POP1(EfeVector *);
+	a = EFE_POP1(EfeVector *);
+	addVector(a, b);
+}
+
+void VS_copyVector(void)
+{
+	EfeVector *dst;
+	EfeVector *src;
+
+	src = EFE_POP1(EfeVector *);
+	dst = EFE_POP1(EfeVector *);
+	copyVector(dst, src);
+}
+
+void VS_getVectorLength(void)
+{
+	EfeVector *v;
+	int32_t *out;
+
+	v = EFE_POP1(EfeVector *);
+	out = EFE_POP1(int32_t *);
+	*out = getDistance(v->vx, v->vy, v->vz);
+}
+
+void VS_setTargetToHitEntity(void)
+{
+	EFE_SCRIPT_CONTEXT->targetEntity = ENTITY_TABLE[EFE_HIT_ENTITY_INDEX];
+}
+
+void VS_normalizeRotationAngles(void)
+{
+	SVECTOR rot;
+	SVECTOR res;
+	MATRIX m;
+	EfeVector *out;
+	EfeVector *v;
+
+	v = EFE_POP1(EfeVector *);
+	out = EFE_POP1(EfeVector *);
+	copyVector(&rot, v);
+	RotMatrixYXZ(&rot, &m);
+	matrixToEuler1(&m, &res);
+	copyVector(out, &res);
+}
+
+void VS_findHitEntity(void)
+{
+	SVECTOR center;
+	AABB box;
+	int32_t *out;
+	EfeVector *ext;
+	int32_t mode;
+
+	ext = EFE_POP1(EfeVector *);
+	mode = EFE_POP1(int32_t);
+	out = EFE_POP1(int32_t *);
+	*out = 0;
+	center.vx = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	center.vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 8);
+	center.vz = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0xc);
+	box.center = &center;
+	copyVector(&box.extent, ext);
+	EFE_HIT_ENTITY_INDEX = 1;
+	while (1) {
+		if ((EFE_HIT_ENTITY_INDEX = findAABBHitEntity(&box, EFE_SCRIPT_CONTEXT->sourceEntity, EFE_HIT_ENTITY_INDEX)) == -1) {
+			return;
+		}
+		switch (mode) {
+		case 0:
+			if (((DigimonEntity *)ENTITY_TABLE[EFE_HIT_ENTITY_INDEX])->stats.current.isHit == 0) {
+				*out = 1;
+				return;
+			}
+			EFE_HIT_ENTITY_INDEX++;
+			break;
+		case 1:
+			*out = 1;
+			return;
+		default:
+			return;
+		}
+	}
+}
+
+void VS_getVectorEulerAngles(void)
+{
+	SVECTOR rot;
+	EfeVector *out;
+	EfeVector *v;
+
+	v = EFE_POP1(EfeVector *);
+	out = EFE_POP1(EfeVector *);
+	toEulerAngles(&rot, v->vx, v->vy, v->vz);
+	copyVector(out, &rot);
+}
+
+void VS_printDebugValue(void)
+{
+	int32_t value;
+
+	value = EFE_POP1(int32_t);
+	printf(VS_FMT_D, value);
+}
+
+void VS_getRandomInRange(void)
+{
+	int32_t b;
+	int32_t a;
+	int32_t *out;
+
+	a = EFE_POP1(int32_t);
+	b = EFE_POP1(int32_t);
+	out = EFE_POP1(int32_t *);
+	*out = customRandom(b, a);
+}
+
+void VS_interpolateValue(void)
+{
+	int32_t *out;
+	int32_t lo;
+	int32_t hi;
+	int32_t t;
+	int32_t start;
+	int32_t end;
+	int32_t tmp;
+
+	end = EFE_POP1(int32_t);
+	start = EFE_POP1(int32_t);
+	t = EFE_POP1(int32_t);
+	hi = EFE_POP1(int32_t);
+	lo = EFE_POP1(int32_t);
+	out = EFE_POP1(int32_t *);
+	if (hi < lo) {
+		tmp = lo;
+		lo = hi;
+		hi = tmp;
+	}
+
+	if (t < lo) {
+		t = lo;
+	}
+
+	if (hi < t) {
+		t = hi;
+	}
+
+	if (lo == hi) {
+		*out = start;
+	} else {
+		*out = start + ((t - lo) * (end - start) / (hi - lo));
+	}
+}
+
+void VS_calculateCosine(void)
+{
+	int32_t *out;
+	int32_t angle;
+	int32_t scale;
+
+	out = EFE_POP1(int32_t *);
+	scale = EFE_POP1(int32_t);
+	angle = EFE_POP1(int32_t);
+	*out = (scale * rcos(angle & 0xfff)) >> 12;
+}
+
+void VS_calculateSine(void)
+{
+	int32_t *out;
+	int32_t angle;
+	int32_t scale;
+
+	out = EFE_POP1(int32_t *);
+	scale = EFE_POP1(int32_t);
+	angle = EFE_POP1(int32_t);
+	*out = (scale * rsin(angle & 0xfff)) >> 12;
+}
+
+void VS_getSourceDigimonSize(void)
+{
+	EfeVector *out;
+	int16_t radius;
+	int16_t height;
+
+	out = EFE_POP1(EfeVector *);
+	radius = DIGIMON_DATA[EFE_SCRIPT_CONTEXT->sourceEntity->type].radius;
+	height = DIGIMON_DATA[EFE_SCRIPT_CONTEXT->sourceEntity->type].height;
+	out->vx = radius;
+	out->vy = height;
+	out->vz = radius;
+}
+
+void VS_applyHomingMovement(void)
+{
+	EfeVector *target;
+	int32_t minSpeed;
+	int32_t maxSpeed;
+	int32_t unused;
+	int32_t limit;
+	int32_t dy;
+	int32_t dp;
+	int32_t *pos;
+	SVECTOR d;
+	SVECTOR rot;
+	SVECTOR out;
+	MATRIX m;
+	int32_t *speed;
+	int32_t yaw;
+	int32_t pitch;
+
+	limit = EFE_POP1(int32_t);
+	speed = EFE_POP1(int32_t *);
+	unused = EFE_POP1(int32_t);
+	maxSpeed = EFE_POP1(int32_t);
+	minSpeed = EFE_POP1(int32_t);
+	target = EFE_POP1(EfeVector *);
+
+	pos = (int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4);
+	d.vx = target->vx - pos[0];
+	d.vy = target->vy - pos[1];
+	d.vz = target->vz - pos[2];
+	rot.vx = 0;
+	rot.vy = -*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14);
+	rot.vz = 0;
+	RotMatrixZYX(&rot, &m);
+	ApplyMatrixSV(&m, &d, &out);
+
+	yaw = _atan(out.vx, out.vz);
+	yaw -= 0x400;
+	yaw = -yaw;
+	yaw &= 0xfff;
+	if (yaw >= 0x801) {
+		yaw -= 0x1000;
+	}
+	if (yaw > 0) {
+		if (yaw < limit) {
+			dy = yaw;
+		} else {
+			dy = limit;
+		}
+	} else {
+		if (-yaw < limit) {
+			dy = yaw;
+		} else {
+			dy = -limit;
+		}
+	}
+	*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14) += dy;
+
+	pitch = _atan(out.vy, out.vz);
+	pitch -= 0x400;
+	pitch -= *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18);
+	pitch &= 0xfff;
+	if (pitch >= 0x801) {
+		pitch -= 0x1000;
+	}
+	if (pitch > 0) {
+		if (pitch < limit) {
+			dp = pitch;
+		} else {
+			dp = limit;
+		}
+	} else {
+		if (-pitch < limit) {
+			dp = pitch;
+		} else {
+			dp = -limit;
+		}
+	}
+	*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18) += dp;
+
+	if (((*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18) & 0xfff) >= 0x400L) && ((*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18) & 0xfff) < 0xc00)) {
+		*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18) = 0x800 - *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18);
+	}
+
+	if (limit * 40 / 100 >= abs(dp) + abs(dy)) {
+		*speed = *speed * 130;
+		*speed = *speed / 100;
+		if (maxSpeed < *speed) {
+			*speed = maxSpeed;
+		}
+	} else {
+		*speed = *speed * 82;
+		*speed = *speed / 100;
+		if (*speed < minSpeed) {
+			*speed = minSpeed;
+		}
+	}
+
+	d.vx = 0;
+	d.vy = 0;
+	d.vz = -*speed << 3;
+	rot.vx = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18);
+	rot.vy = 0;
+	rot.vz = 0;
+	RotMatrixZYX(&rot, &m);
+	ApplyMatrixSV(&m, &d, &out);
+	rot.vx = 0;
+	rot.vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14);
+	rot.vz = 0;
+	RotMatrixZYX(&rot, &m);
+	ApplyMatrixSV(&m, &out, &out);
+	pos[0] += out.vx >> 3;
+	pos[1] += out.vy >> 3;
+	pos[2] += out.vz >> 3;
+}
+
+void VS_getUVAnimTimer(void)
+{
+	int32_t *out;
+	EfeUvAnim *anim;
+	int32_t idx;
+
+	idx = EFE_POP1(int32_t);
+	out = EFE_POP1(int32_t *);
+	anim = &EFE_DATA_ITERATOR->uvAnims[idx];
+	*out = anim->frame;
+}
+
+void VS_checkTargetCollision(void)
+{
+	EfeVector *out;
+	int32_t *flag;
+	int32_t *out2;
+	int32_t r;
+	long *tgt;
+	int32_t dist;
+	int32_t d0;
+	int32_t d1;
+	int16_t ang;
+
+	r = EFE_POP1(int32_t);
+	flag = EFE_POP1(int32_t *);
+	out2 = EFE_POP1(int32_t *);
+	out = EFE_POP1(EfeVector *);
+	tgt = EFE_SCRIPT_CONTEXT->targetEntity->posData->posMatrix.workm.t;
+	d0 = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx - tgt[0];
+	d1 = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0xc) - tgt[2];
+	dist = d0 * d0 + d1 * d1;
+	if (r * r < dist) {
+		goto zero;
+	}
+
+	*flag = 1;
+	ang = _atan(d0, d1);
+	ang -= 0x400;
+	ang = -ang;
+	ang &= 0xfff;
+	*out2 = ang + 0x800;
+	ang += 0x800;
+	ang >>= 3;
+	out->vz = (r * _sin(0x80 - ang)) >> 12;
+	out->vx = (r * _cos(0x80 - ang)) >> 12;
+	return;
+zero:
+	*flag = 0;
+}
+
+void VS_rotateTransformTowardPoint(void)
+{
+	EfeVector *p;
+	EfeTransform *q;
+	int32_t angle;
+
+	p = EFE_POP1(EfeVector *);
+	q = (EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4);
+	angle = _atan(p->vx - q->position.vx, p->vz - q->position.vz);
+	angle -= 0x400;
+	angle = -angle;
+	angle &= 0xfff;
+	*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + (int32_t)&((EfeInstance *)0)->transform.rotation.vy) = angle;
+}
+
+void VS_setTransformToSourceBone(void)
+{
+	int32_t idx;
+	int32_t *p;
+	MATRIX *bone;
+	int32_t s1;
+	int32_t s2;
+
+	idx = EFE_POP1(int32_t);
+	p = &((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	bone = &EFE_SCRIPT_CONTEXT->sourceEntity->posData[idx].posMatrix.workm;
+	*p++ = bone->t[0];
+	*p++ = bone->t[1];
+	*p++ = bone->t[2];
+	*p++ = 0;
+	*p++ = EFE_SCRIPT_CONTEXT->sourceEntity->posData->rotation.vy;
+	*p = 0;
+	s1 = _sin(-(p[-1] >> 3));
+	s2 = _sin(-(((p[-1] >> 3) + 0x80) & 0x1ff));
+	p[-5] = p[-5] + ((s1 * 25) >> 12);
+	p[-3] = p[-3] + ((s2 * 25) >> 12);
+}
+
+void VS_renderParallaxSprites(void)
+{
+	POLY_FT4 *prim;
+	EfeParallaxSprite *p;
+	ModelComponent *m;
+	int32_t ox;
+	int32_t oy;
+	int16_t x;
+	int16_t y;
+	int16_t sz;
+
+	oy = EFE_POP1(int32_t);
+	ox = EFE_POP1(int32_t);
+	p = EFE_POP1(EfeParallaxSprite *);
+	m = EFE_DATA_ITERATOR->model;
+	prim = (POLY_FT4 *)GsGetWorkBase();
+
+	while (1) {
+		if (p->size < 0) {
+			break;
+		}
+		SetPolyFT4(prim);
+		prim->r0 = prim->g0 = prim->b0 = 0x80;
+		prim->tpage = m->pixelPage | 0x20;
+		prim->clut = m->clutPage + 0x40;
+		setUVWH(prim, m->pixelOffsetX + p->u, m->pixelOffsetY, 0x1f, 0x1f);
+		x = (p->depth * (p->x + ox)) >> 7;
+		y = (p->depth * (p->y + oy)) >> 7;
+		x %= 400;
+		y %= 320;
+		if (x < 0) {
+			x += 360;
+		}
+		if (y < 0) {
+			y += 280;
+		}
+		x -= 0xc8;
+		y -= 0xa0;
+		sz = (p->size * p->depth) >> 8;
+		setXYWH(prim, x, y, sz, sz);
+		AddPrim(ACTIVE_ORDERING_TABLE->org + 0x1e, prim);
+		prim++;
+		p += 1;
+	}
+
+	GsSetWorkBase((PACKET *)prim);
+}
+
+void VS_renderScrollingBackground(void)
+{
+	int16_t tx;
+	ModelComponent *model;
+	int16_t ty;
+	int16_t ux;
+	int16_t uy;
+	char *tiles;
+	int16_t col;
+	POLY_FT4 *prim;
+	int16_t row;
+	int16_t *pal;
+	int32_t sx;
+	int32_t sy;
+	int32_t color;
+	int16_t x0;
+	int16_t y0;
+
+	color = EFE_POP1(int32_t);
+	sy = EFE_POP1(int32_t);
+	sx = EFE_POP1(int32_t);
+	pal = EFE_POP1(int16_t *);
+	tiles = EFE_POP1(char *);
+
+	sx %= 0x140;
+	tx = (sx >> 5) % 11;
+	if (sx < 0) {
+		sx += 0x140;
+		tx += 10;
+	}
+
+	sy %= 0x100;
+	ty = (sy >> 5) % 9;
+	if (sy < 0) {
+		sy += 0x100;
+		ty += 8;
+	}
+
+	model = EFE_DATA_ITERATOR->model;
+	prim = (POLY_FT4 *)GsGetWorkBase();
+	y0 = (sy & 0x1f) - 0x98;
+	for (row = 0; row < 9; row++) {
+		x0 = (sx & 0x1f) - 0xc0;
+		uy = ((ty + row) % 9) * 11;
+		for (col = 0; col < 11; col++) {
+			ux = (tx + col) % 11;
+			SetPolyFT4(prim);
+			SetSemiTrans(prim, 1);
+			prim->code |= 2;
+			prim->r0 = prim->g0 = prim->b0 = color;
+			prim->tpage = model->pixelPage | 0x20;
+			prim->clut = model->clutPage;
+			setUVWH(prim, model->pixelOffsetX + pal[tiles[uy + ux]], model->pixelOffsetY, 0x1f, 0x1f);
+			setXYWH(prim, x0, y0, 0x20, 0x20);
+			AddPrim(ACTIVE_ORDERING_TABLE->org + 0x1e, prim);
+			prim++;
+			x0 += 0x20;
+		}
+		y0 += 0x20;
+	}
+
+	GsSetWorkBase((PACKET *)prim);
+}
+
+void VS_setTransformToBoneOffset(void)
+{
+	MATRIX m;
+	SVECTOR in;
+	SVECTOR out;
+	long *p;
+
+	p = (long *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4);
+	calculateBoneMatrix(EFE_SCRIPT_CONTEXT->sourceEntity,
+	                    EFE_SCRIPT_CONTEXT->boneOffset->boneId, &m);
+	in.vx = EFE_SCRIPT_CONTEXT->boneOffset->positionX;
+	in.vy = EFE_SCRIPT_CONTEXT->boneOffset->positionY;
+	in.vz = EFE_SCRIPT_CONTEXT->boneOffset->positionZ;
+	ApplyMatrixSV(&m, &in, &out);
+	p[0] = out.vx;
+	p[1] = out.vy;
+	p[2] = out.vz;
+	*p++ += m.t[0];
+	*p++ += m.t[1];
+	*p++ += m.t[2];
+	*p++ = 0;
+	*p++ = EFE_SCRIPT_CONTEXT->sourceEntity->posData->rotation.vy;
+	*p = 0;
+}
+
+void VS_playEFESound(void)
+{
+	int32_t id;
+	int32_t i;
+
+	EfeSound *p;
+
+	id = EFE_POP1(int32_t);
+	if (id < 0) {
+		return;
+	}
+
+	if ((id != 0x12) && (id != 0x20) && (id != 0x21) && (id != 0x22)) {
+		playSound(8, id);
+		return;
+	}
+
+	p = EFE_SOUND_DATA;
+	for (i = 0; i < 10; i++) {
+		if (p->mask < 0) {
+			p->mask = playSound2(8, id);
+			p->context = EFE_SCRIPT_CONTEXT;
+			return;
+		}
+		p++;
+	}
+}
+
+void VS_addSourceEntityParticleFX(void)
+{
+	int32_t timer;
+
+	timer = EFE_POP1(int32_t);
+	addEntityParticleFX(EFE_SCRIPT_CONTEXT->sourceEntity, timer);
+}
+
+void VS_copyFromParentTransform(void)
+{
+	int32_t *src;
+	int32_t dst;
+	int32_t off;
+	int32_t size;
+
+	size = EFE_POP1(int32_t);
+	off = EFE_POP1(int32_t);
+	dst = EFE_POP1(int32_t);
+	src = (int32_t *)(EFE_PREVIOUS_DATA_SEGMENT + off);
+	switch (size) {
+	case 0xc:
+		*(int32_t *)dst = *src++;
+		*(int32_t *)(dst + 4) = *src++;
+		*(int32_t *)(dst + 8) = *src;
+		break;
+	case 4:
+		*(int32_t *)dst = *src;
+		break;
+	case 2:
+		*(int16_t *)dst = *(int16_t *)src;
+		break;
+	case 1:
+		*(int8_t *)dst = *(int8_t *)src;
+		break;
+	}
+}
+
+void VS_calculatePolarOffset(void)
+{
+	int32_t ang;
+	int32_t r;
+	EfeVector *out;
+
+	r = EFE_POP1(int32_t);
+	ang = EFE_POP1(int32_t);
+	out = EFE_POP1(EfeVector *);
+	out->vz = (r * _sin(0x80 - ang)) >> 12;
+	out->vx = (r * _cos(0x80 - ang)) >> 12;
+}
+
+GARBAGE(VS_renderProjectedSprite, 69);
+
+void VS_renderProjectedSprite(void)
+{
+	ModelComponent *m;
+	VECTOR *col;
+
+	m = EFE_DATA_ITERATOR->model;
+	EFE_SPRITE_SCRATCH->sprite.tpage = m->pixelPage | 0x20;
+	EFE_SPRITE_SCRATCH->sprite.cx = (m->clutPage & 0x3f) << 4;
+	EFE_SPRITE_SCRATCH->sprite.cy = m->clutPage >> 6;
+	EFE_SPRITE_SCRATCH->sprite.u = m->pixelOffsetX;
+	EFE_SPRITE_SCRATCH->sprite.v = m->pixelOffsetY;
+	EFE_SPRITE_SCRATCH->sprite.cy += (int16_t)EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.attribute = EFE_POP1(int32_t) << 28;
+	EFE_SPRITE_SCRATCH->sprite.rotate = EFE_POP1(int32_t) << 12;
+	EFE_SPRITE_SCRATCH->sprite.my = EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.mx = EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.h = EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.w = EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.v += EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.u += EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.scaley = EFE_POP1(int32_t);
+	EFE_SPRITE_SCRATCH->sprite.scalex = EFE_POP1(int32_t);
+	col = EFE_POP1(VECTOR *);
+	EFE_SPRITE_SCRATCH->sprite.r = col->vx;
+	EFE_SPRITE_SCRATCH->sprite.g = col->vy;
+	EFE_SPRITE_SCRATCH->sprite.b = col->vz;
+	EFE_SPRITE_SCRATCH->position = EFE_POP1(VECTOR *);
+	SetRotMatrix(&GsWSMATRIX);
+	SetTransMatrix(&GsWSMATRIX);
+	copyVector(&EFE_SPRITE_SCRATCH->point, EFE_SPRITE_SCRATCH->position);
+	EFE_SPRITE_SCRATCH->otz = RotTransPers(&EFE_SPRITE_SCRATCH->point, &EFE_SPRITE_SCRATCH->sxy, &EFE_SPRITE_SCRATCH->p, &EFE_SPRITE_SCRATCH->flag);
+	if ((EFE_SPRITE_SCRATCH->flag & 0x80000000) == 0) {
+		*(int32_t *)&EFE_SPRITE_SCRATCH->sprite.x = EFE_SPRITE_SCRATCH->sxy;
+		EFE_SPRITE_SCRATCH->sprite.scalex = ((uint32_t)(EFE_SPRITE_SCRATCH->sprite.scalex * VIEWPORT_DISTANCE) << 5) / (uint32_t)EFE_SPRITE_SCRATCH->otz;
+		EFE_SPRITE_SCRATCH->sprite.scaley = ((uint32_t)(EFE_SPRITE_SCRATCH->sprite.scaley * VIEWPORT_DISTANCE) << 5) / (uint32_t)EFE_SPRITE_SCRATCH->otz;
+		EFE_SPRITE_SCRATCH->otz = (EFE_SPRITE_SCRATCH->otz - 0xa) >> 2;
+		if (EFE_SPRITE_SCRATCH->otz >= 0x20 && EFE_SPRITE_SCRATCH->otz < 0x1000) {
+			GsSortSprite(&EFE_SPRITE_SCRATCH->sprite, ACTIVE_ORDERING_TABLE, (uint16_t)EFE_SPRITE_SCRATCH->otz);
+		}
+	}
+}
+
+void VS_getTargetDigimonSize(void)
+{
+	EfeVector *out;
+	int16_t radius;
+	int16_t height;
+
+	out = EFE_POP1(EfeVector *);
+	radius = DIGIMON_DATA[EFE_SCRIPT_CONTEXT->targetEntity->type].radius;
+	height = DIGIMON_DATA[EFE_SCRIPT_CONTEXT->targetEntity->type].height;
+	out->vx = radius;
+	out->vy = height;
+	out->vz = radius;
+}
+
+void VS_renderParticleFlashSprite(void)
+{
+	ParticleFlashData flash;
+	ModelComponent *m;
+	int32_t n;
+
+	m = EFE_DATA_ITERATOR->model;
+	n = EFE_POP1(int32_t);
+	flash.depth = EFE_POP1(int32_t);
+	flash.scale = EFE_POP1(int16_t);
+	flash.sizeY = EFE_POP1(int32_t);
+	flash.sizeX = EFE_POP1(int32_t);
+	flash.vBase = EFE_POP1(int32_t) + m->pixelOffsetY;
+	flash.uBase = EFE_POP1(int32_t) + m->pixelOffsetX;
+	flash.screenPos.vy = EFE_POP1(int32_t);
+	flash.screenPos.vx = EFE_POP1(int32_t);
+	if (flash.depth < 0xa) {
+		return;
+	}
+
+	if (flash.depth >= 0x1000) {
+		return;
+	}
+
+	flash.tpage = m->pixelPage | 0x20;
+	flash.clut = m->clutPage + (n << 6);
+	flash.color.r = flash.color.g = flash.color.b = flash.colorScale = 0x80;
+	renderParticleFlash(&flash);
+}
+
+void VS_projectPositionToScreen(void)
+{
+	DVECTOR screen;
+	SVECTOR pos;
+	int32_t *depthOut;
+	int32_t *xOut;
+	int32_t *yOut;
+	EfeVector *src;
+
+	depthOut = EFE_POP1(int32_t *);
+	yOut = EFE_POP1(int32_t *);
+	xOut = EFE_POP1(int32_t *);
+	src = EFE_POP1(EfeVector *);
+	copyVector(&pos, src);
+	*depthOut = worldPosToScreenPos(&pos, &screen);
+	*depthOut >>= 4;
+	*xOut = screen.vx;
+	*yOut = screen.vy;
+}
+
+void VS_renderScreenSprite(void)
+{
+	GsSPRITE sprite;
+	ModelComponent *m;
+	int32_t flip;
+	int32_t depth;
+	int32_t ox;
+	int32_t oy;
+
+	m = EFE_DATA_ITERATOR->model;
+	flip = EFE_POP1(int32_t);
+	sprite.scaley = EFE_POP1(int32_t);
+	sprite.scalex = EFE_POP1(int32_t);
+	depth = EFE_POP1(int32_t);
+	sprite.rotate = EFE_POP1(int32_t) << 12;
+	sprite.my = EFE_POP1(int32_t);
+	sprite.mx = EFE_POP1(int32_t);
+	sprite.h = EFE_POP1(int32_t);
+	sprite.w = EFE_POP1(int32_t);
+	sprite.v = EFE_POP1(int32_t) + m->pixelOffsetY;
+	sprite.u = EFE_POP1(int32_t) + m->pixelOffsetX;
+	sprite.y = EFE_POP1(int32_t);
+	sprite.x = EFE_POP1(int32_t);
+
+	if (flip < 0) {
+#if VERSION_IS(JP)
+		getDrawingOffsetCopy(&ox, &oy);
+		sprite.x += (int16_t)(0xa0 - ox);
+		sprite.y += (int16_t)(0x78 - oy);
+#else
+		ox = DRAWING_OFFSET_X;
+		oy = DRAWING_OFFSET_Y;
+		sprite.x += (int16_t)(0xa0 - ox);
+		sprite.y += (int16_t)(0x78 - oy);
+#endif
+		sprite.cy = -flip + (m->clutPage >> 6);
+	} else {
+		sprite.cy = flip + (m->clutPage >> 6);
+	}
+
+	sprite.attribute = 0x50000000;
+	sprite.tpage = m->pixelPage | 0x20;
+	sprite.cx = (m->clutPage & 0x3f) << 4;
+	sprite.r = sprite.g = sprite.b = 0x80;
+
+#if VERSION_EQUAL_OR_OLDER(JP_TRIAL)
+	GsSortSprite(&sprite, ACTIVE_ORDERING_TABLE, (uint16_t)depth);
+#else
+	if ((depth >= 0) && (depth < 0x1000)) {
+		GsSortSprite(&sprite, ACTIVE_ORDERING_TABLE, (uint16_t)depth);
+	}
+#endif
+}
+
+void VS_addCloudEffect(void)
+{
+	SVECTOR pos;
+	EfeVector *v;
+
+	v = EFE_POP1(EfeVector *);
+	pos.vx = v->vx;
+	pos.vy = v->vy;
+	pos.vz = v->vz;
+	createCloudFX(&pos);
+}
+
+void VS_selectNextTargetEntity(void)
+{
+	int32_t *out;
+
+	out = EFE_POP1(int32_t *);
+	if (EFE_TARGET_ENTITY_INDEX >= 10) {
+		*out = -1;
+		return;
+	}
+
+	for (; EFE_TARGET_ENTITY_INDEX < 10; EFE_TARGET_ENTITY_INDEX++) {
+		if (ENTITY_TABLE[EFE_TARGET_ENTITY_INDEX] == NULL) {
+			continue;
+		}
+		if (ENTITY_TABLE[EFE_TARGET_ENTITY_INDEX] == EFE_SCRIPT_CONTEXT->sourceEntity) {
+			continue;
+		}
+		if (ENTITY_TABLE[EFE_TARGET_ENTITY_INDEX]->isOnMap == 0) {
+			continue;
+		}
+		if (ENTITY_TABLE[EFE_TARGET_ENTITY_INDEX]->isOnScreen == 0) {
+			continue;
+		}
+		if (((DigimonEntity *)ENTITY_TABLE[EFE_TARGET_ENTITY_INDEX])->stats.current.currentHP > 0) {
+			break;
+		}
+	}
+
+	if (EFE_TARGET_ENTITY_INDEX >= 10) {
+		*out = -1;
+		return;
+	}
+
+	EFE_SCRIPT_CONTEXT->targetEntity = ENTITY_TABLE[EFE_TARGET_ENTITY_INDEX];
+	*out = EFE_TARGET_ENTITY_INDEX++;
+}
+
+void VS_addParticleEmitter(void)
+{
+	int32_t b;
+	int32_t n;
+	EfeVector *vec;
+	int32_t a;
+	int32_t i;
+	EfeParticleEffect *e;
+
+	a = EFE_POP1(int32_t);
+	vec = EFE_POP1(EfeVector *);
+	n = EFE_POP1(int32_t);
+	b = EFE_POP1(int32_t);
+	for (i = 0; i < 4; i++) {
+		if (EFE_PARTICLE_EMITTERS[i].transform == NULL) {
+			break;
+		}
+	}
+
+	if (i == 4) {
+		return;
+	}
+
+	e = &EFE_PARTICLE_EMITTERS[i];
+	e->type = b;
+	for (i = 0; i < 0x15; i++) {
+		e->particles[i].distance = 0;
+	}
+
+	e->transform = EFE_CURRENT_DATA_SEGMENT;
+	e->frames = a;
+	e->color.r = vec->vx;
+	e->color.g = vec->vy;
+	e->color.b = vec->vz;
+	e->startOffset = n * 16;
+	e->startVelocity = n / 8 * 16;
+	e->acceleration = n / 160 * 16;
+}
+
+void VS_setEFEModelObjectColor(void)
+{
+	EfeColor *color;
+	int32_t idx;
+	struct TMD_STRUCT *obj;
+	TMD_P_TNF4 *prim;
+	int32_t i;
+	int32_t count;
+	uint8_t t;
+
+	color = EFE_POP1(EfeColor *);
+	idx = EFE_POP1(int32_t);
+	obj = EFE_DATA_ITERATOR->model->modelPtr->obj;
+	obj += idx;
+	count = obj->primn;
+	prim = (TMD_P_TNF4 *)obj->primtop;
+	for (i = 0; i < count; i++) {
+		t = *(int32_t *)prim >> 24;
+		switch (t) {
+		case 0x2d:
+		case 0x2f:
+			*(int8_t *)&prim->r0 = (int16_t)color->red;
+			*(int8_t *)&prim->g0 = (int16_t)color->green;
+			*(int8_t *)&prim->b0 = (int16_t)color->blue;
+			prim += 1;
+			break;
+		}
+	}
+}
+
+void VS_copyTargetEntityPosition(void)
+{
+	EfeVector *out;
+	int32_t *m;
+
+	out = EFE_POP1(EfeVector *);
+	m = (int32_t *)(((char **)(int32_t)EFE_SCRIPT_CONTEXT->targetEntity)[1] + 0x34);
+	out->vx = m[5];
+	out->vy = m[6];
+	out->vz = m[7];
+}
+
+void VS_steerTransformTowardPoint(void)
+{
+	EfeVector *target;
+	int32_t speed;
+	MATRIX m;
+	SVECTOR in;
+	SVECTOR rot;
+	SVECTOR out;
+	EfeTransform *pos;
+	int32_t turn;
+	int32_t d;
+
+	turn = EFE_POP1(int32_t);
+	speed = EFE_POP1(int32_t);
+	target = EFE_POP1(EfeVector *);
+	pos = (EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4);
+	rot.vx = 0;
+	rot.vy = -*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14);
+	rot.vz = 0;
+	in.vx = target->vx - pos->position.vx;
+	in.vy = 0;
+	in.vz = target->vz - pos->position.vz;
+	RotMatrixZYX(&rot, &m);
+	ApplyMatrixSV(&m, &in, &out);
+	d = _atan(out.vx, out.vz);
+	d -= 0x400;
+	d = -d;
+	d &= 0xfff;
+	if (d >= 0x801) {
+		d -= 0x1000;
+	}
+
+	if (d > 0) {
+		if (d < turn) {
+			turn = d;
+		}
+	} else if (-d < turn) {
+		turn = d;
+	} else {
+		turn = -turn;
+	}
+
+	in.vx = 0;
+	in.vy = 0;
+	in.vz = -speed * 8;
+	rot.vx = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10);
+	*(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14) += turn;
+	rot.vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x14);
+	rot.vz = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x18);
+	RotMatrixZYX(&rot, &m);
+	ApplyMatrixSV(&m, &in, &out);
+	pos->position.vx += out.vx >> 3;
+	pos->position.vy += out.vy >> 3;
+	pos->position.vz += out.vz >> 3;
+}
+
+void VS_interpolateVector(void)
+{
+	int32_t t0;
+	int32_t t1;
+	int32_t t;
+	EfeVector *a;
+	EfeVector *b;
+	EfeVector *out;
+
+	out = EFE_POP1(EfeVector *);
+	t = EFE_POP1(int32_t);
+	t1 = EFE_POP1(int32_t);
+	t0 = EFE_POP1(int32_t);
+	b = EFE_POP1(EfeVector *);
+	a = EFE_POP1(EfeVector *);
+	out->vx = lerp(a->vx, b->vx, t0, t1, t);
+	out->vy = lerp(a->vy, b->vy, t0, t1, t);
+	out->vz = lerp(a->vz, b->vz, t0, t1, t);
+}
+
+void VS_discardEFEOperandPair(void)
+{
+	int32_t second;
+	int32_t first;
+
+	first = EFE_POP1(int32_t);
+	second = EFE_POP1(int32_t);
+}
+
+void VS_getScatteredSpawnPosition(void)
+{
+	int32_t r;
+	EfeVector *out;
+	int32_t *p;
+	int32_t *src;
+
+	r = EFE_POP1(int32_t);
+	out = EFE_POP1(EfeVector *);
+
+	if (EFE_PREVIOUS_DATA_SEGMENT == 0) {
+	}
+
+	if (EFE_PREVIOUS_DATA_SEGMENT == 0) {
+		p = (int32_t *)(((char **)(int32_t)EFE_SCRIPT_CONTEXT->sourceEntity)[1] + (*(int16_t *)(int32_t)EFE_SCRIPT_CONTEXT->boneOffset * 136) + 0x34);
+		out->vx = p[5];
+		out->vy = p[6];
+		out->vz = p[7];
+	} else {
+		src = (int32_t *)(EFE_PREVIOUS_DATA_SEGMENT + 4);
+		out->vx = *src++;
+		out->vy = *src++;
+		out->vz = *src;
+	}
+
+	if (r > 0) {
+		out->vx = out->vx + ((rand() % r) - (r >> 1));
+		out->vy = out->vy + ((rand() % r) - (r >> 1));
+		out->vz = out->vz + ((rand() % r) - (r >> 1));
+	}
+}
+
+void VS_checkCollisionWithDefaultPower(void)
+{
+	EFE_PUSH1(int32_t, -1);
+	VS_applyBoxAttackHit();
+}
+
+void VS_addAttackObjectToTarget(void)
+{
+	SVECTOR pos;
+	int32_t i;
+	int32_t j;
+
+	if (((DigimonEntity *)EFE_SCRIPT_CONTEXT->targetEntity)->stats.current.isHit != 0) {
+		return;
+	}
+
+	pos.vx = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	pos.vy = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 8);
+	pos.vz = *(int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0xc);
+	for (i = 1; i < 10; i++) {
+		if ((int32_t)ENTITY_TABLE[i] == (int32_t)EFE_SCRIPT_CONTEXT->targetEntity) {
+			break;
+		}
+	}
+
+	((DigimonEntity *)EFE_SCRIPT_CONTEXT->targetEntity)->stats.current.isHit = 1;
+	for (j = 1; j < 10; j++) {
+		if (ENTITY_TABLE[j] == EFE_SCRIPT_CONTEXT->sourceEntity) {
+			break;
+		}
+	}
+
+	addAttackObject(i, 1, &pos, COMBAT_EFFECT_ITR, EFE_SUB_EFFECT_INDEX, j);
+}
+
+void VS_setTransformToTargetBone(void)
+{
+	int32_t r;
+	int32_t idx;
+	int32_t *p;
+	MATRIX *bone;
+	int32_t s1;
+	int32_t s2;
+
+	r = EFE_POP1(int32_t);
+	idx = EFE_POP1(int32_t);
+	p = &((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	bone = &EFE_SCRIPT_CONTEXT->targetEntity->posData[idx].posMatrix.workm;
+	*p++ = bone->t[0];
+	*p++ = bone->t[1];
+	*p++ = bone->t[2];
+	*p++ = 0;
+	*p++ = EFE_SCRIPT_CONTEXT->targetEntity->posData->rotation.vy;
+	*p = 0;
+	s1 = _sin(-(p[-1] >> 3));
+	s2 = _sin(-(((p[-1] >> 3) + 0x80) & 0x1ff));
+	p[-5] = p[-5] + ((r * s1) >> 12);
+	p[-3] = p[-3] + ((r * s2) >> 12);
+}
+
+void VS_renderCenteredSprite(void)
+{
+	int32_t y;
+	int32_t x;
+
+	y = EFE_POP1(int32_t);
+	x = EFE_POP1(int32_t);
+	EFE_PUSH1(int32_t, x + 1);
+	EFE_PUSH1(int32_t, y + 1);
+	EFE_PUSH1(int32_t, x / 2);
+	EFE_PUSH1(int32_t, y / 2);
+	EFE_PUSH1(int32_t, 0);
+	EFE_PUSH1(int32_t, 5);
+	EFE_PUSH1(int32_t, 0);
+	VS_renderProjectedSprite();
+}
+
+void VS_initializeEFETransform(void)
+{
+	int32_t *dst;
+	int32_t *src;
+
+	dst = &((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	if (EFE_PREVIOUS_DATA_SEGMENT == 0L) {
+		VS_setTransformToBoneOffset();
+		return;
+	}
+
+	src = (int32_t *)((int32_t)EFE_PREVIOUS_DATA_SEGMENT + 4);
+	*dst++ = *src++;
+	*dst++ = *src++;
+	*dst++ = *src++;
+	*dst++ = *src++;
+	*dst++ = *src++;
+	*dst = *src;
+}
+
+void VS_drawTMD(void)
+{
+	EFE_SCRATCH->scale = EFE_POP1(VECTOR *);
+	EFE_SCRATCH->id = EFE_POP1(int32_t);
+	EFE_SCRATCH->rot.vx = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[0];
+	EFE_SCRATCH->rot.vy = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[1];
+	EFE_SCRATCH->rot.vz = ((int32_t *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10))[2];
+	RotMatrix(&EFE_SCRATCH->rot, &EFE_SCRATCH->m1);
+	ScaleMatrix(&EFE_SCRATCH->m1, EFE_SCRATCH->scale);
+	EFE_SCRATCH->m1.t[0] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	EFE_SCRATCH->m1.t[1] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vy;
+	EFE_SCRATCH->m1.t[2] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vz;
+	GsMulCoord0(&GsWSMATRIX, &EFE_SCRATCH->m1, &EFE_SCRATCH->m0);
+	if (EFE_SCRATCH->m0.t[2] < -0x12c) {
+		return;
+	}
+
+	if (EFE_SCRATCH->m0.t[2] >= 0x10000) {
+		return;
+	}
+
+	GsSetLightMatrix(&EFE_SCRATCH->m1);
+	GsSetLsMatrix(&EFE_SCRATCH->m0);
+	GsLinkObject4((unsigned long)EFE_DATA_ITERATOR->model->modelPtr->obj, &EFE_SCRATCH->obj, EFE_SCRATCH->id);
+	EFE_SCRATCH->obj.coord2 = NULL;
+	EFE_SCRATCH->obj.attribute = 0;
+	GsSortObject4J(&EFE_SCRATCH->obj, ACTIVE_ORDERING_TABLE, 2, EFE_SORT_WORKSPACE);
+}
+
+void VS_initializeSubEffectInstructions(void)
+{
+	int32_t b;
+	int32_t a;
+
+	a = EFE_POP1(int32_t);
+	b = EFE_POP1(int32_t);
+	EFE_CURRENT_DATA_SEGMENT->frame = 0;
+	EFE_SCRIPT_CONTEXT->inst = (int16_t *)b;
+	EFE_SCRIPT_CONTEXT->someInst = (int16_t *)a;
+}
+
+void VS_initializeUVAnim(void)
+{
+	int32_t val;
+	int32_t idx;
+	int32_t ptr;
+	EfeUvAnim *anim;
+	int32_t i;
+	uint32_t q;
+
+	ptr = EFE_POP1(int32_t);
+	val = EFE_POP1(int32_t);
+	idx = EFE_POP1(int32_t);
+	if ((idx < 0) || (idx >= EFE_DATA_ITERATOR->numObjects)) {
+		EFE_ACTIVE_SECTION = -2;
+		EFE_SCRIPT_PTR = NULL;
+		return;
+	}
+
+	anim = &EFE_DATA_ITERATOR->uvAnims[idx];
+	anim->unk0 = val;
+	if (ptr == -1) {
+		return;
+	}
+
+	anim->numKeyframes = *(int32_t *)ptr;
+	anim->uvData = (EfeUvKeyframe *)(ptr + 4);
+	anim->uv = anim->uvData;
+	anim->uvFrame = 0;
+	anim->keyframe = 0;
+	anim->frame = 1;
+	anim->numFrames = 0;
+	q = (uint32_t)anim->uvData;
+	for (i = 0; i < anim->numKeyframes; i++) {
+		anim->numFrames += (int32_t)*(int16_t *)q;
+		q += 4;
+	}
+}
+
+void VS_checkTechCompatibility(void)
+{
+	EfeTechBoneOffset *entry;
+	int16_t type;
+
+	entry = EFE_POP1(EfeTechBoneOffset *);
+	type = (int16_t)getOriginalType(EFE_SCRIPT_CONTEXT->sourceEntity->type);
+	while (entry->type != type) {
+		if (entry->type < 0) {
+			EFE_ACTIVE_SECTION = -1;
+			EFE_SCRIPT_PTR = NULL;
+			break;
+		}
+		entry = (EfeTechBoneOffset *)((int32_t)entry + 0xa);
+	}
+
+	EFE_BONE_OFFSET = &entry->offset;
+	EFE_SCRIPT_CONTEXT->boneOffset = EFE_BONE_OFFSET;
+}
+
+void VS_spawnEFESubEffect(void)
+{
+	Entity *src;
+	int16_t i;
+	Entity *tgt;
+	int16_t *ip;
+	int16_t n;
+	int16_t stride;
+	EfeInstance *instance;
+
+	ip = EFE_SCRIPT_PTR;
+	EFE_TARGET_ENTITY_INDEX = 1;
+	n = ip[1];
+	instance = (EfeInstance *)(ip[2] + EFE_SCRIPT_HEAD);
+	stride = ip[4];
+	for (i = 0; i < n; i++) {
+		if (instance->frame == -1) {
+			break;
+		}
+		instance = (EfeInstance *)((int32_t)instance + stride);
+	}
+
+	if (i == n) {
+		VS_returnFromEFESubroutine();
+		return;
+	}
+
+	if (EFE_ACTIVE_SECTION == -1) {
+		EFE_ACTIVE_SECTION = i;
+	}
+
+	src = EFE_SCRIPT_CONTEXT->sourceEntity;
+	tgt = EFE_SCRIPT_CONTEXT->targetEntity;
+	for (;;) {
+		if (EFE_SCRIPT_CONTEXT->inst == NULL) {
+			break;
+		}
+		EFE_SCRIPT_CONTEXT++;
+		if ((int32_t)EFE_SCRIPT_CONTEXT >= (int32_t)EFE_DATA_ITERATOR->model->modelPtr) {
+			VS_returnFromEFESubroutine();
+			return;
+		}
+	}
+
+	EFE_PREVIOUS_DATA_SEGMENT = (int32_t)EFE_CURRENT_DATA_SEGMENT;
+	EFE_CURRENT_DATA_SEGMENT = instance;
+	EFE_SCRIPT_CONTEXT->instance = EFE_CURRENT_DATA_SEGMENT;
+	EFE_SCRIPT_CONTEXT->parentInstance = (EfeInstance *)EFE_PREVIOUS_DATA_SEGMENT;
+	if (EFE_PREVIOUS_DATA_SEGMENT == 0) {
+		EFE_SCRIPT_CONTEXT->sourceEntity = (Entity *)BATTLE_ATTACKING_DIGIMON;
+		EFE_SCRIPT_CONTEXT->targetEntity = (Entity *)BATTLE_TARGETED_DIGIMON;
+	} else {
+		EFE_SCRIPT_CONTEXT->sourceEntity = src;
+		EFE_SCRIPT_CONTEXT->targetEntity = tgt;
+	}
+
+	MAIN_D_80134CDC = 1;
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 0xc);
+}
+
+void VS_popEFEValueToVariable(void)
+{
+	int16_t *pc;
+
+	pc = (int16_t *)(int32_t)EFE_SCRIPT_PTR;
+	if (pc[2] == 0) {
+		*(int32_t *)(pc[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT) = EFE_POP1(int32_t);
+	} else {
+		*(int32_t *)(pc[1] + EFE_SCRIPT_HEAD) = EFE_POP1(int32_t);
+	}
+
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 6);
+}
+
+void VS_returnFromEFESubroutine(void)
+{
+	EFE_SCRIPT_PTR = EFE_POP2(int16_t *);
+	if (EFE_SCRIPT_PTR != NULL) {
+		EFE_SCRIPT_CONTEXT = EFE_POP2(EfeSubEffect *);
+		EFE_CURRENT_DATA_SEGMENT = EFE_SCRIPT_CONTEXT->instance;
+		EFE_PREVIOUS_DATA_SEGMENT = (int32_t)EFE_SCRIPT_CONTEXT->parentInstance;
+		EFE_TARGET_ENTITY_INDEX = EFE_POP2(int32_t);
+	}
+}
+
+void VS_dispatchEFESubOpcode(void)
+{
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 2);
+	VS_EFE_SUB_OPCODE_HANDLERS[EFE_SCRIPT_CURRENT_VALUE >> 8]();
+}
+
+void VS_callEFESubroutine(void)
+{
+	int16_t *ip;
+
+	ip = EFE_SCRIPT_PTR;
+	EFE_PUSH2(int32_t, EFE_TARGET_ENTITY_INDEX);
+	EFE_PUSH2(EfeSubEffect *, EFE_SCRIPT_CONTEXT);
+	EFE_PUSH2(int16_t *, EFE_SCRIPT_PTR + 3);
+	EFE_SCRIPT_PTR = (int16_t *)(ip[1] + EFE_SCRIPT_HEAD);
+}
+
+void VS_pushEFEVariableAddress(void)
+{
+	int32_t ip;
+
+	ip = (int32_t)EFE_SCRIPT_PTR;
+
+	*EFE_DATA_STACK = ((int16_t *)ip)[1];
+	if (((int16_t *)ip)[2] == 0) {
+		*EFE_DATA_STACK++ += (int32_t)EFE_CURRENT_DATA_SEGMENT;
+	} else {
+		*EFE_DATA_STACK++ += EFE_SCRIPT_HEAD;
+	}
+
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 6);
+}
+
+void VS_pushEFEVariable(void)
+{
+	int16_t *pc;
+	int32_t p;
+
+	pc = (int16_t *)(int32_t)EFE_SCRIPT_PTR;
+	if (pc[2] == 0) {
+		p = pc[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT;
+	} else {
+		p = pc[1] + EFE_SCRIPT_HEAD;
+	}
+
+	if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x400) {
+		EFE_PUSH1(int32_t, *(int32_t *)p);
+	} else if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x200) {
+		EFE_PUSH1(int32_t, *(int16_t *)p);
+	} else {
+		EFE_PUSH1(int32_t, *(int8_t *)p);
+	}
+
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 6);
+}
+
+void VS_pushEFEImmediate(void)
+{
+	int16_t *pc;
+
+	pc = (int16_t *)(int32_t)EFE_SCRIPT_PTR;
+	EFE_PUSH1(int32_t, pc[1]);
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 6);
+}
+
+void VS_jumpEFEScript(void)
+{
+	int16_t *pc;
+
+	pc = (int16_t *)(int32_t)EFE_SCRIPT_PTR;
+	EFE_SCRIPT_PTR = (int16_t *)(pc[1] + EFE_SCRIPT_HEAD);
+}
+
+void VS_stopEFEScript(void)
+{
+	EFE_SCRIPT_CURRENT_VALUE = EFE_SCRIPT_CURRENT_VALUE & 0xff;
+	EFE_SCRIPT_PTR = NULL;
+}
+
+void VS_branchEFEOnComparison(void)
+{
+	int16_t *ip;
+	int32_t res;
+
+	ip = EFE_SCRIPT_PTR;
+	if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x400) {
+		if (ip[2] == 0) {
+			res = VS_EFE_COMPARISONS[EFE_SCRIPT_CURRENT_VALUE >> 12](*(int32_t *)(ip[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT));
+		} else {
+			res = VS_EFE_COMPARISONS[EFE_SCRIPT_CURRENT_VALUE >> 12](*(int32_t *)(ip[1] + EFE_SCRIPT_HEAD));
+		}
+	} else if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x200) {
+		if (ip[2] == 0) {
+			res = VS_EFE_COMPARISONS[EFE_SCRIPT_CURRENT_VALUE >> 12](*(int16_t *)(ip[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT));
+		} else {
+			res = VS_EFE_COMPARISONS[EFE_SCRIPT_CURRENT_VALUE >> 12](*(int16_t *)(ip[1] + EFE_SCRIPT_HEAD));
+		}
+	} else {
+		if (ip[2] == 0) {
+			res = VS_EFE_COMPARISONS[EFE_SCRIPT_CURRENT_VALUE >> 12](*(int8_t *)(ip[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT));
+		} else {
+			res = VS_EFE_COMPARISONS[EFE_SCRIPT_CURRENT_VALUE >> 12](*(int8_t *)(ip[1] + EFE_SCRIPT_HEAD));
+		}
+	}
+
+	if (res == 0) {
+		EFE_SCRIPT_PTR = (int16_t *)(ip[3] + EFE_SCRIPT_HEAD);
+	} else {
+		EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 0xa);
+	}
+}
+
+void VS_applyEFEVariableOperator(void)
+{
+	int16_t *pc;
+
+	pc = (int16_t *)(int32_t)EFE_SCRIPT_PTR;
+	if (pc[2] == 0) {
+		VS_EFE_VARIABLE_OPERATORS[(EFE_SCRIPT_CURRENT_VALUE >> 8) & 0xf][EFE_SCRIPT_CURRENT_VALUE >> 12](pc[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT);
+	} else {
+		VS_EFE_VARIABLE_OPERATORS[(EFE_SCRIPT_CURRENT_VALUE >> 8) & 0xf][EFE_SCRIPT_CURRENT_VALUE >> 12](pc[1] + EFE_SCRIPT_HEAD);
+	}
+
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 6);
+}
+
+void VS_loadEFEIndexedVariable(void)
+{
+	int16_t *ip;
+	int32_t idx;
+
+	ip = EFE_SCRIPT_PTR;
+	if ((EFE_SCRIPT_CURRENT_VALUE & 0xf000) == 0x4000) {
+		if (ip[4] == 0) {
+			idx = *(int32_t *)(ip[3] + (int32_t)EFE_CURRENT_DATA_SEGMENT);
+		} else {
+			idx = *(int32_t *)(ip[3] + EFE_SCRIPT_HEAD);
+		}
+	} else if ((EFE_SCRIPT_CURRENT_VALUE & 0xf000) == 0x2000) {
+		if (ip[4] == 0) {
+			idx = *(int16_t *)(ip[3] + (int32_t)EFE_CURRENT_DATA_SEGMENT);
+		} else {
+			idx = *(int16_t *)(ip[3] + EFE_SCRIPT_HEAD);
+		}
+	} else {
+		if (ip[4] == 0) {
+			idx = *(int8_t *)(ip[3] + (int32_t)EFE_CURRENT_DATA_SEGMENT);
+		} else {
+			idx = *(int8_t *)(ip[3] + EFE_SCRIPT_HEAD);
+		}
+	}
+
+	if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x400) {
+		(*(int32_t *)&EFE_SCRIPT_REGISTER) = *(int32_t *)(ip[1] + (idx * 4) + EFE_SCRIPT_HEAD);
+	} else if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x200) {
+		EFE_SCRIPT_REGISTER = *(int16_t *)(ip[1] + (idx * 2) + EFE_SCRIPT_HEAD);
+	} else {
+		EFE_SCRIPT_REGISTER = *(int8_t *)(ip[1] + idx + EFE_SCRIPT_HEAD);
+	}
+
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 0xa);
+}
+
+void VS_loadEFERandomValue(void)
+{
+	EFE_SCRIPT_REGISTER = rand();
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 2);
+}
+
+void VS_loadEFEVariable(void)
+{
+	int16_t *ip;
+
+	ip = EFE_SCRIPT_PTR;
+	if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x400) {
+		if (ip[2] == 0) {
+			(*(int32_t *)&EFE_SCRIPT_REGISTER) = *(int32_t *)(ip[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT);
+		} else {
+			EFE_SCRIPT_REGISTER = *(int32_t *)(ip[1] + EFE_SCRIPT_HEAD);
+		}
+	} else if ((EFE_SCRIPT_CURRENT_VALUE & 0xf00) == 0x200) {
+		if (ip[2] == 0) {
+			EFE_SCRIPT_REGISTER = *(int16_t *)(ip[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT);
+		} else {
+			EFE_SCRIPT_REGISTER = *(int16_t *)(ip[1] + EFE_SCRIPT_HEAD);
+		}
+	} else {
+		if (ip[2] == 0) {
+			EFE_SCRIPT_REGISTER = *(int8_t *)(ip[1] + (int32_t)EFE_CURRENT_DATA_SEGMENT);
+		} else {
+			EFE_SCRIPT_REGISTER = *(int8_t *)(ip[1] + EFE_SCRIPT_HEAD);
+		}
+	}
+
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 6);
+}
+
+void VS_loadEFEImmediate(void)
+{
+	int16_t *pc;
+
+	pc = (int16_t *)(int32_t)EFE_SCRIPT_PTR;
+	EFE_SCRIPT_REGISTER = pc[1];
+	EFE_SCRIPT_PTR = (int16_t *)((int32_t)EFE_SCRIPT_PTR + 6);
+}
+
+int32_t VS_shiftRightInt32Variable(int32_t p)
+{
+	*(int32_t *)p >>= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_shiftLeftInt32Variable(int32_t p)
+{
+	*(int32_t *)p <<= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_moduloInt32Variable(int32_t p)
+{
+	*(int32_t *)p %= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_divideInt32Variable(int32_t p)
+{
+	*(int32_t *)p /= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_multiplyInt32Variable(int32_t p)
+{
+	*(int32_t *)p *= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_subtractInt32Variable(int32_t p)
+{
+	*(int32_t *)p -= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_addInt32Variable(int32_t p)
+{
+	*(int32_t *)p += EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_setInt32Variable(int32_t p)
+{
+	*(int32_t *)p = EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_shiftRightInt8Variable(int32_t p)
+{
+	*(int8_t *)p >>= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_shiftLeftInt8Variable(int32_t p)
+{
+	*(int8_t *)p <<= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_moduloInt8Variable(int32_t p)
+{
+	*(int8_t *)p %= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_divideInt8Variable(int32_t p)
+{
+	*(int8_t *)p /= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_multiplyInt8Variable(int32_t p)
+{
+	*(int8_t *)p *= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_subtractInt8Variable(int32_t p)
+{
+	*(int8_t *)p -= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_addInt8Variable(int32_t p)
+{
+	*(int8_t *)p += EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_setInt8Variable(int32_t p)
+{
+	*(int8_t *)p = EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_shiftRightInt16Variable(int32_t p)
+{
+	*(int16_t *)p >>= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_shiftLeftInt16Variable(int32_t p)
+{
+	*(int16_t *)p <<= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_moduloInt16Variable(int32_t p)
+{
+	*(int16_t *)p %= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_divideInt16Variable(int32_t p)
+{
+	*(int16_t *)p /= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_multiplyInt16Variable(int32_t p)
+{
+	*(int16_t *)p *= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_subtractInt16Variable(int32_t p)
+{
+	*(int16_t *)p -= EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_addInt16Variable(int32_t p)
+{
+	*(int16_t *)p += EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_setInt16Variable(int32_t p)
+{
+	*(int16_t *)p = EFE_SCRIPT_REGISTER;
+}
+
+int32_t VS_compareGreaterOrEqual(int32_t x)
+{
+	if (x >= EFE_SCRIPT_REGISTER) {
+		return 0;
+	}
+
+	return -1;
+}
+
+int32_t VS_compareGreater(int32_t x)
+{
+	if (x > EFE_SCRIPT_REGISTER) {
+		return 0;
+	}
+
+	return -1;
+}
+
+int32_t VS_compareLessOrEqual(int32_t x)
+{
+	if (x <= EFE_SCRIPT_REGISTER) {
+		return 0;
+	}
+
+	return -1;
+}
+
+int32_t VS_compareLess(int32_t x)
+{
+	if (x < EFE_SCRIPT_REGISTER) {
+		return 0;
+	}
+
+	return -1;
+}
+
+int32_t VS_compareNotEqual(int32_t x)
+{
+	if (x != EFE_SCRIPT_REGISTER) {
+		return 0;
+	}
+
+	return -1;
+}
+
+int32_t VS_compareEqual(int32_t x)
+{
+	if (x == EFE_SCRIPT_REGISTER) {
+		return 0;
+	}
+
+	return -1;
+}
+
+int16_t VS_calculateAttackHitPosition(SVECTOR *out, Entity *self, Entity *other, int32_t y)
+{
+	SVECTOR diff;
+	SVECTOR rot;
+	MATRIX m;
+
+	diff.vx = other->posData->location.vx - self->posData->location.vx;
+	diff.vz = other->posData->location.vz - self->posData->location.vz;
+	rot.vx = 0;
+	rot.vy = (_atan(diff.vz, diff.vx) + 0x800) & 0xfff;
+	rot.vz = 0;
+	RotMatrixZYX(&rot, &m);
+	out->vx = 0;
+	out->vy = -DIGIMON_DATA[self->type].height;
+	out->vz = y;
+	ApplyMatrixSV(&m, out, out);
+	out->vx += (int16_t)self->posData->location.vx;
+	out->vz += (int16_t)self->posData->location.vz;
+}
+
+void VS_renderParallelLines(SVECTOR *a, SVECTOR *b, int16_t n, SVECTOR *from, SVECTOR *to, int32_t *col)
+{
+	LINE_F2 *prim;
+	int32_t i;
+	int32_t depth;
+	int32_t ox;
+	int32_t oy;
+	int16_t dx;
+	int16_t dy;
+	int16_t dz;
+
+	prim = (LINE_F2 *)GsGetWorkBase();
+	dx = (to->vx - from->vx) / n;
+	dy = (to->vy - from->vy) / n;
+	dz = (to->vz - from->vz) / n;
+	for (i = 0; i <= n; i++) {
+		SetLineF2(prim);
+		setRGB0(prim, col[0], col[1], col[2]);
+		depth = worldPosToScreenPos(a, (DVECTOR *)&prim->x0);
+		if ((depth > 0x200) && (depth < 0x10000)) {
+			depth = worldPosToScreenPos(b, (DVECTOR *)&prim->x1);
+#if VERSION_IS(JP)
+			getDrawingOffsetCopy(&ox, &oy);
+#else
+			ox = DRAWING_OFFSET_X;
+			oy = DRAWING_OFFSET_Y;
+#endif
+			prim->x0 += (int16_t)(0xa0 - ox);
+			prim->x1 += (int16_t)(0xa0 - ox);
+			prim->y0 += (int16_t)(0x78 - oy);
+			prim->y1 += (int16_t)(0x78 - oy);
+			if ((depth > 0x200) && (depth < 0x10000)) {
+				AddPrim(ACTIVE_ORDERING_TABLE->org + 0xffd, prim);
+				prim++;
+			}
+		}
+		a->vx += dx;
+		a->vy += dy;
+		a->vz += dz;
+		b->vx += dx;
+		b->vy += dy;
+		b->vz += dz;
+	}
+
+	GsSetWorkBase((PACKET *)prim);
+}
+
+int32_t VS_interpolateClamped(int32_t lo, int32_t hi, long t, int32_t start, int32_t end)
+{
+	int32_t tmp;
+
+	if (hi < lo) {
+		tmp = lo;
+		lo = hi;
+		hi = tmp;
+	}
+
+	t = t < lo ? lo : (hi < t ? hi : t);
+	if (lo >= t) {
+		return start;
+	}
+
+	return start + ((end - start) * (t - lo) / (hi - lo));
+}
+
+void VS_renderRibbonStrip(void)
+{
+	POLY_GT4 *prim;
+	SVECTOR *pts;
+	int32_t i;
+
+	EFE_RIBBON_SCRATCH->width = EFE_POP1(int32_t);
+	EFE_SCRATCH->scale = EFE_POP1(VECTOR *);
+	pts = EFE_POP1(SVECTOR *);
+
+	for (i = 0; i < 8U; i += 2) {
+		VS_RIBBON_UVS[i] += EFE_DATA_ITERATOR->model->pixelOffsetX;
+		VS_RIBBON_UVS[i + 1] += EFE_DATA_ITERATOR->model->pixelOffsetY;
+	}
+
+	EFE_RIBBON_SCRATCH->tpage = EFE_DATA_ITERATOR->model->pixelPage | 0x20;
+	EFE_RIBBON_SCRATCH->clut = EFE_DATA_ITERATOR->model->clutPage + 0x80;
+	EFE_RIBBON_SCRATCH->frame = EFE_CURRENT_DATA_SEGMENT->frame;
+	i = (uint32_t)(EFE_RIBBON_SCRATCH->frame / 10) % 3;
+	EFE_RIBBON_SCRATCH->color.r = VS_interpolateClamped(0, 10, EFE_RIBBON_SCRATCH->frame % 10, VS_RIBBON_COLORS[i].r,
+	                                                    VS_RIBBON_COLORS[(uint32_t)(i + 1) % 3].r);
+	EFE_RIBBON_SCRATCH->color.g = VS_interpolateClamped(0, 10, EFE_RIBBON_SCRATCH->frame % 10, VS_RIBBON_COLORS[i].g,
+	                                                    VS_RIBBON_COLORS[(uint32_t)(i + 1) % 3].g);
+	EFE_RIBBON_SCRATCH->color.b = VS_interpolateClamped(0, 10, EFE_RIBBON_SCRATCH->frame % 10, VS_RIBBON_COLORS[i].b,
+	                                                    VS_RIBBON_COLORS[(uint32_t)(i + 1) % 3].b);
+	if (EFE_RIBBON_SCRATCH->frame < 0xf) {
+		i = VS_interpolateClamped(1, 7, EFE_RIBBON_SCRATCH->frame, 0, 0x1000);
+	} else {
+		i = VS_interpolateClamped(0x17, 0x1e, EFE_RIBBON_SCRATCH->frame, 0x1000, 0);
+	}
+	EFE_RIBBON_SCRATCH->color.r = EFE_RIBBON_SCRATCH->color.r * i >> 12;
+	EFE_RIBBON_SCRATCH->color.g = EFE_RIBBON_SCRATCH->color.g * i >> 12;
+	EFE_RIBBON_SCRATCH->color.b = EFE_RIBBON_SCRATCH->color.b * i >> 12;
+	EFE_RIBBON_SCRATCH->colorHalf.r = EFE_RIBBON_SCRATCH->color.r >> 1;
+	EFE_RIBBON_SCRATCH->colorHalf.g = EFE_RIBBON_SCRATCH->color.g >> 1;
+	EFE_RIBBON_SCRATCH->colorHalf.b = EFE_RIBBON_SCRATCH->color.b >> 1;
+
+	copyVector(&EFE_SCRATCH->rot, (VECTOR *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 0x10));
+	RotMatrixYXZ(&EFE_SCRATCH->rot, &EFE_SCRATCH->m1);
+	ScaleMatrix(&EFE_SCRATCH->m1, EFE_SCRATCH->scale);
+	EFE_SCRATCH->m1.t[0] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vx;
+	EFE_SCRATCH->m1.t[1] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vy;
+	EFE_SCRATCH->m1.t[2] = ((EfeTransform *)((int32_t)EFE_CURRENT_DATA_SEGMENT + 4))->position.vz;
+	GsMulCoord0(&GsWSMATRIX, &EFE_SCRATCH->m1, &EFE_SCRATCH->m0);
+	GsSetLightMatrix(&EFE_SCRATCH->m1);
+	GsSetLsMatrix(&EFE_SCRATCH->m0);
+
+	for (i = 0; i < 10; i++) {
+		EFE_RIBBON_SCRATCH->edge[i][0].vx = pts[i].vx;
+		EFE_RIBBON_SCRATCH->edge[i][0].vy = pts[i].vy - 0x1f4;
+		EFE_RIBBON_SCRATCH->edge[i][0].vz = pts[i].vz;
+		EFE_RIBBON_SCRATCH->edge[i][1].vx = pts[i].vx;
+		EFE_RIBBON_SCRATCH->edge[i][1].vy = pts[i].vy + 0xc8;
+		EFE_RIBBON_SCRATCH->edge[i][1].vz = pts[i].vz;
+	}
+
+	for (i = 1; i < 10; i++) {
+		prim = (POLY_GT4 *)GsGetWorkBase();
+		EFE_RIBBON_SCRATCH->proj.otz = RotTransPers4(
+			&EFE_RIBBON_SCRATCH->edge[i - 1][0], &EFE_RIBBON_SCRATCH->edge[i][0],
+			&EFE_RIBBON_SCRATCH->edge[i - 1][1], &EFE_RIBBON_SCRATCH->edge[i][1],
+			(long *)&prim->x0, (long *)&prim->x1, (long *)&prim->x2,
+			(long *)&prim->x3, &EFE_RIBBON_SCRATCH->proj.p, &EFE_RIBBON_SCRATCH->proj.flag);
+		if ((EFE_RIBBON_SCRATCH->proj.flag & 0x80000000) == 0) {
+			prim->tpage = EFE_RIBBON_SCRATCH->tpage;
+			prim->clut = EFE_RIBBON_SCRATCH->clut;
+			if (i == 1) {
+				*(int32_t *)&prim->r0 = 0;
+				*(int32_t *)&prim->r2 = 0;
+			} else {
+				*(int32_t *)&prim->r0 = *(int32_t *)&EFE_RIBBON_SCRATCH->colorHalf;
+				*(int32_t *)&prim->r2 = *(int32_t *)&EFE_RIBBON_SCRATCH->color;
+			}
+			if (i == 9) {
+				*(int32_t *)&prim->r1 = 0;
+				*(int32_t *)&prim->r3 = 0;
+			} else {
+				*(int32_t *)&prim->r1 = *(int32_t *)&EFE_RIBBON_SCRATCH->colorHalf;
+				*(int32_t *)&prim->r3 = *(int32_t *)&EFE_RIBBON_SCRATCH->color;
+			}
+			*(int16_t *)&prim->u0 = *(int16_t *)VS_RIBBON_UVS;
+			*(int16_t *)&prim->u1 = *(int16_t *)&VS_RIBBON_UVS[2];
+			*(int16_t *)&prim->u2 = *(int16_t *)&VS_RIBBON_UVS[4];
+			*(int16_t *)&prim->u3 = *(int16_t *)&VS_RIBBON_UVS[6];
+			((uint8_t *)prim)[3] = 0xc;
+			prim->code = 0x3c;
+			setSemiTrans(prim, 1);
+			setShadeTex(prim, 0);
+			addPrim(ACTIVE_ORDERING_TABLE->org + (EFE_RIBBON_SCRATCH->proj.otz >> 2), prim);
+			GsSetWorkBase((PACKET *)((char *)prim + 0x34));
+		}
+	}
+
+	for (i = 0; i < 8U; i += 2) {
+		VS_RIBBON_UVS[i] -= EFE_DATA_ITERATOR->model->pixelOffsetX;
+		VS_RIBBON_UVS[i + 1] -= EFE_DATA_ITERATOR->model->pixelOffsetY;
+	}
+}
+
+void VS_initializeEFESubOpcodeTable(void)
+{
+	int32_t i;
+
+	for (i = 0; (uint32_t)i < 0x61; i++) {
+		if ((uint32_t)((int32_t (*)[2])VS_EFE_SUB_OPCODES)[i][0] >= 0x61) {
+			exit(1);
+		}
+		VS_EFE_SUB_OPCODE_HANDLERS[VS_EFE_SUB_OPCODES[i].opcode] = VS_EFE_SUB_OPCODES[i].handler;
+	}
+}
+
+void VS_dispatchEFEOpcode(int32_t op)
+{
+	VS_jtbl_80070E4C[op]();
+}
+
+int32_t VS_runEFEScript(int32_t script)
+{
+	EFE_SCRIPT_PTR = (int16_t *)script;
+	EFE_DATA_STACK = EFE_SCRIPT_MEM1_DATA;
+	EFE_CALL_STACK = EFE_CALL_STACK_BUFFER;
+	EFE_PUSH2(int32_t, 0);
+	while (EFE_SCRIPT_PTR != NULL) {
+		EFE_SCRIPT_CURRENT_VALUE = **(int16_t **)&EFE_SCRIPT_PTR;
+		VS_jtbl_80070E4C[EFE_SCRIPT_CURRENT_VALUE & 0xff]();
+	}
+
+	if (EFE_SCRIPT_CONTEXT->instance->frame == -1) {
+		EFE_SCRIPT_CONTEXT->inst = NULL;
+	}
+
+	return EFE_ACTIVE_SECTION;
+}
+
+void VS_resetPoisonBubbles(void)
+{
+	setInt16WithStride(&VS_POISON_BUBBLES[0].frame, -1, 0xc, 0xc);
+}
+
+int32_t VS_addPoisonBubble(Entity *entity)
+{
+	int32_t i;
+	EfePoisonBubble *p;
+
+	for (i = 0; i < 0xc; i++) {
+		if (VS_POISON_BUBBLES[i].frame == -1) {
+			break;
+		}
+	}
+
+	if (i == 0xc) {
+		return -1;
+	}
+
+	p = &VS_POISON_BUBBLES[i];
+	p->frame = 0;
+	p->entity = entity;
+	p->offsetX = (rand() % 100) - 0x32;
+	p->offsetZ = (rand() % 100) - 0x32;
+	addObject(0x805, i, VS_tickPoisonBubble, VS_renderPoisonBubble);
+
+	return i;
+}
+
+void VS_tickPoisonBubble(int32_t i)
+{
+	EfePoisonBubble *p;
+
+	p = &VS_POISON_BUBBLES[i];
+	p->frame++;
+	if (p->frame >= 0x28) {
+		p->frame = -1;
+		removeObject(0x805, i);
+	}
+}
+
+void VS_renderPoisonBubble(int32_t i)
+{
+	SVECTOR pos;
+	DVECTOR screen;
+	EfePoisonBubble *p;
+	int16_t frame;
+	int32_t otz;
+	int32_t d;
+	int16_t angle;
+
+	p = &VS_POISON_BUBBLES[i];
+	frame = p->frame;
+	translateConditionFXToEntity(p->entity, &pos);
+	pos.vx += p->offsetX;
+	pos.vy -= (int16_t)lerp(0x32, 0xc8, 0, 0x28, frame);
+	pos.vz += p->offsetZ;
+	otz = worldPosToScreenPos(&pos, &screen);
+	angle = lerp(0, 0x500, 0, 0x28, frame);
+	d = _sin(angle) * 0x14 / 4096;
+	screen.vx += (int16_t)(d * (int32_t)VIEWPORT_DISTANCE / otz);
+	if ((otz > 0x200) && (otz < 0x10000)) {
+		VS_POISON_BUBBLE_SPRITE.u = VS_POISON_BUBBLE_FRAME_U[(frame >> 1) % 6] + 0x20;
+		renderSprite(&VS_POISON_BUBBLE_SPRITE, screen.vx, screen.vy, otz, 0x4ea4, 0x4ea4);
+	}
+}
+
+void VS_tickPoisonEffect(int32_t i)
+{
+	EfePoison *p;
+
+	p = &VS_POISON_EFFECTS[i];
+	p->frame++;
+	p->frame %= 0x1e;
+	if (p->frame == 1) {
+		VS_addPoisonBubble(p->entity);
+	}
+}
+
+void VS_renderPoisonEffect(void)
+{
+}
+
+void VS_initializePoisonBubble(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 4; i++) {
+		VS_POISON_EFFECTS[i].frame = -1;
+	}
+
+	VS_resetPoisonBubbles();
+}
+
+int32_t VS_addPoisonEffect(Entity *entity)
+{
+	int32_t i;
+	EfePoison *p;
+
+	for (i = 0; i < 4; i++) {
+		if (VS_POISON_EFFECTS[i].frame == -1) {
+			break;
+		}
+	}
+
+	if (i == 4) {
+		return -1;
+	}
+
+	p = &VS_POISON_EFFECTS[i];
+	p->frame = 0;
+	p->entity = entity;
+	addObject(0x808, i, VS_tickPoisonEffect, (RenderFunction)VS_renderPoisonEffect);
+
+	return i;
+}
+
+void VS_removePoisonEffect(int32_t i, Entity *entity)
+{
+	EfePoison *p;
+
+	p = &VS_POISON_EFFECTS[i];
+	if ((i >= 0) && (i < 4) && (p->entity == entity)) {
+		p->frame = -1;
+		removeObject(0x808, i);
+	}
+}
+
+void VS_removeAllPoisonEffects(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 4; i++) {
+		removeObject(0x808, i);
+	}
+
+	for (i = 0; i < 0xc; i++) {
+		removeObject(0x805, i);
+	}
+}
+
+void VS_tickConfusionEffect(int32_t i)
+{
+	EfeConfusion *p;
+
+	p = &VS_CONFUSION_EFFECTS[i];
+	p->angle += 7;
+	p->spin += 0x5b;
+}
+
+void VS_renderConfusionEffect(int32_t idx)
+{
+	SVECTOR pos;
+	GsCOORDINATE2 coord;
+	SVECTOR rot;
+	VECTOR trans;
+	int32_t ang;
+	EfeConfusion *p;
+	int32_t i;
+
+	p = &VS_CONFUSION_EFFECTS[idx];
+	for (i = 0; i < 3; i++) {
+		translateConditionFXToEntity(p->entity, &pos);
+		ang = p->angle + (i * 0xaa);
+		trans.vx = pos.vx + (_sin(ang) * 0x78 / 4096);
+		trans.vy = pos.vy - 0x78;
+		trans.vz = pos.vz + (_cos(ang) * 0x78 / 4096);
+		rot.vx = 0;
+		rot.vy = p->offsets[i] + (p->spin - 0x400 + (i * 0x555));
+		rot.vz = 0xe3;
+		renderTMDModel((uint8_t *)VS_CONFUSION_FX_MODEL, 0, &coord, NULL, &trans, &rot, &VS_CONFUSION_SCALE);
+	}
+}
+
+void VS_initializeConfusionEffect(char *base)
+{
+	VS_CONFUSION_FX_MODEL = (int32_t)base;
+	GsMapModelingData((unsigned long *)((char *)VS_CONFUSION_FX_MODEL + 4));
+	setInt16WithStride(&VS_CONFUSION_EFFECTS[0].frame, -1, 4, 0x10);
+}
+
+int32_t VS_addConfusionEffect(Entity *entity)
+{
+	int32_t i;
+	EfeConfusion *p;
+
+	for (i = 0; i < 4; i++) {
+		if (VS_CONFUSION_EFFECTS[i].frame == -1) {
+			break;
+		}
+	}
+
+	if (i == 4) {
+		return -1;
+	}
+
+	p = &VS_CONFUSION_EFFECTS[i];
+	p->frame = 0;
+	p->angle = 0;
+	p->spin = 0;
+	p->entity = entity;
+	p->offsets[0] = rand();
+	p->offsets[1] = rand();
+	p->offsets[2] = rand();
+	p->spin = 0;
+	addObject(0x806, i, VS_tickConfusionEffect, VS_renderConfusionEffect);
+
+	return i;
+}
+
+void VS_removeConfusionEffect(int32_t i, Entity *entity)
+{
+	EfeConfusion *p;
+
+	p = &VS_CONFUSION_EFFECTS[i];
+	if ((i >= 0) && (i < 4) && (p->entity == entity)) {
+		p->frame = -1;
+		removeObject(0x806, i);
+	}
+}
+
+// clang-format off
+void VS_initializeStunEffect(base)
+	char *base;
+// clang-format on
+{
+	int32_t i;
+
+	for (i = 0; i < 5; i++) {
+		VS_STUN_EFFECTS[i].frame = -1;
+	}
+	VS_resetStunSubEffects();
+	VS_STUN_FX_MODEL = base;
+	GsMapModelingData((unsigned long *)(VS_STUN_FX_MODEL + 4));
+}
+
+void VS_resetStunSubEffects(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 0x19; i++) {
+		VS_STUN_SUB_EFFECTS[i].frame = -1;
+	}
+}
+
+void VS_tickStunEffect(int32_t i)
+{
+	EfeStun *p;
+
+	p = &VS_STUN_EFFECTS[i];
+	p->frame++;
+	switch (p->state) {
+	case 0:
+		if ((p->frame % 6) == 0) {
+			VS_addStunSubEffect(p->entity);
+		}
+		if (p->frame >= p->duration) {
+			p->state = 1;
+			p->frame = 1;
+		}
+		break;
+	case 1:
+		if (p->frame >= 8) {
+			p->state = 2;
+			p->frame = 1;
+		}
+		break;
+	case 2:
+		if (p->frame >= 5) {
+			VS_removeStunEffect(i, p->entity);
+		}
+		break;
+	}
+}
+
+void VS_renderStunEffect(int32_t idx)
+{
+	SVECTOR pos;
+	DVECTOR screen;
+	int32_t otz;
+	EfeStun *p;
+	int32_t scale;
+	int32_t value;
+	int32_t cy;
+
+	p = &VS_STUN_EFFECTS[idx];
+	switch (p->state) {
+	case 0:
+		value = (p->duration - p->frame) * 100 / 20;
+		scale = 0x1000;
+		cy = 0;
+		break;
+	case 1:
+		value = 0;
+		scale = 0x1000;
+		cy = p->frame % 2;
+		break;
+	case 2:
+		value = 0;
+		scale = lerp(0x1000, 0xcc, 0, 5, p->frame);
+		cy = 0;
+		break;
+	}
+
+	pos.vx = p->entity->posData->location.vx;
+	pos.vy = -DIGIMON_DATA[p->entity->type].height * 113 / 100;
+	pos.vz = p->entity->posData->location.vz;
+	otz = worldPosToScreenPos(&pos, &screen);
+
+	VS_STUN_DIGIT_SPRITE.x = screen.vx;
+	VS_STUN_DIGIT_SPRITE.y = screen.vy;
+	VS_STUN_DIGIT_SPRITE.scalex = scale;
+	VS_STUN_DIGIT_SPRITE.scaley = scale;
+	VS_STUN_DIGIT_SPRITE.mx = 0xe;
+	VS_STUN_DIGIT_SPRITE.u = (value / 1000 % 10) * 8;
+	GsSortSprite(&VS_STUN_DIGIT_SPRITE, ACTIVE_ORDERING_TABLE, 0x22);
+	VS_STUN_DIGIT_SPRITE.mx = 7;
+	VS_STUN_DIGIT_SPRITE.u = (value / 100 % 10) * 8;
+	GsSortSprite(&VS_STUN_DIGIT_SPRITE, ACTIVE_ORDERING_TABLE, 0x22);
+
+	VS_STUN_SMALL_DIGIT_SPRITE.x = screen.vx;
+	VS_STUN_SMALL_DIGIT_SPRITE.y = screen.vy;
+	VS_STUN_SMALL_DIGIT_SPRITE.scalex = scale;
+	VS_STUN_SMALL_DIGIT_SPRITE.scaley = scale;
+	VS_STUN_SMALL_DIGIT_SPRITE.mx = -2;
+	VS_STUN_SMALL_DIGIT_SPRITE.u = (value / 10 % 10) * 4;
+	GsSortSprite(&VS_STUN_SMALL_DIGIT_SPRITE, ACTIVE_ORDERING_TABLE, 0x22);
+	VS_STUN_SMALL_DIGIT_SPRITE.mx = -8;
+	VS_STUN_SMALL_DIGIT_SPRITE.u = (value % 10) * 4;
+	GsSortSprite(&VS_STUN_SMALL_DIGIT_SPRITE, ACTIVE_ORDERING_TABLE, 0x22);
+
+	VS_D_80070FB4.x = screen.vx;
+	VS_D_80070FB4.y = screen.vy;
+	VS_D_80070FB4.cy = cy + 0x1e0;
+	VS_D_80070FB4.scalex = scale;
+	VS_D_80070FB4.scaley = scale;
+	GsSortSprite(&VS_D_80070FB4, ACTIVE_ORDERING_TABLE, 0x22);
+
+	VS_D_80070FD8.x = screen.vx;
+	VS_D_80070FD8.y = screen.vy;
+	VS_D_80070FD8.cy = cy + 0x1e0;
+	VS_D_80070FD8.scalex = scale;
+	VS_D_80070FD8.scaley = scale;
+	GsSortSprite(&VS_D_80070FD8, ACTIVE_ORDERING_TABLE, 0x22);
+}
+
+void VS_removeAllStunSubEffects(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 0x19; i++) {
+		VS_STUN_SUB_EFFECTS[i].frame = -1;
+		removeObject(0x810, i);
+	}
+}
+
+int32_t VS_addStunSubEffect(Entity *entity)
+{
+	int32_t i;
+	EfeStunSpark *p;
+
+	for (i = 0; i < 25; i++) {
+		if (VS_STUN_SUB_EFFECTS[i].frame == -1) {
+			break;
+		}
+	}
+
+	if (i == 25) {
+		return -1;
+	}
+
+	p = &VS_STUN_SUB_EFFECTS[i];
+	p->frame = 0;
+	p->entity = entity;
+	addObject(0x810, i, VS_tickStunSubEffect, VS_renderStunSubEffect);
+
+	return i;
+}
+
+void VS_tickStunSubEffect(int32_t i)
+{
+	EfeStunSpark *p;
+
+	p = &VS_STUN_SUB_EFFECTS[i];
+	p->frame++;
+	if (p->frame >= 0x10) {
+		p->frame = -1;
+		removeObject(0x810, i);
+	}
+}
+
+void VS_renderStunSubEffect(int32_t i)
+{
+	SVECTOR pos;
+	GsCOORDINATE2 coord;
+	VECTOR trans;
+	SVECTOR rot;
+	VECTOR scale;
+	EfeStunSpark *p;
+	int32_t s;
+
+	p = &VS_STUN_SUB_EFFECTS[i];
+	pos.vx = p->entity->posData->location.vx;
+	pos.vy = lerp(-DIGIMON_DATA[p->entity->type].height * 113 / 100, p->entity->posData->location.vy, 0, 0xf, p->frame);
+	pos.vz = p->entity->posData->location.vz;
+	s = DIGIMON_DATA[p->entity->type].radius * 0x4000 / 350;
+	if (p->frame < 4) {
+		s = lerp(s * 10 / 100, s, 0, 4, p->frame);
+	}
+
+	rot = VS_STUN_FX_ROTATION;
+	scale = VS_STUN_SUB_EFFECT_SCALE;
+	copyVector(&trans, &pos);
+	scale.vx = scale.vz = s;
+	renderTMDModel((uint8_t *)VS_STUN_FX_MODEL, 0, &coord, NULL, &trans, &rot, &scale);
+}
+
+// clang-format off
+int32_t VS_addStunEffect(entity, val)
+	Entity *entity;
+	int16_t val;
+// clang-format on
+{
+	int32_t i;
+	EfeStun *p;
+
+	for (i = 0; i < 5; i++) {
+		if (VS_STUN_EFFECTS[i].frame == -1) {
+			break;
+		}
+	}
+
+	if (i == 5) {
+		return -1;
+	}
+
+	p = &VS_STUN_EFFECTS[i];
+	p->frame = 0;
+	p->duration = val;
+	p->state = 0;
+	p->entity = entity;
+	addObject(0x80f, i, VS_tickStunEffect, VS_renderStunEffect);
+
+	return i;
+}
+
+void VS_removeStunEffect(int32_t i, Entity *entity)
+{
+	EfeStun *p;
+
+	p = &VS_STUN_EFFECTS[i];
+	if ((i >= 0) && (i < 5) && (p->entity == entity)) {
+		p->frame = -1;
+		removeObject(0x80f, i);
+	}
+}
+
+void VS_removeAllStunEffects(void)
+{
+	int32_t i;
+
+	VS_removeAllStunSubEffects();
+	for (i = 0; i < 5; i++) {
+		VS_STUN_EFFECTS[i].frame = -1;
+		removeObject(0x80f, i);
+	}
+}
+
+void VS_setTMDObjectColor(int32_t idx, VECTOR *color, int32_t base)
+{
+	struct TMD_STRUCT *obj;
+	TMD_P_TNF4 *prim;
+	int32_t i;
+	int32_t count;
+	uint8_t t;
+
+	obj = (struct TMD_STRUCT *)((uint32_t)base + 0xc);
+	obj += idx;
+	count = obj->primn;
+	prim = (TMD_P_TNF4 *)obj->primtop;
+	for (i = 0; i < count; i++) {
+		t = *(int32_t *)prim >> 24;
+		switch (t) {
+		case 0x2d:
+		case 0x2f:
+			*(int8_t *)&prim->r0 = (int16_t)color->vx;
+			*(int8_t *)&prim->g0 = (int16_t)color->vy;
+			*(int8_t *)&prim->b0 = (int16_t)color->vz;
+			prim += 1;
+			break;
+		}
+	}
+}
+
+void VS_tickFinisherAura(int32_t i)
+{
+	EfeFinisherAura *p;
+	Entity *entity;
+
+	p = &VS_FINISHER_AURAS[i];
+	entity = p->entity;
+	p->frame++;
+	if (p->frame > p->duration) {
+		removeObject(0x80d, i);
+		p->frame = -1;
+	}
+}
+
+void VS_renderFinisherAura(int32_t id)
+{
+	int32_t sx;
+	int32_t a;
+	int32_t t;
+	GsCOORDINATE2 coord;
+	SVECTOR rot;
+	VECTOR trans;
+	VECTOR scale;
+	EfeFinisherAura *fa;
+	Entity *e;
+	int32_t sy;
+
+	fa = &VS_FINISHER_AURAS[id];
+	e = fa->entity;
+
+	if (fa->frame < 10) {
+		a = lerp(0, 0x80, 0, 9, fa->frame);
+		sx = (0x1000 - _cos(a)) * 0xb34 / 0x1000 + 0x4cc;
+	} else {
+		sx = 0x1000;
+	}
+	sx = sx * DIGIMON_DATA[e->type].radius / 150;
+
+	t = lerp(0, 0x200, 0, 0x10, fa->frame);
+	if (fa->frame < 5) {
+		sy = fa->frame * 0x1000 / 4;
+	} else {
+		sy = 0x1000;
+	}
+	sy = sy * DIGIMON_DATA[e->type].height / 350;
+	sy = sy * 85 / 100 + sy * 15 / 100 * _sin(t) / 0x1000;
+
+	rot = VS_FINISHER_AURA_ROTATION;
+	scale = VS_FINISHER_AURA_SCALE;
+	copyVector(&trans, &e->posData->location);
+	scale.vx = scale.vz = sx;
+	scale.vy = sy;
+	renderTMDModel(*(uint8_t **)&VS_FINISHER_AURA_MODEL, VS_FINISHER_AURA_OBJECTS[fa->frame / 2 % 3], &coord, NULL, &trans, &rot, &scale);
+	renderTMDModel(*(uint8_t **)&VS_FINISHER_AURA_MODEL, 3, &coord, NULL, &trans, &rot, &scale);
+	rot.vy = rand();
+	scale.vx = scale.vz = sx * 140 / 100;
+	renderTMDModel(*(uint8_t **)&VS_FINISHER_AURA_MODEL, 4, &coord, NULL, &trans, &rot, &scale);
+
+	if (fa->frame < 7) {
+		RGB8 col;
+		int32_t i;
+		int32_t s;
+
+		col = VS_FINISHER_AURA_COLOR;
+		s = fa->frame * 0x1000 / 7;
+		s = s * DIGIMON_DATA[e->type].radius / 150;
+		col.r = (uint32_t)col.r * (7 - fa->frame) / 7;
+		col.g = (uint32_t)col.g * (7 - fa->frame) / 7;
+		col.b = (uint32_t)col.b * (7 - fa->frame) / 7;
+		for (i = 0; i < 20; i += 2) {
+			VS_renderFinisherAuraSpark(&e->posData->location, s, &VS_FINISHER_AURA_SPARKS[i], (uint8_t *)&col);
+		}
+	}
+}
+
+void VS_renderFinisherAuraSpark(VECTOR *pos, int32_t scale, SVECTOR *dir, uint8_t *col)
+{
+	POLY_FT3 *prim;
+	SVECTOR c;
+	SVECTOR a;
+	SVECTOR b;
+
+	prim = (POLY_FT3 *)GsGetWorkBase();
+	SetPolyFT3(prim);
+	SetSemiTrans(prim, 1);
+	setRGB0(prim, col[0], col[1], col[2]);
+	prim->tpage = getTPage(0, 1, 768, 256);
+	prim->clut = getClut(192, 489);
+	setUV3(prim, 0x30, 0xa8, 0x37, 0xa8, 0x30, 0xaf);
+	a.vx = dir[0].vx * scale / 4096;
+	a.vy = dir[0].vy * scale / 4096;
+	a.vz = dir[0].vz * scale / 4096;
+	b.vx = dir[1].vx * scale / 4096;
+	b.vy = dir[1].vy * scale / 4096;
+	b.vz = dir[1].vz * scale / 4096;
+	copyVector(&c, pos);
+	addVector(&a, pos);
+	addVector(&b, pos);
+	prim->code |= 2;
+	addScreenPolyFT3(prim, &c, &a, &b);
+}
+
+void VS_initializeFinisherAuraModel(char *tim, char *base)
+{
+	MATRIX m;
+	SVECTOR v;
+	SVECTOR rot;
+	unsigned long *timp;
+	unsigned long *timq;
+	GsIMAGE image;
+	RECT rect;
+	VECTOR ca;
+	VECTOR cb;
+	int32_t j;
+	int32_t i;
+	SVECTOR *p;
+
+	timq = timp = (unsigned long *)tim;
+	GsGetTimInfo(timp + 1, &image);
+	setRECT(&rect, image.px, image.py, image.pw, image.ph);
+	LoadImage(&rect, image.pixel);
+	GetTPage(image.pmode & 3, 0, image.px, image.py);
+	if (((image.pmode >> 3) & 1) != 0) {
+		setRECT(&rect, image.cx, image.cy, image.cw, image.ch);
+		LoadImage(&rect, image.clut);
+		GetClut(image.cx, image.cy);
+	}
+
+	VS_FINISHER_AURA_MODEL = (int32_t)base;
+	GsMapModelingData((unsigned long *)((char *)VS_FINISHER_AURA_MODEL + 4));
+	ca = VS_D_80071054;
+	cb = VS_D_80071064;
+	VS_setTMDObjectColor(0, &ca, VS_FINISHER_AURA_MODEL);
+	VS_setTMDObjectColor(1, &ca, VS_FINISHER_AURA_MODEL);
+	VS_setTMDObjectColor(2, &ca, VS_FINISHER_AURA_MODEL);
+	VS_setTMDObjectColor(3, &cb, VS_FINISHER_AURA_MODEL);
+	VS_setTMDObjectColor(4, &ca, VS_FINISHER_AURA_MODEL);
+
+	for (j = 0; j < 2; j++) {
+		VS_FINISHER_AURAS[j].frame = -1;
+	}
+
+	p = VS_FINISHER_AURA_SPARKS;
+	for (i = 0; i < 0xa; i++) {
+		v.vx = (rand() % 30) + 30;
+		v.vy = 0;
+		v.vz = (rand() % 0x190) + 0x320;
+		rot.vx = rand() % 0x1000 * 180 / 360;
+		rot.vy = rand();
+		rot.vz = 0;
+		RotMatrixZYX(&rot, &m);
+		ApplyMatrixSV(&m, &v, p++);
+		v.vx *= -1;
+		ApplyMatrixSV(&m, &v, p++);
+	}
+}
+
+int32_t VS_addFinisherAura(Entity *entity, int32_t duration)
+{
+	int32_t i;
+	EfeFinisherAura *p;
+
+	for (i = 0; i < 2; i++) {
+		if (VS_FINISHER_AURAS[i].frame < 0) {
+			break;
+		}
+	}
+
+	if (i == 2) {
+		return -1;
+	}
+
+	p = &VS_FINISHER_AURAS[i];
+	p->frame = 0;
+	p->duration = duration;
+	p->entity = entity;
+	addObject(0x80d, i, VS_tickFinisherAura, VS_renderFinisherAura);
+
+	return i;
+}
+
+void VS_removeFinisherAura(int32_t i)
+{
+	removeObject(0x80d, i);
+	VS_FINISHER_AURAS[i].frame = -1;
+}
+
+void VS_removeAllFinisherAuras(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 2; i++) {
+		VS_removeFinisherAura(i);
+	}
+}
+
+void VS_tickAuraProjectile(int32_t id)
+{
+	AABB box;
+	EfeAura *a;
+	int32_t hit;
+	int32_t j;
+
+	a = &VS_FLAT_BULLET_PTR[id];
+	a->frame++;
+	if (a->frame >= 0x3a) {
+		a->frame = -1;
+		removeObject(0x179, (int16_t)id);
+		return;
+	}
+	addVector(&a->position, &a->velocity);
+	box.center = &a->position;
+	box.extent.vx = 0x2d;
+	box.extent.vy = 0xc8;
+	box.extent.vz = 0x2d;
+	if ((hit = findAABBHitEntity(&box, a->owner, 1)) == -1) {
+		return;
+	}
+	if (((DigimonEntity *)ENTITY_TABLE[hit])->stats.current.isHit != 0) {
+		return;
+	}
+	for (j = 1; j < 10; j++) {
+		if (ENTITY_TABLE[j] == a->owner) {
+			break;
+		}
+	}
+	((DigimonEntity *)ENTITY_TABLE[hit])->stats.current.isHit = 1;
+	addAttackObject(hit, 1, &a->position, 0x179, 0, j);
+	a->frame = -1;
+	removeObject(0x179, (int16_t)id);
+}
+
+void VS_renderAuraProjectile(int32_t i)
+{
+	MATRIX m;
+#if !VERSION_IS(US)
+	VECTOR scale;
+#endif
+	SVECTOR a;
+	SVECTOR b;
+	SVECTOR c;
+	SVECTOR d;
+	EfeAura *aura;
+	POLY_FT4 *prim;
+
+	aura = &VS_FLAT_BULLET_PTR[i];
+	prim = (POLY_FT4 *)GsGetWorkBase();
+#if !VERSION_IS(US)
+	scale = VS_AURA_PROJECTILE_SCALE;
+#endif
+	RotMatrix(&aura->rotation, &m);
+	ApplyMatrixSV(&m, &VS_AURA_PROJECTILE_VERTEX_0, &a);
+	ApplyMatrixSV(&m, &VS_AURA_PROJECTILE_VERTEX_1, &b);
+	ApplyMatrixSV(&m, &VS_AURA_PROJECTILE_VERTEX_2, &c);
+	ApplyMatrixSV(&m, &VS_AURA_PROJECTILE_VERTEX_3, &d);
+	addVector(&a, &aura->position);
+	addVector(&b, &aura->position);
+	addVector(&c, &aura->position);
+	addVector(&d, &aura->position);
+	SetPolyFT4(prim);
+	prim->code |= 2;
+	prim->r0 = prim->g0 = prim->b0 = 0x80;
+	prim->tpage = getTPage(0, 1, 768, 256);
+	prim->clut = getClut(192, 492);
+	setUVWH(prim, aura->type->u + 0x60, 0xa0, 7, 7);
+	addScreenPolyFT4(prim, &a, &b, &c, &d);
+}
+
+char *VS_initializeAuraProjectiles(char *base)
+{
+	int32_t i;
+
+	base = (char *)((int32_t)base + (4 - ((int32_t)base & 3)));
+	VS_FLAT_BULLET_PTR = (EfeAura *)base;
+	base = (char *)((int32_t)base + 0x120);
+	for (i = 0; i < 8; i++) {
+		VS_FLAT_BULLET_PTR[i].frame = -1;
+	}
+
+	return base;
+}
+
+int32_t VS_addAuraProjectile(Entity *e)
+{
+	EfeAura *aura;
+	int32_t i;
+	EfeAuraType *type;
+	MATRIX *q;
+
+	aura = VS_FLAT_BULLET_PTR;
+	type = VS_AURA_PROJECTILE_TYPES;
+	type = &VS_AURA_PROJECTILE_TYPES[getOriginalType(e->type)];
+	for (i = 0; i < 8; i++) {
+		if (aura[i].frame < 0) {
+			break;
+		}
+	}
+
+	if (i == 8) {
+		return -1;
+	}
+
+	aura = aura + i;
+	aura->frame = 0;
+	aura->owner = e;
+	aura->type = type;
+	q = &e->posData->posMatrix.workm;
+	aura->position.vx = 0;
+	aura->position.vy = -DIGIMON_DATA[e->type].height * 50 / 100;
+	aura->position.vz = -DIGIMON_DATA[e->type].height * 50 / 100;
+	ApplyMatrixSV(q, &aura->position, &aura->position);
+	aura->position.vx += (int16_t)q->t[0];
+	aura->position.vy += (int16_t)q->t[1];
+	aura->position.vz += (int16_t)q->t[2];
+	aura->rotation.vx = 0;
+	aura->rotation.vy = e->posData->rotation.vy;
+	aura->rotation.vz = 0;
+	aura->velocity.vx = 0;
+	aura->velocity.vy = 0;
+	aura->velocity.vz = -0x23;
+	ApplyMatrixSV(q, &aura->velocity, &aura->velocity);
+	addObject(0x179, (int16_t)i, VS_tickAuraProjectile, VS_renderAuraProjectile);
+
+	return i;
+}
+
+void VS_removeAllAuraProjectiles(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 8; i++) {
+		if (VS_FLAT_BULLET_PTR[i].frame >= 0) {
+			VS_FLAT_BULLET_PTR[i].frame = -1;
+			removeObject(0x179, (int16_t)i);
+		}
+	}
+}

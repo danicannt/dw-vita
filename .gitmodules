@@ -1,0 +1,6 @@
+[submodule "external/dw_decomp"]
+	path = external/dw_decomp
+	url = https://github.com/jype0/dw_decomp.git
+[submodule "external/psyz"]
+	path = external/psyz
+	url = https://github.com/Xeeynamo/psyz.git

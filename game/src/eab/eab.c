@@ -1,0 +1,710 @@
+#include <libgpu.h>
+#include <libgs.h>
+#include <libgte.h>
+
+#include <dw/anim.h>
+#include <dw/btl.h>
+#include <dw/eab.h>
+#include <dw/entity.h>
+#include <dw/graphics.h>
+#include <dw/main.h>
+#include <dw/math.h>
+#include <dw/model.h>
+#include <dw/sound.h>
+#include <dw/types.h>
+#include <dw/version.h>
+#include <dw/world_object.h>
+
+#include "common.h"
+
+typedef struct {
+	int16_t frame;
+	int16_t phase;
+	Entity *entity;
+} EabHudState;
+
+extern GsRVIEW2 GS_VIEWPOINT;
+extern int32_t *EFE_DATA_STACK;
+
+void setMapLayerEnabled(int32_t enabled);
+int32_t lerp(int32_t start, int32_t end, int32_t t0, int32_t t1, int32_t t);
+int32_t worldPosToScreenPos(SVECTOR *pos, DVECTOR *out);
+void calculateBoneMatrix(Entity *entity, int32_t boneId, MATRIX *out);
+void renderTMDModel(uint8_t *buffer, int32_t id, GsCOORDINATE2 *coord, GsCOORDINATE2 *super, VECTOR *trans, SVECTOR *rot, VECTOR *scale);
+char *initializeFlashData(char *base);
+void EFECreateFlash(void);
+
+void EAB_setModelColor(VECTOR *color);
+void EAB_tickBuildup(void);
+void EAB_renderBuildup(void);
+void EAB_initializeRings(void);
+int32_t EAB_addBuildupRing(Entity *entity);
+void EAB_tickBuildupRing(int32_t id);
+void EAB_renderBuildupRing(int32_t id);
+int32_t EAB_addSpawnRing(Entity *entity);
+void EAB_tickSpawnRing(int32_t id);
+void EAB_renderSpawnRing(int32_t id);
+void EAB_removeRings(void);
+void EAB_renderSpawn(void);
+void EAB_tickSpawn(int32_t instanceId);
+void EAB_initializeParticles(void);
+void EAB_renderFlash(VECTOR *color);
+void EAB_setEntitiesVisible(int32_t enabled);
+int32_t EAB_addParticle(VECTOR *position, RGB8 *color);
+void EAB_renderBackdrop(VECTOR *color);
+void EAB_calculateCameraOrbit(VECTOR *viewRef, VECTOR *viewPos, Entity *entity,
+                              SVECTOR *rotation, int32_t distance, int32_t height);
+void EAB_removeParticles(void);
+void EAB_tickParticle(int32_t id);
+void EAB_renderParticle(int32_t id);
+
+static void *eab_functions[] = {
+#if VERSION_IS(EU)
+	EAB_tick,
+	EAB_startBuildup,
+	EAB_tickParticle,
+	EAB_renderParticle,
+	EAB_removeParticles,
+	EAB_calculateCameraOrbit,
+	EAB_renderBackdrop,
+	EAB_addParticle,
+	EAB_setEntitiesVisible,
+	EAB_renderFlash,
+	EAB_initializeParticles,
+	EAB_tickSpawn,
+	EAB_renderSpawn,
+	EAB_removeRings,
+	EAB_addSpawnRing,
+	EAB_tickSpawnRing,
+	EAB_renderSpawnRing,
+	EAB_tickBuildupRing,
+	EAB_renderBuildupRing,
+	EAB_addBuildupRing,
+	EAB_initializeRings,
+	EAB_setModelColor,
+	EAB_tickBuildup,
+	EAB_renderBuildup,
+#else
+	EAB_tick,
+	EAB_startBuildup,
+	EAB_renderParticle,
+	EAB_tickParticle,
+	EAB_removeParticles,
+	EAB_calculateCameraOrbit,
+	EAB_renderBackdrop,
+	EAB_addParticle,
+	EAB_setEntitiesVisible,
+	EAB_renderFlash,
+	EAB_initializeParticles,
+#if !VERSION_IS(US)
+	EAB_renderSpawn,
+	EAB_tickSpawn,
+#else
+	EAB_tickSpawn,
+	EAB_renderSpawn,
+#endif
+	EAB_removeRings,
+	EAB_renderSpawnRing,
+	EAB_tickSpawnRing,
+	EAB_addSpawnRing,
+	EAB_renderBuildupRing,
+	EAB_tickBuildupRing,
+	EAB_addBuildupRing,
+	EAB_initializeRings,
+	EAB_renderBuildup,
+	EAB_tickBuildup,
+	EAB_setModelColor,
+#endif
+};
+
+// clang-format off
+char *BOSS_EFE_TMD = (char *)BOSS_EFE_TMD_BUFFER;
+SVECTOR MAIN_D_80134C2C = { 0, 0x800, 0, 0 };
+SVECTOR MAIN_D_80134C34 = { 0, 0x800, 0, 0 };
+RGB8 MAIN_D_80134C3C = { 0x0a, 0xff, 0x0a };
+SVECTOR MAIN_D_80134C40 = { 0 };
+int8_t MAIN_D_80134C48 = 1;
+
+EabHudState MAIN_D_801353F0;
+
+VECTOR EAB_D_800616DC = { 0x0000003c, 0x0000003c, 0x0000003c, 0x00000000 };
+
+VECTOR EAB_D_800616EC = { 0x00001000, 0x00001000, 0x00001000, 0x00000000 };
+
+VECTOR EAB_D_800616FC = { 0x00001000, 0x00001000, 0x00001000, 0x00000000 };
+
+int32_t EAB_D_8006170C[9][4] = {
+	{ 0x00000000, 0xfffffed4, 0xfffffc7c, 0x00001400 },
+	{ 0x000001f4, 0xfffffed4, 0xfffff7cc, 0x00001400 },
+	{ 0x000003e8, 0xfffffed4, 0xfffffa24, 0x00001400 },
+	{ 0x00000258, 0xfffffed4, 0xfffffd44, 0x00001400 },
+	{ 0xfffffce0, 0xfffffed4, 0x000001f4, 0x00001400 },
+	{ 0x00000384, 0xfffffed4, 0xffffff9c, 0x00001400 },
+	{ 0xffffff38, 0xfffffed4, 0xfffff510, 0x00001400 },
+	{ 0xfffffb50, 0xfffffed4, 0x00000064, 0x00001400 },
+	{ 0xfffffb50, 0xfffffed4, 0xfffff63c, 0x00001400 },
+};
+
+int8_t EAB_D_8006179C[18] = {
+	0x01, 0x02, 0x03, 0x04, 0x05, 0x04, 0x03, 0x02,
+	0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00,
+};
+
+VECTOR EAB_D_800617B0 = { 0x000000ff, 0x000000ff, 0x000000ff, 0x00000000 };
+
+VECTOR EAB_D_800617C0 = { 0x000000ff, 0x000000ff, 0x000000ff, 0x00000000 };
+// clang-format on
+
+void EAB_setModelColor(VECTOR *color)
+{
+	TMD_P_TNF4 *prim;
+	struct TMD_STRUCT *obj;
+	int32_t idx;
+	int32_t i;
+	int32_t count;
+	uint8_t t;
+
+	idx = 0;
+	obj = (struct TMD_STRUCT *)(BOSS_EFE_TMD + 0xc);
+	obj += idx;
+	count = obj->primn;
+	prim = (TMD_P_TNF4 *)obj->primtop;
+	for (i = 0; i < count; i++) {
+		t = *(int32_t *)prim >> 24;
+		switch (t) {
+		case 0x2d:
+		case 0x2f:
+			*(int8_t *)&prim->r0 = (int16_t)color->vx;
+			*(int8_t *)&prim->g0 = (int16_t)color->vy;
+			*(int8_t *)&prim->b0 = (int16_t)color->vz;
+			prim += 1;
+			break;
+		}
+	}
+}
+
+void EAB_tickBuildup(void)
+{
+	EabHudState *hud;
+	Entity *entity;
+
+	hud = &MAIN_D_801353F0;
+	entity = hud->entity;
+	hud->frame += 1;
+	hud->frame %= 18;
+	if ((hud->frame % 6) == 0) {
+		EAB_addBuildupRing(entity);
+	}
+}
+
+void EAB_renderBuildup(void)
+{
+	EabHudState *hud;
+	Entity *entity;
+
+	hud = &MAIN_D_801353F0;
+	entity = hud->entity;
+}
+
+void EAB_initializeRings(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 18; i++) {
+		EAB_D_800617D0[i].timer = -1;
+	}
+}
+
+int32_t EAB_addBuildupRing(Entity *entity)
+{
+	EabModelFX *fx;
+	int32_t i;
+
+	for (i = 0; i < 3; i++) {
+		if (EAB_D_800617D0[i].timer < 0) {
+			break;
+		}
+	}
+
+	if (i == 3) {
+		return -1;
+	}
+
+	fx = &EAB_D_800617D0[i];
+	fx->timer = 0;
+	fx->entity = entity;
+
+	return addObject(0x60d, i, EAB_tickBuildupRing, EAB_renderBuildupRing);
+}
+
+void EAB_tickBuildupRing(int32_t id)
+{
+	EabModelFX *fx;
+	Entity *entity;
+
+	fx = &EAB_D_800617D0[id];
+	entity = fx->entity;
+	fx->timer += 1;
+	if (fx->timer >= 0x12) {
+		fx->timer = -1;
+		removeObject(0x60d, id);
+	}
+}
+
+void EAB_renderBuildupRing(int32_t id)
+{
+	GsCOORDINATE2 coord;
+	VECTOR trans;
+	SVECTOR rot;
+	VECTOR scale;
+	EabModelFX *fx;
+	Entity *entity;
+	int32_t angle;
+
+	fx = &EAB_D_800617D0[id];
+	entity = fx->entity;
+	rot = MAIN_D_80134C2C;
+	scale = EAB_D_800616EC;
+	scale.vx = scale.vz = lerp(0x10b8, 0x614, 1, 0x12, fx->timer);
+	angle = lerp(0, 0x80, 1, 0x12, fx->timer);
+	scale.vy = ((_sin(angle) * 0xc3c) / 4096) + 0x15c;
+	copyVector(&trans, &entity->posData->location);
+	renderTMDModel((uint8_t *)BOSS_EFE_TMD, 0, &coord, NULL, &trans, &rot, &scale);
+}
+
+int32_t EAB_addSpawnRing(Entity *entity)
+{
+	EabModelFX *fx;
+	int32_t i;
+
+	for (i = 0; i < 3; i++) {
+		if (EAB_D_800617D0[i].timer < 0) {
+			break;
+		}
+	}
+
+	if (i == 3) {
+		return -1;
+	}
+
+	fx = &EAB_D_800617D0[i];
+	fx->timer = 0;
+	fx->entity = entity;
+
+	return addObject(0x60d, i, EAB_tickSpawnRing, EAB_renderSpawnRing);
+}
+
+void EAB_tickSpawnRing(int32_t id)
+{
+	EabModelFX *fx;
+	Entity *entity;
+
+	fx = &EAB_D_800617D0[id];
+	entity = fx->entity;
+	fx->timer += 1;
+	if (fx->timer >= 9) {
+		fx->timer = -1;
+		removeObject(0x60d, id);
+	}
+}
+
+void EAB_renderSpawnRing(int32_t id)
+{
+	GsCOORDINATE2 coord;
+	VECTOR trans;
+	SVECTOR rot;
+	VECTOR scale;
+	EabModelFX *fx;
+	Entity *entity;
+	int32_t angle;
+
+	fx = &EAB_D_800617D0[id];
+	entity = fx->entity;
+	rot = MAIN_D_80134C34;
+	scale = EAB_D_800616FC;
+	scale.vx = scale.vz = lerp(0x16cc, 0x10b8, 1, 0x12, fx->timer);
+	angle = lerp(0, 0x80, 1, 0x12, fx->timer);
+	scale.vy = ((_sin(angle) * 0x2b8) / 4096) + 0xae;
+	copyVector(&trans, &entity->posData->location);
+	renderTMDModel((uint8_t *)BOSS_EFE_TMD, 0, &coord, NULL, &trans, &rot, &scale);
+}
+
+void EAB_removeRings(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 3; i++) {
+		if (EAB_D_800617D0[i].timer >= 0) {
+			EAB_D_800617D0[i].timer = -1;
+			removeObject(0x60d, i);
+		}
+	}
+}
+
+void EAB_renderSpawn(void)
+{
+}
+
+void EAB_tickSpawn(int32_t instanceId)
+{
+	VECTOR flashColor;
+	VECTOR fadeColor;
+	RGB8 particleColor;
+	VECTOR overlayColor;
+	VECTOR viewRef;
+	VECTOR viewPos;
+	SVECTOR rotation;
+	int32_t angle;
+	int32_t distance;
+	int32_t height;
+	Entity *entity;
+	EabState *state;
+
+	state = &EAB_D_800617E8;
+	entity = state->entity;
+	state->frame++;
+
+	if ((entity->anim.animId == 0x33) &&
+	    (entity->anim.animFrame == entity->anim.frameCount)) {
+		startAnimation(entity, 0x33);
+	}
+
+	switch (state->phase) {
+	case 0:
+		if (state->frame >= 0x2d) {
+			flashColor = EAB_D_800617B0;
+			EAB_renderFlash(&flashColor);
+		}
+		if (state->frame < 0x32) {
+			break;
+		}
+		state->phase = 1;
+		entity->isOnMap = 1;
+		startAnimation(entity, 0x21);
+		EAB_setEntitiesVisible(0);
+		setMapLayerEnabled(0);
+		EAB_D_800619E4 = GS_VIEWPOINT;
+		removeObject(0x60b, 0);
+		stopSound();
+		playSound2(8, 2);
+		((DigimonEntity *)entity)->stats.current.vabId = 5;
+		/* fall through */
+	case 1:
+		EAB_addSpawnRing(entity);
+		if (state->frame == 0xd2) {
+			startAnimation(entity, 0x33);
+		}
+		if ((state->frame >= 0x32) && (state->frame < 0x53)) {
+			fadeColor.vx = lerp(0xff, 0, 0x32, 0x52, state->frame);
+			fadeColor.vy = fadeColor.vz = fadeColor.vx;
+			EAB_renderFlash(&fadeColor);
+		}
+		if (EAB_D_8006179C[state->frame % 18] != 0) {
+			particleColor = MAIN_D_80134C3C;
+			particleColor.g = lerp(0x32, 0xe6, 1, 5,
+			                       EAB_D_8006179C[state->frame % 18]);
+			angle = lerp(0, 0x80, 0x32, 0x122, state->frame);
+			particleColor.g = particleColor.g * _sin(angle) / 4096;
+			EAB_addParticle(&entity->posData->location, &particleColor);
+		}
+		overlayColor = EAB_D_800617C0;
+		EAB_renderBackdrop(&overlayColor);
+		if ((state->frame >= 0x32) && (state->frame < 0x123)) {
+			ENTITY1_WIREFRAME_TOTAL = lerp(0x80, 0, 0x32, 0x122, state->frame);
+			ENTITY1_WIREFRAME_TOTAL = 0x10 - (_sin(ENTITY1_WIREFRAME_TOTAL) * 16 / 4096);
+		}
+		rotation = MAIN_D_80134C40;
+		if ((state->frame >= 0x32) && (state->frame < 0x123)) {
+			rotation.vy = lerp(0x71c, 0x171c, 0x32, 0x122, state->frame);
+		} else {
+			rotation.vy = 0x171c;
+		}
+		rotation.vy += entity->posData->rotation.vy;
+		distance = lerp(0xdac, 0xbb8, 0x32, 0x140, state->frame);
+		height = lerp(0x258, 0x32, 0x32, 0x140, state->frame);
+		EAB_calculateCameraOrbit(&viewRef, &viewPos, entity, &rotation,
+		                         distance, height);
+		GS_VIEWPOINT.vrx = viewRef.vx;
+		GS_VIEWPOINT.vry = viewRef.vy;
+		GS_VIEWPOINT.vrz = viewRef.vz;
+		GS_VIEWPOINT.vpx = viewPos.vx;
+		GS_VIEWPOINT.vpy = viewPos.vy;
+		GS_VIEWPOINT.vpz = viewPos.vz;
+		if (state->frame == 0x13f) {
+			GS_VIEWPOINT = EAB_D_800619E4;
+		}
+		if (state->frame < 0x140) {
+			break;
+		}
+		state->phase = 2;
+		EAB_removeParticles();
+		setMapLayerEnabled(1);
+		EAB_setEntitiesVisible(1);
+		GS_VIEWPOINT = EAB_D_800619E4;
+		stopSound();
+		playSound(8, 3);
+		break;
+	case 2:
+		if (state->frame < 0x14a) {
+			EAB_addSpawnRing(entity);
+		}
+		if (state->frame < 0x154) {
+			break;
+		}
+		EAB_removeRings();
+		state->frame = -1;
+		removeObject(0x60c, instanceId);
+		break;
+	}
+}
+
+void EAB_initializeParticles(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 100; i++) {
+		EAB_D_80061A10[i].timer = -1;
+	}
+}
+
+void EAB_renderFlash(VECTOR *color)
+{
+	POLY_FT4 *prim;
+	int32_t depth;
+
+	prim = (POLY_FT4 *)GsGetWorkBase();
+	depth = 0xa;
+	SetPolyFT4(prim);
+	SetSemiTrans(prim, 1);
+	prim->tpage = getTPage(1, 2, 832, 256);
+	prim->clut = getClut(0, 487);
+	setXYWH(prim, -0xa0, -0x78, 320, 240);
+	setUVWH(prim, 0, 0x80, 3, 3);
+	setRGB0(prim, color->vx, color->vy, color->vz);
+	AddPrim(ACTIVE_ORDERING_TABLE->org + depth, prim);
+	prim++;
+	GsSetWorkBase((PACKET *)prim);
+}
+
+void EAB_setEntitiesVisible(int32_t enabled)
+{
+	int32_t i;
+
+	MAIN_D_80134C48 = enabled;
+	if (enabled == 0) {
+		for (i = 0; i < ENTITY_MAX; i++) {
+			if ((i != 2) && (ENTITY_TABLE[i]->isOnMap != 0)) {
+				ENTITY_TABLE[i]->isOnMap = 0;
+				EAB_D_80061A04[i] = 1;
+			} else {
+				EAB_D_80061A04[i] = 0;
+			}
+		}
+	} else {
+		for (i = 0; i < ENTITY_MAX; i++) {
+			if (i != 2) {
+				ENTITY_TABLE[i]->isOnMap = EAB_D_80061A04[i];
+			}
+		}
+	}
+}
+
+int32_t EAB_addParticle(VECTOR *position, RGB8 *color)
+{
+	EabParticle *e;
+	int32_t i;
+
+	e = (EabParticle *)EAB_D_80061A10;
+	for (i = 0; i < 100; i++) {
+		if (e->timer < 0) {
+			break;
+		}
+		e++;
+	}
+
+	if (i == 100) {
+		return -1;
+	}
+
+	e->timer = 0;
+	copyVector(&e->pos, position);
+	e->r = color->r;
+	e->g = color->g;
+	e->b = color->b;
+	addObject(0x607, i, EAB_tickParticle, EAB_renderParticle);
+
+	return i;
+}
+
+void EAB_renderBackdrop(VECTOR *color)
+{
+	POLY_FT4 *prim;
+	int32_t depth;
+
+	prim = (POLY_FT4 *)GsGetWorkBase();
+	depth = 0xfa0;
+	SetPolyFT4(prim);
+	SetSemiTrans(prim, 1);
+	prim->tpage = getTPage(1, 2, 832, 256);
+	prim->clut = getClut(0, 487);
+	setXY4(prim, -DRAWING_OFFSET_X, -DRAWING_OFFSET_Y, 0x140 - DRAWING_OFFSET_X, -DRAWING_OFFSET_Y, -DRAWING_OFFSET_X, 0xf0 - DRAWING_OFFSET_Y, 0x140 - DRAWING_OFFSET_X, 0xf0 - DRAWING_OFFSET_Y);
+	setUVWH(prim, 0, 0x80, 3, 3);
+	setRGB0(prim, color->vx, color->vy, color->vz);
+	AddPrim(ACTIVE_ORDERING_TABLE->org + depth, prim);
+	prim++;
+	GsSetWorkBase((PACKET *)prim);
+}
+
+void EAB_calculateCameraOrbit(VECTOR *viewRef, VECTOR *viewPos, Entity *entity,
+                              SVECTOR *rotation, int32_t distance, int32_t height)
+{
+	MATRIX m1;
+	MATRIX m2;
+	VECTOR v;
+
+	calculateBoneMatrix(entity, 0, &m1);
+	viewRef->vx = m1.t[0];
+	viewRef->vy = m1.t[1] - 0x64;
+	viewRef->vz = m1.t[2];
+	RotMatrixZYX(rotation, &m2);
+	v.vx = 0;
+	v.vy = 0;
+	v.vz = distance;
+	ApplyMatrixLV(&m2, &v, viewPos);
+	viewPos->vx += viewRef->vx;
+	viewPos->vy += viewRef->vy - height;
+	viewPos->vz += viewRef->vz;
+}
+
+void EAB_removeParticles(void)
+{
+	int32_t i;
+	EabParticle *p;
+
+	p = EAB_D_80061A10;
+	for (i = 0; i < 100; i++) {
+		if (p->timer >= 0) {
+			removeObject(0x607, i);
+			p->timer = -1;
+		}
+		p++;
+	}
+}
+
+void EAB_tickParticle(int32_t id)
+{
+	int32_t *p;
+
+	p = &EAB_D_80061A10[id].timer;
+	if (*p >= 0x56) {
+		removeObject(0x607, id);
+		*p = -1;
+	} else {
+		*p += 1;
+	}
+}
+
+void EAB_renderParticle(int32_t id)
+{
+	int32_t size;
+	SVECTOR corners[4];
+	DVECTOR screen[4];
+	int32_t depth[4];
+	EabParticle *e;
+	LINE_F2 *prim;
+	int32_t i;
+
+	e = &EAB_D_80061A10[id];
+	size = lerp(8, 0x9c4, 0, 0x56, e->timer);
+	corners[0].vx = e->pos.vx + size;
+	corners[0].vz = e->pos.vz + size;
+	corners[1].vx = e->pos.vx + size;
+	corners[1].vz = e->pos.vz - size;
+	corners[2].vx = e->pos.vx - size;
+	corners[2].vz = e->pos.vz - size;
+	corners[3].vx = e->pos.vx - size;
+	corners[3].vz = e->pos.vz + size;
+	corners[0].vy = corners[1].vy = corners[2].vy = corners[3].vy = e->pos.vy;
+
+	for (i = 0; i < 4; i++) {
+		depth[i] = worldPosToScreenPos(&corners[i], &screen[i]) >> 4;
+	}
+
+	prim = (LINE_F2 *)GsGetWorkBase();
+	for (i = 0; i < 4; i++) {
+		if ((*(int32_t *)&depth[i] > 0x20) && (depth[i] < 0x1000)) {
+			if ((*(int32_t *)&depth[(i + 1) % 4] > 0x20) && (depth[(i + 1) % 4] < 0x1000)) {
+				SetLineF2(prim);
+				setRGB0(prim, lerp(e->r, 0, 0, 0x56, e->timer), lerp(e->g, 0, 0, 0x56, e->timer), lerp(e->b, 0, 0, 0x56, e->timer));
+				setXY2(prim, screen[i].vx, screen[i].vy, screen[(i + 1) % 4].vx, screen[(i + 1) % 4].vy);
+				AddPrim(ACTIVE_ORDERING_TABLE->org + 0xf9f, prim++);
+			}
+		}
+	}
+
+	GsSetWorkBase((PACKET *)prim);
+}
+
+void EAB_startBuildup(Entity *entity)
+{
+	VECTOR color;
+	EabHudState *hud;
+	int32_t id;
+
+	hud = &MAIN_D_801353F0;
+	id = 0;
+	GsMapModelingData((unsigned long *)(BOSS_EFE_TMD + 4));
+	color = EAB_D_800616DC;
+	EAB_setModelColor(&color);
+	hud->frame = 0;
+	hud->phase = 0;
+	hud->entity = entity;
+	addObject(0x60b, id, (TickFunction)EAB_tickBuildup, (RenderFunction)EAB_renderBuildup);
+	EAB_initializeRings();
+	entity->isOnMap = 0;
+	playSound2(8, 0);
+}
+
+// clang-format off
+int32_t EAB_tick(entity, isInitialized)
+	Entity *entity;
+	int16_t isInitialized;
+// clang-format on
+{
+	int32_t id;
+	VECTOR colorEnd;
+	VECTOR colorStart;
+	EabState *state;
+	int32_t i;
+
+	state = &EAB_D_800617E8;
+	id = 0;
+	if (isInitialized != 0) {
+		return state->frame;
+	}
+
+	state->frame = 0;
+	state->phase = 0;
+	state->entity = entity;
+	state->location = entity->posData->location;
+	addObject(0x60c, id, EAB_tickSpawn, (RenderFunction)EAB_renderSpawn);
+	EAB_initializeParticles();
+	initializeFlashData((char *)EAB_D_80061800.data);
+	for (i = 0; i < 9; i++) {
+		*EFE_DATA_STACK++ = 0x20;
+		*EFE_DATA_STACK++ = (int32_t)EAB_D_8006170C[i];
+		*EFE_DATA_STACK++ = 0x22;
+		*EFE_DATA_STACK++ = 0x32;
+		*EFE_DATA_STACK++ = 0;
+		*EFE_DATA_STACK++ = EAB_D_8006170C[i][3];
+		colorEnd.vx = colorEnd.vy = colorEnd.vz = 0xff;
+		colorStart.vx = colorStart.vy = colorStart.vz = 0x14;
+		*EFE_DATA_STACK++ = (int32_t)&colorStart;
+		*EFE_DATA_STACK++ = (int32_t)&colorEnd;
+		EFECreateFlash();
+	}
+	playSound(8, 1);
+
+	return 0;
+}

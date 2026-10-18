@@ -1,0 +1,3069 @@
+#include <stdio.h>
+#include <string.h>
+
+#include <inline_n.h>
+#include <libgs.h>
+
+#include <dw/anim.h>
+#include <dw/btl.h>
+#include <dw/combat.h>
+#include <dw/entity.h>
+#include <dw/font.h>
+#include <dw/garbage.h>
+#include <dw/item.h>
+#include <dw/math.h>
+#include <dw/move.h>
+#include <dw/params.h>
+#include <dw/particle.h>
+#include <dw/partner.h>
+#include <dw/script.h>
+#include <dw/tamer.h>
+#include <dw/types.h>
+#include <dw/version.h>
+#include <dw/world_object.h>
+#include <text/main/item.h>
+
+#include "common.h"
+
+extern uint8_t MAP_LAYER_ENABLED;
+extern int32_t VIEWPORT_DISTANCE;
+extern int16_t EVOLUTION_TARGET;
+extern uint8_t HAS_USED_EVOITEM;
+
+void deleteDroppedItem(int16_t itemId);
+void setUVDataPolyFT4(POLY_FT4 *p, int32_t u, int32_t v, int32_t w, int32_t h);
+void setPosDataPolyFT4(POLY_FT4 *prim, int32_t posX, int32_t posY, int32_t width,
+                       int32_t height);
+void setItemTexture(POLY_FT4 *prim, int32_t type);
+void decreasePoopLevel(void);
+void modifyLifetime(int16_t delta);
+void reduceTiredness(int16_t amount);
+void setTrainingBoost(int32_t flag, int32_t value, int32_t duration);
+void addEnergy(int16_t amount);
+void addHappiness(int16_t amount);
+void addDiscipline(int16_t amount);
+void addWeight(int16_t amount);
+void getModelTile(VECTOR *pos, int16_t *outTileX, int16_t *outTileY);
+void renderDroppedItem(int32_t instanceId);
+void renderDroppedItemShadow(WorldItem *item);
+void handlePoopWeightLoss(int32_t type);
+void closeInventoryBoxes(void);
+void BTL_healStatusEffect(int32_t arg);
+void addEntityText(Entity *entity, int16_t slotId, int16_t color, int32_t value, uint8_t icon);
+void addWithLimit(int16_t *value, int16_t amount, int16_t limit);
+int32_t handleMedicineHealing(int16_t injuryChance, int16_t sicknessChance);
+void handlePortaPotty(void);
+void handleItemSickness(int16_t arg);
+void addTamerLevel(int32_t chance, int32_t amount);
+
+Inventory INVENTORY;
+TamerItem TAMER_ITEM;
+DroppedItem DROPPED_ITEMS[11];
+int8_t TAMER_WAYPOINT_Y[30];
+int8_t TAMER_WAYPOINT_X[30];
+int8_t PARTNER_WAYPOINT_Y[30];
+int8_t PARTNER_WAYPOINT_X[30];
+StatsGains INITIAL_COMBAT_STATS[4];
+CombatData COMBAT_DATA;
+
+// clang-format off
+MOVE_NAMES_STRINGS
+ITEM_NAMES_STRINGS
+ITEM_DESCS_STRINGS
+
+InventoryTable INITIAL_INVENTORY_AMOUNTS = {
+	{
+		0x28, 0x19, 0x32, 0x1e, 0x14, 0x1e, 0x1e, 0x12,
+		0x1e, 0x1e, 0x1e, 0x14, 0x1e, 0x14, 0x1e, 0x32,
+		0x32, 0x50, 0x32, 0x32, 0x62, 0x32, 0x32, 0x32,
+		0x32, 0x32, 0x32, 0x32, 0x32, 0x00,
+	},
+};
+
+InventoryTable INITIAL_INVENTORY_TYPES = {
+	{
+		0x02, 0x09, 0x0c, 0x13, 0x14, 0x15, 0x30, 0x2b,
+		0x0e, 0x4b, 0x4f, 0x50, 0x55, 0x57, 0x58, 0x5b,
+		0x5c, 0x5d, 0x61, 0x64, 0x6a, 0x6c, 0x6e, 0x6f,
+		0x70, 0x71, 0x77, 0x20, 0x16, 0xff,
+	},
+};
+
+STR_IS_SICK_TEXT
+
+uint8_t TYPE_FACTORS[7][7] = {
+	{ 0x0a, 0x0f, 0x05, 0x14, 0x14, 0x0f, 0x14 },
+	{ 0x0a, 0x0a, 0x02, 0x0f, 0x0a, 0x0a, 0x05 },
+	{ 0x0f, 0x0f, 0x0f, 0x05, 0x0f, 0x0f, 0x05 },
+	{ 0x05, 0x0f, 0x14, 0x0a, 0x0a, 0x05, 0x0f },
+	{ 0x14, 0x0f, 0x05, 0x0f, 0x0a, 0x0f, 0x14 },
+	{ 0x0a, 0x0a, 0x05, 0x0a, 0x0a, 0x0a, 0x05 },
+	{ 0x05, 0x0f, 0x05, 0x02, 0x0a, 0x14, 0x02 },
+};
+
+uint8_t MOVE_LEARN_CHANCES[58][3] = {
+	{ 0x19, 0x10, 0x0b }, { 0x11, 0x0a, 0x05 }, { 0x1e, 0x16, 0x0f }, { 0x14, 0x0c, 0x07 },
+	{ 0x16, 0x0e, 0x09 }, { 0x1c, 0x13, 0x0d }, { 0x0f, 0x08, 0x00 }, { 0x0e, 0x06, 0x00 },
+	{ 0x0d, 0x09, 0x00 }, { 0x16, 0x0e, 0x0a }, { 0x20, 0x13, 0x0f }, { 0x12, 0x0d, 0x08 },
+	{ 0x24, 0x15, 0x11 }, { 0x1a, 0x10, 0x0d }, { 0x0f, 0x0b, 0x07 }, { 0x0c, 0x08, 0x00 },
+	{ 0x11, 0x0a, 0x05 }, { 0x0f, 0x08, 0x00 }, { 0x14, 0x0c, 0x07 }, { 0x1e, 0x0f, 0x08 },
+	{ 0x14, 0x0a, 0x05 }, { 0x16, 0x0e, 0x09 }, { 0x0e, 0x06, 0x00 }, { 0x1e, 0x16, 0x0f },
+	{ 0x28, 0x1e, 0x16 }, { 0x10, 0x0d, 0x00 }, { 0x23, 0x1b, 0x12 }, { 0x1c, 0x15, 0x0d },
+	{ 0x14, 0x0e, 0x0a }, { 0x0f, 0x0c, 0x00 }, { 0x19, 0x11, 0x0b }, { 0x20, 0x18, 0x0f },
+	{ 0x1a, 0x13, 0x0e }, { 0x0c, 0x08, 0x00 }, { 0x17, 0x0f, 0x0c }, { 0x18, 0x10, 0x0d },
+	{ 0x12, 0x0c, 0x09 }, { 0x1c, 0x16, 0x10 }, { 0x1b, 0x14, 0x0f }, { 0x0e, 0x0a, 0x00 },
+	{ 0x12, 0x08, 0x00 }, { 0x13, 0x09, 0x08 }, { 0x16, 0x0f, 0x0a }, { 0x1a, 0x13, 0x0e },
+	{ 0x18, 0x11, 0x0c }, { 0x14, 0x0b, 0x08 }, { 0x15, 0x0d, 0x09 }, { 0x10, 0x07, 0x00 },
+	{ 0x18, 0x11, 0x0c }, { 0x18, 0x0e, 0x09 }, { 0x17, 0x0d, 0x08 }, { 0x0f, 0x0a, 0x05 },
+	{ 0x0b, 0x08, 0x00 }, { 0x15, 0x0c, 0x07 }, { 0x14, 0x0b, 0x06 }, { 0x19, 0x10, 0x0a },
+	{ 0x09, 0x07, 0x00 }, { 0x19, 0x10, 0x0a },
+};
+
+MOVE_NAMES_TEXT
+
+Move MOVE_DATA[122] = {
+	{
+		0x00015f90, 0x009b, 0x1b, 0x1a, 0x02,
+		0x00, 0x03, 0x37, 0x08, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x01bc, 0x3d, 0x01, 0x02,
+		0x00, 0x04, 0x4b, 0x03, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x0042, 0x0a, 0x01, 0x02,
+		0x00, 0x00, 0x2b, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00d2, 0x39, 0x01, 0x03,
+		0x00, 0x00, 0x48, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x0117, 0x2c, 0x01, 0x02,
+		0x00, 0x02, 0x32, 0x04, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0054, 0x23, 0x01, 0x03,
+		0x00, 0x04, 0x50, 0x20, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x01e8, 0x58, 0x1a, 0x03,
+		0x00, 0x03, 0x4f, 0x0b, 0x03,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0190, 0x6a, 0x01, 0x03,
+		0x00, 0x03, 0x56, 0x18, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x024a, 0x6e, 0x01, 0x02,
+		0x02, 0x03, 0x55, 0x20, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x0185, 0x32, 0x01, 0x02,
+		0x02, 0x00, 0x4d, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x000c5c10, 0x0078, 0x17, 0x01, 0x02,
+		0x02, 0x03, 0x3c, 0x09, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x017e, 0x3a, 0x01, 0x02,
+		0x02, 0x03, 0x44, 0x17, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0055, 0x0f, 0x01, 0x01,
+		0x02, 0x03, 0x37, 0x0f, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x00b2, 0x1f, 0x01, 0x02,
+		0x02, 0x00, 0x3e, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x00e1, 0x48, 0x01, 0x03,
+		0x02, 0x02, 0x57, 0x3c, 0x03,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x016e, 0x55, 0x01, 0x03,
+		0x02, 0x02, 0x49, 0x0d, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00009c40, 0x0108, 0x28, 0x05, 0x02,
+		0x04, 0x03, 0x41, 0x0a, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00077a10, 0x01a8, 0x3e, 0x11, 0x02,
+		0x04, 0x03, 0x4f, 0x26, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0078, 0x37, 0x01, 0x03,
+		0x04, 0x03, 0x5a, 0x0f, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x007e, 0x1a, 0x01, 0x02,
+		0x04, 0x03, 0x32, 0x05, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00d3, 0x22, 0x01, 0x02,
+		0x04, 0x00, 0x4a, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0000, 0x0c, 0x01, 0x04,
+		0x04, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x01ae, 0x56, 0x01, 0x03,
+		0x04, 0x04, 0x51, 0x18, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x003c, 0x0e, 0x01, 0x02,
+		0x04, 0x04, 0x2c, 0x2e, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00077a10, 0x00e2, 0x2a, 0x01, 0x02,
+		0x05, 0x00, 0x35, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x023d, 0x6e, 0x01, 0x03,
+		0x05, 0x00, 0x51, 0x00, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x0003d090, 0x0096, 0x37, 0x01, 0x03,
+		0x05, 0x00, 0x4e, 0x00, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x0185, 0x38, 0x01, 0x02,
+		0x05, 0x00, 0x48, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x01ae, 0x49, 0x01, 0x02,
+		0x05, 0x04, 0x41, 0x32, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x02d2, 0x8c, 0x01, 0x03,
+		0x05, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+#if VERSION_IS(JP)
+	{
+		0x00000000, 0x0000, 0x21, 0x01, 0x04,
+		0x05, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+#else
+	{
+		0x00000000, 0x0000, 0x21, 0x01, 0x04,
+		0x05, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+#endif
+	{
+		0x00077a10, 0x0100, 0x63, 0x01, 0x02,
+		0x05, 0x04, 0x64, 0x0c, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0075, 0x39, 0x01, 0x03,
+		0x03, 0x01, 0x4d, 0x3e, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x01f4, 0x76, 0x01, 0x02,
+		0x03, 0x04, 0x50, 0x23, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0000, 0x0a, 0x01, 0x04,
+		0x03, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x003a, 0x20, 0x0c, 0x02,
+		0x03, 0x01, 0x53, 0x5a, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00b4, 0x46, 0x01, 0x03,
+		0x03, 0x02, 0x4b, 0x39, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x003e, 0x11, 0x01, 0x01,
+		0x03, 0x01, 0x3c, 0x28, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x009d, 0x22, 0x01, 0x01,
+		0x03, 0x04, 0x46, 0x1a, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x0136, 0x31, 0x01, 0x02,
+		0x03, 0x03, 0x52, 0x37, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00b2, 0x38, 0x01, 0x03,
+		0x01, 0x00, 0x3c, 0x00, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0000, 0x16, 0x01, 0x04,
+		0x01, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0000, 0x0e, 0x01, 0x04,
+		0x01, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0034, 0x06, 0x01, 0x01,
+		0x01, 0x00, 0x35, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x00c1, 0x21, 0x01, 0x01,
+		0x01, 0x03, 0x3e, 0x03, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x011d, 0x37, 0x01, 0x01,
+		0x01, 0x02, 0x64, 0x0a, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0140, 0x3e, 0x01, 0x01,
+		0x01, 0x03, 0x46, 0x09, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x01f4, 0x56, 0x01, 0x02,
+		0x01, 0x02, 0x50, 0x0e, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x00ff, 0x21, 0x01, 0x01,
+		0x01, 0x00, 0x5a, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00002710, 0x0058, 0x19, 0x01, 0x02,
+		0x06, 0x03, 0x25, 0x0a, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00077a10, 0x007a, 0x20, 0x01, 0x02,
+		0x06, 0x01, 0x28, 0x0b, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x00d3, 0x40, 0x01, 0x02,
+		0x06, 0x02, 0x31, 0x11, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x00d3, 0x5e, 0x01, 0x03,
+		0x06, 0x02, 0x2f, 0x14, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x004b, 0x28, 0x01, 0x03,
+		0x06, 0x01, 0x21, 0x09, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x0003d090, 0x007a, 0x48, 0x01, 0x03,
+		0x06, 0x01, 0x32, 0x0a, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0035, 0x08, 0x01, 0x01,
+		0x06, 0x00, 0x29, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x014d, 0x6f, 0x01, 0x03,
+		0x06, 0x04, 0x64, 0x53, 0x02,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0035, 0x08, 0x01, 0x01,
+		0x06, 0x00, 0x29, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x00ae, 0x28, 0x0f, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x0059, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00e6, 0x28, 0x01, 0x02,
+		0x01, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x009b, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x00b4, 0x28, 0x01, 0x01,
+		0x01, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x00c4, 0x28, 0x0f, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x00b7, 0x28, 0x0f, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x000f4240, 0x0064, 0x28, 0x01, 0x02,
+		0x06, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00002710, 0x005c, 0x28, 0x14, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00de, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00e1, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0098, 0x28, 0x01, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x005b, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x0055, 0x28, 0x01, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0082, 0x28, 0x01, 0x02,
+		0x03, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00077a10, 0x00e8, 0x28, 0x01, 0x02,
+		0x03, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0104, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x0096, 0x28, 0x01, 0x02,
+		0x01, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00009c40, 0x005e, 0x28, 0x01, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00d6, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x00d7, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x00d7, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x00c8, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x00aa, 0x28, 0x01, 0x02,
+		0x01, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00a6, 0x28, 0x01, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x008f, 0x28, 0x01, 0x01,
+		0x02, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0099, 0x28, 0x01, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x0094, 0x28, 0x01, 0x02,
+		0x04, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00a7, 0x28, 0x01, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x009b, 0x28, 0x01, 0x02,
+		0x04, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00077a10, 0x00a2, 0x28, 0x01, 0x02,
+		0x04, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x0096, 0x28, 0x01, 0x02,
+		0x01, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x0096, 0x28, 0x01, 0x02,
+		0x04, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x00aa, 0x28, 0x01, 0x02,
+		0x01, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x00ca, 0x28, 0x01, 0x03,
+		0x01, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00aa, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x009e, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00002710, 0x005b, 0x28, 0x01, 0x02,
+		0x04, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00de, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x009f, 0x28, 0x14, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0065, 0x28, 0x04, 0x01,
+		0x03, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x005a, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x00ac, 0x28, 0x01, 0x02,
+		0x01, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00002710, 0x0064, 0x28, 0x14, 0x02,
+		0x02, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00015f90, 0x00d2, 0x28, 0x01, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0099, 0x28, 0x01, 0x01,
+		0x04, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00a0, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x009d, 0x28, 0x01, 0x01,
+		0x04, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x000f4240, 0x0309, 0x28, 0x26, 0x02,
+		0x05, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x000f4240, 0x0064, 0x28, 0x01, 0x02,
+		0x06, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x000f4240, 0x0064, 0x28, 0x01, 0x02,
+		0x06, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00d5, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00000000, 0x0000, 0x00, 0x01, 0x00,
+		0xff, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00d3, 0x28, 0x01, 0x02,
+		0x04, 0x00, 0x64, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00057e40, 0x00da, 0x28, 0x01, 0x02,
+		0x00, 0x00, 0x64, 0x00, 0x01,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x0006, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x0006, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x0005, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x0005, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x000a, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x000b, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x000a, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x00027100, 0x000a, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x02, 0x00, 0x00,
+		0x00, 0x00,
+	},
+	{
+		0x0009c400, 0x000a, 0x00, 0x01, 0x02,
+		0x04, 0x00, 0x46, 0x00, 0x00,
+		0x00, 0x00,
+	},
+};
+
+Item ITEM_PARA[128] = {
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SM_RECOVERY)
+		0x00000064,
+		0x0000,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MED_RECOVERY)
+		0x000001f4,
+		0x0000,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_LRG_RECOVERY)
+		0x000003e8,
+		0x0000,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SUP_RECOVERY)
+		0x000009c4,
+		0x0014,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MP_FLOPPY)
+		0x0000012c,
+		0x0000,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MEDIUM_MP)
+		0x00000320,
+		0x0000,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_LARGE_MP)
+		0x000007d0,
+		0x0000,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DOUBLE_FLOP)
+		0x000005dc,
+		0x0000,
+		0x0000,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_VARIOUS)
+		0x0000012c,
+		0x0000,
+		0x0001,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_OMNIPOTENT)
+		0x000007d0,
+		0x0000,
+		0x0001,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_PROTECTION)
+		0x000004b0,
+		0x0000,
+		0x0001,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_RESTORE)
+		0x00000fa0,
+		0x0000,
+		0x0001,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SUP_RESTORE)
+		0x0000251c,
+		0x0064,
+		0x0001,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BANDAGE)
+		0x000000c8,
+		0x0000,
+		0x0001,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MEDICINE)
+		0x000003e8,
+		0x0000,
+		0x0001,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_OFF_DISK)
+		0x000001f4,
+		0x0000,
+		0x0003,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DEF_DISK)
+		0x000001f4,
+		0x0000,
+		0x0003,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HISPEED_DSK)
+		0x000001f4,
+		0x0000,
+		0x0003,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_OMNI_DISK)
+		0x00000bb8,
+		0x0000,
+		0x0003,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_S_OFF_DISK)
+		0x00000fa0,
+		0x0000,
+		0x0003,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_S_DEF_DISK)
+		0x00000fa0,
+		0x0000,
+		0x0003,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_S_SPEED_DISK)
+		0x00000fa0,
+		0x0000,
+		0x0003,
+		0x01,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_AUTO_PILOT)
+		0x0000012c,
+		0x0000,
+		0x0005,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_OFF_CHIP)
+		0x0000270f,
+		0x0320,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DEF_CHIP)
+		0x0000270f,
+		0x0320,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BRAIN_CHIP)
+		0x0000270f,
+		0x0320,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_QUICK_CHIP)
+		0x0000270f,
+		0x0320,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HP_CHIP)
+		0x0000270f,
+		0x0320,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MP_CHIP)
+		0x0000270f,
+		0x0320,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DV_CHIP_A)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DV_CHIP_D)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DV_CHIP_E)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_PORT_POTTY)
+		0x0000012c,
+		0x0000,
+		0x0005,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_TRN_MANUAL)
+		0x0000270f,
+		0x0000,
+		0x0005,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_REST_PILLOW)
+		0x000003e8,
+		0x0000,
+		0x0005,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_ENEMY_REPEL)
+		0x00001388,
+		0x0000,
+		0x0005,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_ENEMY_BELL)
+		0x00001388,
+		0x0000,
+		0x0005,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HEALTH_SHOE)
+		0x000007d0,
+		0x0000,
+		0x0005,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MEAT)
+		0x00000032,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_GIANT_MEAT)
+		0x000001f4,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SIRLOIN)
+		0x000005dc,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SUPERCARROT)
+		0x000001f4,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HAWK_RADISH)
+		0x000001f4,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SPINY_GREEN)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DIGIMUSHRM)
+		0x00000064,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_ICE_MUSHRM)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DELUXMUSHRM)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DIGIPINE)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BLUE_APPLE)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_RED_BERRY)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_GOLD_ACORN)
+		0x00001f40,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BIG_BERRY)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SWEET_NUT)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SUPER_VEGGY)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_PRICKLYPEAR)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_ORANGE_BANA)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_POWER_FRUIT)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_POWER_ICE)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SPEED_LEAF)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SAGE_FRUIT)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MUSCLE_YAM)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_CALM_BERRY)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DIGIANCHOVY)
+		0x00000032,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DIGISNAPPER)
+		0x00000064,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DIGI_TROUT)
+		0x0000012c,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BLACK_TROUT)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DIGICATFISH)
+		0x000007d0,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_DIGISEABASS)
+		0x00001f40,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MOLDY_MEAT)
+		0x00000032,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HAPPYMUSHRM)
+		0x000003e8,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_CHAIN_MELON)
+		0x00001388,
+		0x0000,
+		0x0002,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_GREY_CLAWS)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_FIREBALL)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_FLAMINGWING)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_IRON_HOOF)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MONO_STONE)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_STEEL_DRILL)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_WHITE_FANG)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BLACK_WING)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SPIKE_CLUB)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_FLAMINGMANE)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_WHITE_WING)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_TORN_TATTER)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_ELECTO_RING)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_RAINBOWHORN)
+		0x00001388,
+		0x01f4,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_ROOSTER)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_UNIHORN)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HORN_HELMET)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SCISSOR_JAW)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_FERTILIZER)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_KOGA_LAWS)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_WATERBOTTLE)
+		0x00001388,
+		0x01f4,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_NORTH_STAR)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_RED_SHELL)
+		0x00001388,
+		0x01f4,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HARD_SCALE)
+		0x00001388,
+		0x01f4,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BLUECRYSTAL)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_ICE_CRYSTAL)
+		0x00001388,
+		0x01f4,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_HAIR_GROWER)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SUNGLASSES)
+		0x00001388,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_METAL_PART)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_FATAL_BONE)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_CYBER_PART)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MEGA_HAND)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SILVER_BALL)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_METAL_ARMOR)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_CHAINSAW)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_SMALL_SPEAR)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_X_BANDAGE)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_RAY_GUN)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_GOLD_BANANA)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MYSTY_EGG)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_RED_RUBY)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BEETLEPEARL)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_CORAL_CHARM)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MOON_MIRROR)
+		0x0000270f,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_BLUE_FLUTE)
+		0x0000270f,
+		0x0000,
+		0x0005,
+		0x00,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_OLD_FISHROD)
+		0x00000064,
+		0x0000,
+		0x0005,
+		0x00,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_AMAZING_ROD)
+		0x00000bb8,
+		0x012c,
+		0x0005,
+		0x00,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_LEOMONSTONE)
+		0x00000064,
+		0x0000,
+		0x0005,
+		0x00,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_MANSION_KEY)
+		0x00000064,
+		0x0000,
+		0x0005,
+		0x00,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_GEAR)
+		0x00000064,
+		0x0000,
+		0x0005,
+		0x00,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_RAIN_PLANT)
+		0x000003e8,
+		0x0000,
+		0x0005,
+		0x02,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_STEAK)
+		0x000003e8,
+		0x0000,
+		0x0000,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_FRIG_KEY)
+		0x00000064,
+		0x0000,
+		0x0005,
+		0xff,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_AS_DECODER)
+		0x000001f4,
+		0x0000,
+		0x0005,
+		0xff,
+		0x00,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_GIGA_HAND)
+		0x00000000,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_NOBLE_MANE)
+		0x00000000,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+	{
+		ITEM_PARA_NAME(STR_ITEM_NAME_METALBANANA)
+		0x00000000,
+		0x0000,
+		0x0004,
+		0x00,
+		0x01,
+		0x0000,
+	},
+};
+
+ITEM_NAMES_TEXT
+
+ITEM_DESCS_TEXT
+
+uint8_t ITEM_CLUT_DATA[128] = {
+	0x00, 0x01, 0x12, 0x03, 0x04, 0x08, 0x06, 0x00,
+	0x08, 0x06, 0x07, 0x04, 0x08, 0x09, 0x09, 0x0a,
+	0x04, 0x0b, 0x08, 0x0c, 0x08, 0x0b, 0x0d, 0x0a,
+	0x04, 0x0e, 0x06, 0x00, 0x04, 0x0f, 0x0e, 0x08,
+	0x08, 0x0b, 0x0e, 0x08, 0x10, 0x15, 0x11, 0x11,
+	0x11, 0x12, 0x13, 0x0b, 0x09, 0x0e, 0x15, 0x02,
+	0x03, 0x15, 0x10, 0x12, 0x14, 0x0b, 0x0b, 0x01,
+	0x0c, 0x04, 0x0b, 0x07, 0x00, 0x02, 0x0e, 0x14,
+	0x0d, 0x0d, 0x0d, 0x0d, 0x0f, 0x08, 0x0b, 0x05,
+	0x0c, 0x01, 0x02, 0x04, 0x04, 0x05, 0x04, 0x05,
+	0x10, 0x04, 0x05, 0x10, 0x16, 0x15, 0x0c, 0x04,
+	0x0c, 0x17, 0x17, 0x05, 0x08, 0x0c, 0x05, 0x03,
+	0x0e, 0x11, 0x04, 0x0a, 0x13, 0x0a, 0x04, 0x04,
+	0x04, 0x0a, 0x17, 0x05, 0x04, 0x10, 0x05, 0x0a,
+	0x04, 0x07, 0x08, 0x0e, 0x14, 0x09, 0x04, 0x10,
+	0x04, 0x17, 0x15, 0x04, 0x09, 0x04, 0x04, 0x04,
+};
+
+uint8_t EVOLUTION_ITEM_TARGET[44] = {
+	0x05, 0x09, 0x15, 0x24, 0x2f, 0x26, 0x08, 0x06,
+	0x22, 0x30, 0x14, 0x25, 0x00, 0x07, 0x32, 0x21,
+	0x13, 0x33, 0x19, 0x3a, 0x0a, 0x18, 0x23, 0x31,
+	0x16, 0x17, 0x34, 0x35, 0x0c, 0x1a, 0x28, 0x36,
+	0x0d, 0x1b, 0x29, 0x37, 0x0e, 0x1c, 0x2a, 0x38,
+	0x3b, 0x3c, 0x3d, 0x3e,
+};
+
+ItemFunction ITEM_FUNCTIONS[128] = {
+	(ItemFunction)handleHPHealingItem,
+	(ItemFunction)handleHPHealingItem,
+	(ItemFunction)handleHPHealingItem,
+	(ItemFunction)handleHPHealingItem,
+	(ItemFunction)handleMPHealingItem,
+	(ItemFunction)handleMPHealingItem,
+	(ItemFunction)handleMPHealingItem,
+	(ItemFunction)handleDoubleFloppy,
+	(ItemFunction)handleStatusItems,
+	(ItemFunction)handleStatusItems,
+	(ItemFunction)handleStatusItems,
+	(ItemFunction)handleRestore,
+	(ItemFunction)handleRestore,
+	(ItemFunction)handleStatusItems,
+	(ItemFunction)handleStatusItems,
+	(ItemFunction)handleBuffDisks,
+	(ItemFunction)handleBuffDisks,
+	(ItemFunction)handleBuffDisks,
+	(ItemFunction)handleBuffDisks,
+	(ItemFunction)handleBuffDisks,
+	(ItemFunction)handleBuffDisks,
+	(ItemFunction)handleBuffDisks,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleChips,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	(ItemFunction)handleFood,
+	(ItemFunction)handleFood,
+	NULL,
+	NULL,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+	(ItemFunction)handleEvoItems,
+};
+// clang-format on
+
+int16_t HEALING_VALUES[4] = { 500, 1500, 5000, 9999 };
+uint8_t HEAL_EFFECT_VARIANT[4] = { 0, 0, 1, 1 };
+#if VERSION_IS(US)
+char NAME_FORMAT[] = "%s";
+#endif
+
+CombatData *COMBAT_DATA_PTR;
+int8_t TAMER_WAYPOINT_ACTIVE;
+int8_t TAMER_START_TILE_Y;
+int8_t TAMER_START_TILE_X;
+int8_t TAMER_WAYPOINT_COUNT;
+int8_t TAMER_WAYPOINT_CURRENT;
+int8_t TAMER_PREVIOUS_TILE_Y;
+int8_t TAMER_PREVIOUS_TILE_X;
+int8_t PARTNER_PREVIOUS_TILE_Y;
+int8_t PARTNER_PREVIOUS_TILE_X;
+int8_t PARTNER_WAYPOINT_COUNT;
+int8_t PARTNER_WAYPOINT_CURRENT;
+int8_t PARTNER_TAMER_PREVIOUS_TILE_Y;
+int8_t PARTNER_TAMER_PREVIOUS_TILE_X;
+Entity *FINISHING_ENTITY;
+uint8_t BATTLE_TOGGLE_LIFEBAR;
+int16_t BATTLE_FRAME_COUNT;
+int16_t FLEE_TIMER;
+int16_t DEATH_COUNTDOWN;
+int16_t ENEMY_COUNT;
+int32_t HAS_TAKEN_DAMAGE;
+int32_t NO_AI_FLAG;
+int32_t IS_TAMERLESS_BATTLE;
+int32_t FLEE_DISABLED[2];
+int32_t P2_AOE_TIMER;
+int32_t COMBAT_AREA_Y;
+int32_t COMBAT_AREA_X;
+
+static void *item_sbss_order[] = {
+	&COMBAT_AREA_X,
+	&COMBAT_AREA_Y,
+	&P2_AOE_TIMER,
+	FLEE_DISABLED,
+	&IS_TAMERLESS_BATTLE,
+	&NO_AI_FLAG,
+	&HAS_TAKEN_DAMAGE,
+	&ENEMY_COUNT,
+	&DEATH_COUNTDOWN,
+	&FLEE_TIMER,
+	&BATTLE_FRAME_COUNT,
+	&BATTLE_TOGGLE_LIFEBAR,
+	&FINISHING_ENTITY,
+	&PARTNER_TAMER_PREVIOUS_TILE_X,
+	&PARTNER_TAMER_PREVIOUS_TILE_Y,
+	&PARTNER_WAYPOINT_CURRENT,
+	&PARTNER_WAYPOINT_COUNT,
+	&PARTNER_PREVIOUS_TILE_X,
+	&PARTNER_PREVIOUS_TILE_Y,
+	&TAMER_PREVIOUS_TILE_X,
+	&TAMER_PREVIOUS_TILE_Y,
+	&TAMER_WAYPOINT_CURRENT,
+	&TAMER_WAYPOINT_COUNT,
+	&TAMER_START_TILE_X,
+	&TAMER_START_TILE_Y,
+	&TAMER_WAYPOINT_ACTIVE,
+	&COMBAT_DATA_PTR,
+};
+
+void *item_text_order[] = {
+	handleItemSickness,
+	setTrainingBoost,
+	decreasePoopLevel,
+	addWeight,
+	addDiscipline,
+	addHappiness,
+	reduceTiredness,
+	addEnergy,
+	modifyLifetime,
+	handlePortaPotty,
+	handleMedicineHealing,
+	addWithLimit,
+	removeTamerItem,
+	initializeInventory,
+	pickupItem,
+	removeItem,
+	giveItem,
+	getItemCount,
+	renderDroppedItemShadow,
+	renderOverworldItem,
+	clearDroppedItems,
+	deleteDroppedItem,
+	spawnItem,
+#if VERSION_IS(EU)
+	spawnDroppedItems,
+	renderDroppedItem,
+#else
+	renderDroppedItem,
+	spawnDroppedItems,
+#endif
+	initializeDroppedItems,
+	setInventorySize,
+	handleHPHealingItem,
+	handleMPHealingItem,
+	handleDoubleFloppy,
+	handleRestore,
+	handleStatusItems,
+	handleChips,
+	handleFood,
+	handleEvoItems,
+};
+
+static void *item_bss_order[] = {
+	&COMBAT_DATA,
+	INITIAL_COMBAT_STATS,
+	PARTNER_WAYPOINT_X,
+	PARTNER_WAYPOINT_Y,
+	TAMER_WAYPOINT_X,
+	TAMER_WAYPOINT_Y,
+#if VERSION_IS(EU)
+	&TAMER_ITEM,
+	DROPPED_ITEMS,
+#else
+	DROPPED_ITEMS,
+	&TAMER_ITEM,
+#endif
+	&INVENTORY,
+};
+
+GARBAGE(handleEvoItems, 15);
+
+void handleEvoItems(int16_t item)
+{
+	int16_t level;
+
+	if (item >= 0x7d) {
+		if (item == 0x7d) {
+			EVOLUTION_TARGET = 0x40;
+		}
+		if (item == 0x7e) {
+			EVOLUTION_TARGET = 0x3f;
+		}
+		if (item == 0x7f) {
+			EVOLUTION_TARGET = 0x41;
+		}
+	} else {
+		level = DIGIMON_DATA[EVOLUTION_ITEM_TARGET[item - 0x47]].level - 1;
+		if (level != DIGIMON_DATA[ENTITY_TABLE[1]->type].level) {
+			return;
+		}
+		EVOLUTION_TARGET = EVOLUTION_ITEM_TARGET[item - 0x47];
+	}
+	HAS_USED_EVOITEM = 1;
+	removeTamerItem();
+	closeInventoryBoxes();
+	tamerSetState(6);
+	partnerSetState(0xd);
+}
+
+void handleStatusItems(int32_t itemId)
+{
+	if (PARTNER_ENTITY.digimonEntity.stats.current.currentHP != 0) {
+		switch (itemId) {
+		case 8:
+			BTL_healStatusEffect(1);
+			return;
+		case 9:
+			if (GAME_STATE == 1) {
+				BTL_healStatusEffect(0);
+			}
+			handleDoubleFloppy(itemId);
+			return;
+		case 10:
+			COMBAT_DATA_PTR->fighter[0].flags |= FIGHTER_FLAG_PROTECTED;
+			break;
+		case 0xd:
+			if (handleMedicineHealing(3, 2) == 1) {
+				addHealingParticleEffect(ENTITY_TABLE[1], 0);
+				return;
+			}
+			break;
+		case 0xe:
+			if (handleMedicineHealing(3, 10) == 1) {
+				addHealingParticleEffect(ENTITY_TABLE[1], 0);
+			}
+		}
+	}
+}
+
+void handleChips(int16_t chipId)
+{
+	int16_t lifetime;
+	int16_t off;
+	int16_t def;
+	int16_t speed;
+	int16_t brain;
+	int16_t hp;
+	int16_t mp;
+
+	off = def = speed = brain = hp = mp = lifetime = 0;
+	switch (chipId) {
+	case 0x16:
+		if (IS_SCRIPT_PAUSED == 1) {
+			removeTamerItem();
+			callScriptSection(0, 0x4dd, 0);
+		}
+		break;
+	case 0x17:
+		off = 0x32;
+		break;
+	case 0x18:
+		def = 0x32;
+		break;
+	case 0x19:
+		brain = 0x32;
+		break;
+	case 0x1a:
+		speed = 0x32;
+		break;
+	case 0x1b:
+		hp = 500;
+		break;
+	case 0x1c:
+		mp = 500;
+		break;
+	case 0x1d:
+		off = 100;
+		brain = 100;
+		lifetime = -24;
+		break;
+	case 0x1e:
+		def = 100;
+		speed = 100;
+		lifetime = -24;
+		break;
+	case 0x1f:
+		hp = 1000;
+		mp = 1000;
+		lifetime = -24;
+		break;
+	case 0x20:
+		handlePortaPotty();
+		return;
+	}
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.hp, hp, 9999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.mp, mp, 9999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.off, off, 999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.def, def, 999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.speed, speed, 999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.brain, brain, 999);
+	modifyLifetime(lifetime);
+	if ((0x1c < chipId) && (chipId < 0x20)) {
+		addTamerLevel(10, -1);
+	}
+}
+
+void handleRestore(int16_t type)
+{
+	CombatData *combat = COMBAT_DATA_PTR;
+	uint16_t *flags = &combat->fighter[0].flags;
+	int16_t amount;
+
+	if (GAME_STATE == 1) {
+		BTL_removeDeathCountdown();
+	}
+
+	if (PARTNER_ENTITY.digimonEntity.stats.current.currentHP == 0) {
+		startAnimation(ENTITY_TABLE[1], 0x2c);
+	}
+
+	switch (type) {
+	case 0xb:
+		amount = PARTNER_ENTITY.digimonEntity.stats.base.hp / 2;
+		break;
+	case 0xc:
+		if (GAME_STATE == 1) {
+			BTL_healStatusEffect(0);
+		}
+
+		amount = 0x270f;
+		break;
+	}
+
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.current.currentHP,
+	             amount, PARTNER_ENTITY.digimonEntity.stats.base.hp);
+	if (GAME_STATE == 1) {
+		addEntityText(ENTITY_TABLE[1], 0, 0xb, amount, 1);
+	}
+
+	addHealingParticleEffect(ENTITY_TABLE[1], 1);
+}
+
+void handleDoubleFloppy(int32_t itemId)
+{
+	if (PARTNER_ENTITY.digimonEntity.stats.current.currentHP != 0) {
+		addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.current.currentHP,
+		             0x5dc, PARTNER_ENTITY.digimonEntity.stats.base.hp);
+		addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.current.currentMP,
+		             0x5dc, PARTNER_ENTITY.digimonEntity.stats.base.mp);
+		if (GAME_STATE == 1) {
+			addEntityText(ENTITY_TABLE[1], 0, 0xb, 0x5dc, 1);
+			addEntityText(ENTITY_TABLE[1], 0, 0xb, 0x5dc, 2);
+		}
+		addHealingParticleEffect(ENTITY_TABLE[1], 0);
+	}
+}
+
+void handleMPHealingItem(uint8_t idx)
+{
+	if (PARTNER_ENTITY.digimonEntity.stats.current.currentHP != 0) {
+		addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.current.currentMP, HEALING_VALUES[idx - 4], PARTNER_ENTITY.digimonEntity.stats.base.mp);
+		if (GAME_STATE == 1) {
+			addEntityText(ENTITY_TABLE[1], 0, 0xb, HEALING_VALUES[idx - 4], 2);
+		}
+		addHealingParticleEffect(ENTITY_TABLE[1], HEAL_EFFECT_VARIANT[idx - 4]);
+	}
+}
+
+void handleHPHealingItem(uint8_t idx)
+{
+	if (PARTNER_ENTITY.digimonEntity.stats.current.currentHP != 0) {
+		addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.current.currentHP, HEALING_VALUES[idx], PARTNER_ENTITY.digimonEntity.stats.base.hp);
+		if (GAME_STATE == 1) {
+			addEntityText(ENTITY_TABLE[1], 0, 0xb, HEALING_VALUES[idx], 1);
+		}
+		addHealingParticleEffect(ENTITY_TABLE[1], HEAL_EFFECT_VARIANT[idx]);
+	}
+}
+
+void setInventorySize(uint8_t size)
+{
+	INVENTORY.size = size;
+}
+
+void initializeDroppedItems(void)
+{
+	int32_t i;
+
+	TAMER_ITEM.worldItem.type = 0xff;
+	for (i = 0; i < 11; i++) {
+		DROPPED_ITEMS[i].worldItem.type = 0xff;
+	}
+}
+
+void spawnDroppedItems(Entity *e, uint8_t type)
+{
+	int32_t i;
+	DroppedItem *it;
+	VECTOR *loc;
+
+	loc = &e->posData->location;
+	for (i = 0; i < 0xb; i++) {
+		it = &DROPPED_ITEMS[i];
+		if (it->worldItem.type == 0xff) {
+			it->worldItem.type = type;
+			break;
+		}
+	}
+	if (i != 0xb) {
+		it->worldItem.spriteLocation.vx = loc->vx;
+		it->worldItem.spriteLocation.vy = 0;
+		it->worldItem.spriteLocation.vz = loc->vz;
+		getModelTile(loc, (int16_t *)((char *)it + 0xc),
+		             (int16_t *)((char *)it + 0xe));
+		addObject(0x195, i, 0, renderDroppedItem);
+	}
+}
+
+void renderDroppedItem(int32_t instanceId)
+{
+	if (MAP_LAYER_ENABLED != 0) {
+		renderOverworldItem(&DROPPED_ITEMS[instanceId].worldItem);
+		renderDroppedItemShadow(&DROPPED_ITEMS[instanceId].worldItem);
+	}
+}
+
+GARBAGE(spawnItem, 24);
+
+void spawnItem(uint8_t itemId, int16_t tileX, int16_t tileY)
+{
+	int32_t i;
+
+	for (i = 0; i < 0xb; i++) {
+		if (DROPPED_ITEMS[i].worldItem.type == 0xff) {
+			DROPPED_ITEMS[i].worldItem.type = itemId;
+			DROPPED_ITEMS[i].tileX = tileX;
+			DROPPED_ITEMS[i].tileY = tileY;
+			DROPPED_ITEMS[i].worldItem.spriteLocation.vx =
+				(tileX - 0x32) * 100 + 0x32;
+			DROPPED_ITEMS[i].worldItem.spriteLocation.vy =
+				ENTITY_TABLE[0]->posData->location.vy;
+			DROPPED_ITEMS[i].worldItem.spriteLocation.vz =
+				(0x32 - tileY) * 100 - 0x32;
+			addObject(0x195, i, 0, renderDroppedItem);
+			return;
+		}
+	}
+}
+
+void deleteDroppedItem(int16_t itemId)
+{
+	removeObject(0x195, itemId);
+	DROPPED_ITEMS[itemId].worldItem.type = 0xff;
+}
+
+void clearDroppedItems(void)
+{
+	int32_t i;
+
+	for (i = 0; i < 11; i++) {
+		if (DROPPED_ITEMS[i].worldItem.type != 0xff) {
+			deleteDroppedItem(i);
+		}
+	}
+}
+
+void renderOverworldItem(WorldItem *item)
+{
+	DVECTOR screen;
+	int32_t otz;
+	POLY_FT4 *prim;
+	int16_t width;
+
+	GsSetLsMatrix(&GsWSMATRIX);
+	gte_ldv0(&item->spriteLocation);
+	gte_rtps();
+	gte_stsxy(&screen);
+	gte_stszotz(&otz);
+	width = (uint32_t)(VIEWPORT_DISTANCE << 7) / (uint32_t)(int32_t)(otz * 4);
+	otz = otz >> 2;
+	if ((0 < otz) && (otz < 0x1000)) {
+		prim = (POLY_FT4 *)GsGetWorkBase();
+		SetPolyFT4(prim);
+		setRGB0(prim, 0x80, 0x80, 0x80);
+		prim->tpage = getTPage(0, 0, 320, 0);
+		setItemTexture(prim, item->type);
+		if (width >= 0x20) {
+			setUVWH(prim, prim->u0, prim->v0, 0xf, 0xf);
+		}
+		setPosDataPolyFT4(prim, screen.vx - (width >> 1),
+		                  screen.vy - (width >> 1), width, width);
+		AddPrim(&ACTIVE_ORDERING_TABLE->org[otz], prim++);
+		GsSetWorkBase((PACKET *)prim);
+	}
+}
+
+void renderDroppedItemShadow(WorldItem *item)
+{
+	SVECTOR p0;
+	SVECTOR p1;
+	SVECTOR p2;
+	SVECTOR p3;
+	int32_t otz;
+	POLY_FT4 *prim;
+	int16_t px;
+	int16_t pz;
+
+	GsSetLsMatrix(&GsWSMATRIX);
+	prim = (POLY_FT4 *)GsGetWorkBase();
+	SetPolyFT4(prim);
+	SetSemiTrans(prim, 1);
+	prim->tpage = getTPage(1, 2, 832, 256);
+	setClut(prim, 0, 0x1e7);
+	setUVDataPolyFT4(prim, 0x40, 0x80, 0x3f, 0x3f);
+	setRGB0(prim, 0x30, 0x30, 0x30);
+	px = item->spriteLocation.vx;
+	pz = item->spriteLocation.vz;
+	p0.vx = px - 100;
+	p0.vy = 0;
+	p0.vz = pz - 100;
+	p1.vx = px + 100;
+	p1.vy = 0;
+	p1.vz = pz - 100;
+	p2.vx = px - 100;
+	p2.vy = 0;
+	p2.vz = pz + 100;
+	p3.vx = px + 100;
+	p3.vy = 0;
+	p3.vz = pz + 100;
+	gte_ldv3(&p0, &p1, &p2);
+	gte_rtpt();
+	gte_stsxy3(&prim->x0, &prim->x1, &prim->x2);
+	gte_stszotz(&otz);
+	gte_ldv0(&p3);
+	gte_rtps();
+	gte_stsxy(&prim->x3);
+	AddPrim(&ACTIVE_ORDERING_TABLE->org[0xffd], prim++);
+	GsSetWorkBase((PACKET *)prim);
+}
+
+uint8_t getItemCount(uint8_t type)
+{
+	int32_t i;
+
+	for (i = 0; i < INVENTORY.size; i++) {
+		if (INVENTORY.types.array[i] == type) {
+			return INVENTORY.amounts.array[i];
+		}
+	}
+
+	return 0;
+}
+
+int32_t giveItem(uint8_t item, uint8_t amount)
+{
+	int16_t used[30];
+	int32_t i;
+	int32_t j;
+	uint8_t *count;
+	int32_t result;
+
+	result = 0;
+	for (i = 0; i < INVENTORY.size; i++) {
+		if (INVENTORY.types.array[i] == item) {
+			count = &INVENTORY.amounts.array[i];
+			if (*count != 99) {
+				*count += amount;
+				if (*count >= 100) {
+					*count = 99;
+				}
+				return 1;
+			}
+			return 0;
+			/* unreachable */
+			INVENTORY.types.array[i] = 0xff;
+			INVENTORY.amounts.array[i] = 0;
+			INVENTORY.names.array[i] = 0xff;
+		}
+	}
+
+	if (result == 0) {
+		for (i = 0; i < INVENTORY.size; i++) {
+			if (INVENTORY.types.array[i] == 0xff) {
+				INVENTORY.types.array[i] = item;
+				INVENTORY.amounts.array[i] = amount;
+				for (j = 0; j < INVENTORY.size; j++) {
+					used[j] = 0;
+				}
+				for (j = 0; j < INVENTORY.size; j++) {
+					if (INVENTORY.names.array[j] != 0xff) {
+						used[INVENTORY.names.array[j]] = 1;
+					}
+				}
+				for (j = 0; j < INVENTORY.size; j++) {
+					if (used[j] == 0) {
+						INVENTORY.names.array[i] = j;
+						break;
+					}
+				}
+				return 1;
+			}
+		}
+	}
+
+	return result;
+}
+
+void removeItem(uint8_t type, uint8_t amount)
+{
+	int32_t i;
+	uint8_t *count;
+
+	if (type == 0xff) {
+		return;
+	}
+
+	for (i = 0; i < INVENTORY.size; i++) {
+		if (INVENTORY.types.array[i] == type) {
+			count = &INVENTORY.amounts.array[i];
+			if (amount < *count) {
+				*count -= amount;
+			} else {
+				*count = 0;
+				INVENTORY.types.array[i] = 0xff;
+				INVENTORY.names.array[i] = 0xff;
+			}
+		}
+	}
+}
+
+int32_t pickupItem(int16_t itemId)
+{
+	uint8_t type;
+	int32_t got;
+
+	type = DROPPED_ITEMS[itemId].worldItem.type;
+	got = giveItem(type, 1);
+	if (got != 0) {
+		deleteDroppedItem(itemId);
+	}
+	return got;
+}
+
+void initializeInventory(void)
+{
+	InventoryTable amounts;
+	InventoryTable types;
+	int32_t i;
+
+	for (i = 0; i < 30; ++i) {
+		INVENTORY.types.array[i] = 0xff;
+		INVENTORY.amounts.array[i] = 0;
+		INVENTORY.names.array[i] = 0xff;
+	}
+
+	INVENTORY.size = 10;
+	amounts = INITIAL_INVENTORY_AMOUNTS;
+	types = INITIAL_INVENTORY_TYPES;
+
+	for (i = 0; i < 30; ++i) {
+		INVENTORY.types.array[i] = types.array[i];
+		INVENTORY.amounts.array[i] = amounts.array[i];
+		INVENTORY.names.array[i] = i;
+	}
+
+	INVENTORY.size = 30;
+}
+
+void removeTamerItem(void)
+{
+	if (TAMER_ITEM.worldItem.type != 0xff) {
+		removeObject(0x194, 0);
+		TAMER_ITEM.worldItem.type = 0xff;
+	}
+}
+
+void handleFood(int16_t itemId)
+{
+	int16_t energy;
+	int16_t happiness;
+	int16_t weight;
+	int16_t tiredness;
+	int16_t discipline;
+	int16_t lifetime;
+	int16_t addedHP;
+	int16_t addedMP;
+	int16_t healedHP;
+	int16_t healedMP;
+	int16_t addedOffense;
+	int16_t addedDefense;
+	int16_t addedSpeed;
+	int16_t addedBrain;
+	int16_t trainFlag;
+	int16_t trainValue;
+	int16_t trainDuration;
+	int16_t sicknessChance;
+
+	energy = tiredness = happiness = discipline = weight = lifetime = 0;
+	addedHP = addedMP = healedHP = healedMP = addedOffense = addedDefense = addedSpeed = addedBrain = 0;
+	trainFlag = trainValue = trainDuration = sicknessChance = 0;
+
+	switch (itemId) {
+	case 0x26:
+		energy = 12;
+		weight = 1;
+		break;
+	case 0x27:
+		energy = 24;
+		weight = 2;
+		break;
+	case 0x28:
+		energy = 35;
+		tiredness = 5;
+		happiness = 3;
+		weight = 3;
+		break;
+	case 0x29:
+		energy = 10;
+		trainFlag = 0x29;
+		trainValue = 12;
+		trainDuration = 6;
+		weight = -2;
+		break;
+	case 0x2a:
+		energy = 15;
+		trainFlag = 0x16;
+		trainValue = 12;
+		trainDuration = 6;
+		weight = 3;
+		break;
+	case 0x2b:
+		energy = 9;
+		tiredness = 50;
+		weight = 1;
+		break;
+	case 0x2c:
+		energy = 12;
+		weight = 1;
+		break;
+	case 0x2d:
+		energy = 19;
+		discipline = 50;
+		weight = 2;
+		break;
+	case 0x2e:
+		energy = 38;
+		addedOffense = 10;
+		addedDefense = 10;
+		addedSpeed = 10;
+		addedBrain = 10;
+		addedHP = 100;
+		addedMP = 100;
+		weight = 4;
+		break;
+	case 0x2f:
+		energy = 22;
+		trainFlag = 0x3f;
+		trainValue = 15;
+		trainDuration = 6;
+		weight = 2;
+		break;
+	case 0x30:
+		energy = 30;
+		happiness = 50;
+		weight = 3;
+		break;
+	case 0x31:
+		energy = 25;
+		tiredness = 20;
+		happiness = 20;
+		discipline = 20;
+		weight = 2;
+		break;
+	case 0x32:
+		energy = 40;
+		weight = 4;
+		break;
+	case 0x33:
+		energy = 100;
+		weight = 10;
+		break;
+	case 0x34:
+		energy = 20;
+		healedHP = 9999;
+		weight = 2;
+		break;
+	case 0x35:
+		energy = 16;
+		healedMP = 9999;
+		weight = 2;
+		break;
+	case 0x36:
+		energy = 33;
+		weight = -5;
+		break;
+	case 0x37:
+		energy = 24;
+		healedHP = 1000;
+		healedMP = 1000;
+		weight = 2;
+		break;
+	case 0x38:
+		energy = 20;
+		addedOffense = 20;
+		weight = 2;
+		break;
+	case 0x39:
+		energy = 20;
+		addedDefense = 20;
+		weight = 2;
+		break;
+	case 0x3a:
+		energy = 20;
+		addedSpeed = 20;
+		weight = 2;
+		break;
+	case 0x3b:
+		energy = 20;
+		addedBrain = 20;
+		weight = 2;
+		break;
+	case 0x3c:
+		energy = 20;
+		addedHP = 200;
+		weight = 2;
+		break;
+	case 0x3d:
+		energy = 20;
+		addedMP = 200;
+		weight = 2;
+		break;
+	case 0x3e:
+		energy = 8;
+		weight = 1;
+		break;
+	case 0x3f:
+		energy = 12;
+		weight = 1;
+		break;
+	case 0x40:
+		energy = 22;
+		weight = 2;
+		break;
+	case 0x41:
+		energy = 27;
+		addedOffense = 1;
+		addedDefense = 1;
+		addedSpeed = 1;
+		addedBrain = 1;
+		addedHP = 10;
+		addedMP = 10;
+		weight = -2;
+		break;
+	case 0x42:
+		energy = 49;
+		weight = 5;
+		break;
+	case 0x43:
+		energy = 35;
+		healedHP = 9999;
+		healedMP = 9999;
+		lifetime = 3;
+		sicknessChance = 20;
+		weight = 4;
+		break;
+	case 0x44:
+		energy = 30;
+		sicknessChance = 100;
+		weight = 2;
+		break;
+	case 0x45:
+		energy = 15;
+		happiness = 30;
+		tiredness = 30;
+		sicknessChance = 30;
+		weight = 1;
+		break;
+	case 0x46:
+		energy = 50;
+		happiness = 50;
+		tiredness = 50;
+		lifetime = 20;
+		sicknessChance = 5;
+		weight = 3;
+		break;
+	case 0x79:
+		healedMP = 1000;
+		break;
+	case 0x7a:
+		energy = 32;
+		healedHP = 1000;
+		sicknessChance = 20;
+		break;
+	}
+
+	if (itemId == RAISE_DATA[PARTNER_ENTITY.digimonEntity.entity.type].favoriteFood) {
+		energy = energy * 14 / 10;
+		happiness += 2;
+	}
+	addEnergy(energy);
+	reduceTiredness(tiredness);
+	addHappiness(happiness);
+	addDiscipline(discipline);
+	addWeight(weight);
+	decreasePoopLevel();
+	setTrainingBoost(trainFlag, trainValue, trainDuration);
+	handleItemSickness(sicknessChance);
+	PARTNER_PARA.remainingLifetime += lifetime;
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.hp, addedHP, 9999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.mp, addedMP, 9999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.current.currentHP, healedHP,
+	             PARTNER_ENTITY.digimonEntity.stats.base.hp);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.current.currentMP, healedMP,
+	             PARTNER_ENTITY.digimonEntity.stats.base.mp);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.off, addedOffense, 999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.def, addedDefense, 999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.speed, addedSpeed, 999);
+	addWithLimit(&PARTNER_ENTITY.digimonEntity.stats.base.brain, addedBrain, 999);
+}
+
+void addWithLimit(int16_t *value, int16_t amount, int16_t limit)
+{
+	*value += amount;
+	if (*value > limit) {
+		*value = limit;
+	}
+}
+
+int32_t handleMedicineHealing(int16_t injuryChance, int16_t sicknessChance)
+{
+	int16_t roll;
+
+	if (((PARTNER_PARA.condition & CONDITION_INJURED) != 0) && (roll = randomLimit(3), roll < injuryChance)) {
+		PARTNER_PARA.condition &= ~CONDITION_INJURED;
+		PARTNER_PARA.injuryTimer = 0;
+	}
+	if (((PARTNER_PARA.condition & CONDITION_SICK) != 0) && (roll = randomLimit(10), roll < sicknessChance)) {
+		PARTNER_PARA.condition &= ~CONDITION_SICK;
+		PARTNER_PARA.sicknessTimer = 0;
+		PARTNER_PARA.areaEffectTimer = 0;
+		return 1;
+	}
+	return 0;
+}
+
+void handlePortaPotty(void)
+{
+	if (PARTNER_PARA.condition & CONDITION_POOPY) {
+		PARTNER_PARA.poopLevel =
+			RAISE_DATA[ENTITY_TABLE[1]->type].poopTimer;
+		PARTNER_PARA.condition &= ~CONDITION_POOPY;
+		handlePoopWeightLoss(ENTITY_TABLE[1]->type);
+	}
+}
+
+void modifyLifetime(int16_t delta)
+{
+	int16_t *lifetime = &PARTNER_PARA.remainingLifetime;
+
+	*lifetime += delta;
+	if (*lifetime < 0) {
+		*lifetime = 0;
+	}
+}
+
+void addEnergy(int16_t amount)
+{
+	PARTNER_PARA.energyLevel += amount;
+	if (PARTNER_PARA.energyLevel >
+	    RAISE_DATA[PARTNER_ENTITY.digimonEntity.entity.type].energyCap) {
+		PARTNER_PARA.energyLevel =
+			RAISE_DATA[PARTNER_ENTITY.digimonEntity.entity.type].energyCap;
+	}
+}
+
+void reduceTiredness(int16_t amount)
+{
+	PARTNER_PARA.tiredness -= amount;
+	if (PARTNER_PARA.tiredness <= 0) {
+		PARTNER_PARA.tiredness = 0;
+	}
+}
+
+void addHappiness(int16_t amount)
+{
+	PARTNER_PARA.happiness += amount;
+	if (PARTNER_PARA.happiness >= 0x64) {
+		PARTNER_PARA.happiness = 0x64;
+	}
+}
+
+void addDiscipline(int16_t amount)
+{
+	PARTNER_PARA.discipline += amount;
+	if (PARTNER_PARA.discipline >= 0x64) {
+		PARTNER_PARA.discipline = 0x64;
+	}
+}
+
+void addWeight(int16_t amount)
+{
+	PARTNER_PARA.weight += amount;
+	if (PARTNER_PARA.weight >= 0x64) {
+		PARTNER_PARA.weight = 0x63;
+	}
+
+	if (PARTNER_PARA.weight <= 0) {
+		PARTNER_PARA.weight = 1;
+	}
+}
+
+void decreasePoopLevel(void)
+{
+	PARTNER_PARA.poopLevel--;
+}
+
+void setTrainingBoost(flag, value, duration)
+int16_t flag;
+int16_t value;
+int16_t duration;
+{
+	PARTNER_PARA.trainBoostFlag = flag;
+	PARTNER_PARA.trainBoostValue = value;
+	PARTNER_PARA.trainBoostTimer = duration * 1200;
+}
+
+void handleItemSickness(int16_t chance)
+{
+	int32_t isSick;
+	int16_t r;
+#if !VERSION_IS(US)
+	int32_t halfLen;
+#else
+	char buf[0x18];
+#endif
+
+	r = randomLimit(0x64);
+	isSick = PARTNER_PARA.condition & CONDITION_SICK;
+	if ((r < chance) && (!isSick)) {
+		PARTNER_PARA.condition |= CONDITION_SICK;
+		PARTNER_PARA.timesBeingSick++;
+		PARTNER_PARA.sicknessTimer = 1;
+		if (PARTNER_PARA.condition & CONDITION_INJURED) {
+			PARTNER_PARA.condition &= ~CONDITION_INJURED;
+			PARTNER_PARA.injuryTimer = 0;
+		}
+		tamerSetState(0x14);
+		clearTextArea();
+		setTextColor(0xa);
+#if !VERSION_IS(US)
+		drawString(PARTNER_ENTITY.name, 0, 0x78);
+		halfLen = strlen(PARTNER_ENTITY.name) / 2;
+		setTextColor(1);
+		drawString(STR_IS_SICK, halfLen * GLYPH_WIDTH, 0x78);
+#else
+		sprintf(buf, NAME_FORMAT, PARTNER_ENTITY.name);
+		strcat(buf, STR_IS_SICK);
+		drawString(buf, 0, 0x78);
+#endif
+	}
+}

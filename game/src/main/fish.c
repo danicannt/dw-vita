@@ -1,0 +1,144 @@
+#include <memory.h>
+
+#include <dw/clock.h>
+#include <dw/fish.h>
+#include <dw/item.h>
+#include <dw/trigger.h>
+#include <dw/utils.h>
+#include <dw/world_object.h>
+
+void triggerSeadramonCutscene(VECTOR *v);
+int32_t isTriggerSet(uint16_t trigger);
+
+extern int32_t FISHING_MAP_COUNT;
+
+FishingData *FISHING_DATA_PTR;
+
+int16_t FISH_RECORD_SIZE[8];
+
+int32_t getBestFishingRod(void)
+{
+	if (isTriggerSet(TRIGGER_HAVE_AMAZING_ROD) == 1) {
+		return 2;
+	}
+
+	if (isTriggerSet(TRIGGER_HAVE_OLD_FISHROD) == 1) {
+		return 1;
+	}
+
+	return 0;
+}
+
+int32_t hasFoodItem(void)
+{
+	int32_t i;
+	for (i = 0; (uint32_t)i < 30u; i++) {
+		if (INVENTORY.types.array[i] != 0xFF) {
+			if (ITEM_PARA[INVENTORY.types.array[i]].sortingValue == 2) {
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+void setFishingDisabled(void)
+{
+	if (FISHING_DATA_PTR != NULL) {
+		FISHING_DATA_PTR->fishingDisabled = 1;
+	}
+}
+
+void setFishingEnabled(void)
+{
+	if (FISHING_DATA_PTR != NULL) {
+		FISHING_DATA_PTR->fishingDisabled = 0;
+	}
+}
+
+int32_t getFishingAvailability(void)
+{
+	if (FISHING_DATA_PTR == NULL) {
+		return 0;
+	}
+
+	if (FISHING_DATA_PTR->fishingDisabled != 0) {
+		return 0;
+	}
+
+	if (getBestFishingRod() == 0 || hasFoodItem() == 0) {
+		return 1;
+	}
+
+	return 2;
+}
+
+void initializeFishing(void)
+{
+	FISH_loadFishing(&FISHING_DATA_PTR->rod);
+}
+
+void tamerTickFishing(void)
+{
+	VECTOR loc;
+	int32_t done;
+
+	if (FISHING_DATA_PTR != NULL) {
+		loc = FISHING_DATA_PTR->hooked.fish.pos;
+		done = FISH_tamerTick();
+		if (done != 0) {
+			setFishingDisabled();
+			triggerSeadramonCutscene(&loc);
+		}
+	}
+}
+
+int32_t isFishing(void)
+{
+	if (FISHING_DATA_PTR == NULL) {
+		return 0;
+	}
+
+	if (FISHING_DATA_PTR->rod.fishingState == 0) {
+		return 0;
+	}
+
+	return 1;
+}
+
+void deinitializeFishing(void)
+{
+	if (FISHING_DATA_PTR != NULL) {
+		FISH_deinitialize();
+		FISHING_DATA_PTR = NULL;
+	}
+}
+
+void checkFishingMap(uint32_t mapId)
+{
+	int32_t i;
+	uint8_t loadComplete;
+
+	deinitializeFishing();
+	if (mapId == 8 || mapId == 6) {
+		loadDynamicLibrary(FISH_REL, &loadComplete, 0, NULL, NULL);
+
+		for (i = 0; i < FISHING_MAP_COUNT; i++) {
+			if (FISHING_MAP_DATA[i].mapId == mapId) break;
+		}
+
+		FISHING_DATA_PTR = &FISHING_DATA;
+		if (FISHING_DATA_PTR != NULL) {
+			bzero((uint8_t *)FISHING_DATA_PTR, sizeof(FishingData));
+			FISHING_DATA_PTR->header = 0x55DDDD55;
+			FISHING_DATA_PTR->trailer = 0x55DDDD55;
+			FISHING_DATA_PTR->mapId = mapId;
+			FISHING_DATA_PTR->mapData = &FISHING_MAP_DATA[i];
+			FISH_init();
+		}
+
+		getFishingAvailability();
+	}
+
+	startGameTime();
+}

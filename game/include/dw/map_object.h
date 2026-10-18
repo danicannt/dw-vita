@@ -1,0 +1,67 @@
+#ifndef DW_MAP_OBJECT_H
+#define DW_MAP_OBJECT_H
+
+#include <libgpu.h>
+#include <libgs.h>
+#include <libgte.h>
+
+#include <dw/types.h>
+
+#define NUM_DOOR_MAPDATA	24
+#define NUM_CHESTS		8
+
+typedef struct {
+	int8_t modelId[6];
+	int16_t posX[6];
+	int16_t posY[6];
+	int16_t posZ[6];
+	int16_t rotation[6];
+} DoorStruct;
+
+typedef struct {
+	VECTOR location;
+	VECTOR trayLocation;
+	SVECTOR rotation;
+	SVECTOR trayRotation;
+	uint16_t trigger;
+	uint8_t item;
+	uint8_t isTaken;
+	uint8_t tileX;
+	uint8_t tileY;
+	uint16_t padding;
+} Chest;
+
+extern DoorStruct DOOR_MAPDATA[NUM_DOOR_MAPDATA];
+extern Chest CHEST_ARRAY[NUM_CHESTS];
+extern GsDOBJ2 MEDAL_OBJECT;
+extern GsCOORDINATE2 MEDAL_COORDINATES;
+
+void loadDoors(int16_t doorEntryId);
+void loadDirtCartModel(void);
+void loadDirtPileModel(void);
+void initializeChest(void);
+void loadWarpCrystals(int16_t mapId);
+void spawnBoulder(void);
+void projectPosition(GsCOORDINATE2 *coord, VECTOR *trans, SVECTOR *rot,
+		     VECTOR *scale);
+void initializeMedalModel(void);
+void spawnToyTownBoxes(void);
+void spawnGearbox(void);
+void spawnAngemonPedestal(void);
+void initializeTrainingPoop(void);
+void spawnChest(int16_t posX, int16_t posY, int16_t posZ, int16_t rotation,
+		uint8_t item, uint16_t trigger);
+void unloadMapParts(void);
+int32_t tickRotateDoor(int16_t instance, int8_t target);
+void drawObject(GsDOBJ2 *obj, GsOT *ot, int32_t flag);
+int32_t tickOpenChestTray(int32_t chestId);
+int32_t tickCloseChestTray(int32_t chestId);
+void decreaseDirtPileSize(void);
+void moveBoulder(int32_t diffX, int32_t diffZ);
+void openToyTownBox(int32_t boxId);
+void somethingToyTown(int32_t boxId);
+int32_t moveAngemonPedestal(void);
+void setDirtCartModel(int32_t model);
+void activateMedalTexture(uint8_t medalId);
+
+#endif
