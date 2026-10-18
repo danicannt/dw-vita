@@ -1,0 +1,56 @@
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index 18a6975..dd73056 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -1259,14 +1259,8 @@ void Draw_SetAreaEnd(int x, int y) {
+ void Draw_SetOffset(int x, int y) {
+     Draw_FlushBuffer();
+ 
+-    x = x % VRAM_W;
+-    y = y % VRAM_H;
+-    if (x < 0) {
+-        x += VRAM_W;
+-    }
+-    if (y < 0) {
+-        y += VRAM_H;
+-    }
++    // keep the sign: wrapping -3 to 509 moves the whole frame below the
++    // drawing area instead of 3 lines up (DW1 draws buffer 0 at y offset -3)
+     draw_offset.x = x;
+     draw_offset.y = y;
+     if (!sdl3_window && !InitPlatform()) {
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index cb98900..33c8e7e 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -1431,14 +1431,8 @@ void Draw_SetAreaEnd(int x, int y) {
+ void Draw_SetOffset(int x, int y) {
+     Draw_FlushBuffer();
+ 
+-    x = x % VRAM_W;
+-    y = y % VRAM_H;
+-    if (x < 0) {
+-        x += VRAM_W;
+-    }
+-    if (y < 0) {
+-        y += VRAM_H;
+-    }
++    // keep the sign: wrapping -3 to 509 moves the whole frame below the
++    // drawing area instead of 3 lines up (DW1 draws buffer 0 at y offset -3)
+     draw_offset.x = x;
+     draw_offset.y = y;
+ }
+diff --git a/psyz/src/psyz/libgpu.c b/psyz/src/psyz/libgpu.c
+index 27fbebe..161f9c4 100644
+--- a/psyz/src/psyz/libgpu.c
++++ b/psyz/src/psyz/libgpu.c
+@@ -108,7 +108,8 @@ static void DispatchPackets(u_long* buf, int len) {
+             Draw_SetAreaEnd((int)op & 0x3FF, (int)(op >> 10) & 0x3FF);
+             break;
+         case 0xE5:
+-            Draw_SetOffset((int)op & 0x7FF, (int)(op >> 11) & 0x7FF);
++            // the offset is signed 11-bit (-1024..1023) and added to every vertex
++            Draw_SetOffset(((int)(op << 21)) >> 21, ((int)(op << 10)) >> 21);
+             break;
+         case 0xE6:
+             Draw_SetMask(!!(op & 1), !!(op & 2));

@@ -105,7 +105,13 @@ target_compile_options(dw1_port PRIVATE -fsigned-char -Wall -Wno-unused-function
 # --- executable --------------------------------------------------------------
 add_executable(dw1 host/main.c ${DW1_GAME_OBJECTS})
 target_link_libraries(dw1 PRIVATE dw1_port psyz_extra psyz)
-target_link_options(dw1 PRIVATE -Wl,-T,${DW1_GEN_DIR}/overlays.ld)
+target_link_options(dw1 PRIVATE -Wl,-T,${DW1_GEN_DIR}/overlays.ld
+    -Wl,--wrap=PadRead          # port/src/input_script.c: DW1_RECORD / DW1_REPLAY
+    -Wl,--wrap=GsSwapDispBuff,--wrap=VSync  # port/src/frame_dump.c: DW1_DUMP*
+    # port/src/movie_stream.c and movie_extra.c: STR streaming and the MDEC
+    -Wl,--wrap=CdControl,--wrap=CdRead2,--wrap=StSetRing,--wrap=StUnSetRing
+    -Wl,--wrap=StSetStream,--wrap=StFreeRing,--wrap=StGetBackloc,--wrap=StGetNext
+    -Wl,--wrap=DecDCTReset,--wrap=DecDCTin,--wrap=DecDCTout,--wrap=DecDCToutCallback)
 set_property(TARGET dw1 APPEND PROPERTY LINK_DEPENDS ${DW1_GEN_DIR}/overlays.ld)
 psyz_title(dw1 "Digimon World")
 

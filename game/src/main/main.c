@@ -3311,8 +3311,16 @@ PositionData PARTNER_POSITION_DATA[34];
 uint8_t PARTNER_MODEL_BUFFER[0x18800];
 MomentumData TAMER_MOMENTUM_DATA[22];
 PositionData TAMER_POSITION_DATA[22];
+#ifdef DW1_NATIVE
+/* On the PS1 MAIN_D_801A8B98 directly follows TAMER_MODEL_BUFFER and the tamer
+ * model (BOYS.MMD, 0xE000 bytes) fills both; natively the linker does not keep
+ * them adjacent, so they are one array. */
+uint8_t TAMER_MODEL_BUFFER[0x7800 + 0x6800];
+#define MAIN_D_801A8B98 ((char *)TAMER_MODEL_BUFFER + 0x7800)
+#else
 uint8_t TAMER_MODEL_BUFFER[0x7800];
 char MAIN_D_801A8B98[0x6800];
+#endif
 int8_t MAP_COLLISION_DATA[0x2800];
 StdVsCamera STDVS_CAMERA;
 

@@ -28,7 +28,12 @@ extern int32_t VIEWPORT_DISTANCE;
 extern uint8_t VS_COMMAND_MENU_LAYOUTS[][10];
 extern uint32_t POLLED_INPUT;
 extern uint32_t POLLED_INPUT_PREVIOUS;
+#ifdef DW1_NATIVE /* second half of TAMER_MODEL_BUFFER, see main.c */
+extern uint8_t TAMER_MODEL_BUFFER[];
+#define MAIN_D_801A8B98 (TAMER_MODEL_BUFFER + 0x7800)
+#else
 extern char MAIN_D_801A8B98[];
+#endif
 #if !VERSION_IS(US)
 extern int16_t VS_DISCIPLINE[2];
 #endif

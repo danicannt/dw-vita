@@ -3,6 +3,11 @@
 # HEADLESS=1 builds SDL3 without X11/Wayland/audio drivers (CI / containers).
 set -e
 BUILD=${BUILD:-build/linux32}
+# Debian/Ubuntu multiarch: let SDL find the i386 audio libraries (libpulse-dev:i386),
+# otherwise it builds with ALSA only, which has no PipeWire plugin on i386 by default
+if [ -d /usr/lib/i386-linux-gnu/pkgconfig ]; then
+    export PKG_CONFIG_PATH="/usr/lib/i386-linux-gnu/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+fi
 EXTRA=""
 if [ "${HEADLESS:-0}" = 1 ]; then
     EXTRA="-DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_PULSEAUDIO=OFF \

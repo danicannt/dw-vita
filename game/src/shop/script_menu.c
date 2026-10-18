@@ -2668,7 +2668,8 @@ void setupNewGameDialogueBox(void)
 	DRAW_STRING2_IS_FIXED_WIDTH = 0;
 #endif
 	for (i = 2; i < 10; i++) {
-		if (ENTITY_TABLE[i]->type == 0x75) {
+		if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL; the PS1 reads low RAM */
+		    ENTITY_TABLE[i]->type == 0x75) {
 			getEntityScreenPos(ENTITY_TABLE[i], 1, &screenPos);
 		}
 	}
@@ -2717,7 +2718,8 @@ void setupNameSelectorBox(void)
 	}
 
 	for (i = 2; i < 10; i++) {
-		if (ENTITY_TABLE[i]->type == 0x75) {
+		if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL; the PS1 reads low RAM */
+		    ENTITY_TABLE[i]->type == 0x75) {
 			getEntityScreenPos(ENTITY_TABLE[i], 1, &screenPos);
 		}
 	}
@@ -2747,7 +2749,8 @@ void setupNameDisplayBox(void)
 	}
 
 	for (i = 2; i < 10; i++) {
-		if (ENTITY_TABLE[i]->type == 0x75) {
+		if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL; the PS1 reads low RAM */
+		    ENTITY_TABLE[i]->type == 0x75) {
 			getEntityScreenPos(ENTITY_TABLE[i], 1, &screenPos);
 		}
 	}

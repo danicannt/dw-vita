@@ -100,6 +100,14 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 
 ## Fixes worth sending upstream (PSY-Z)
 
+- The drawing offset (GP0 E5) is signed 11-bit, but `libgpu.c` decoded it
+  unsigned and `Draw_SetOffset` (SDL_GPU and GL) wrapped negatives into VRAM,
+  so DW1's buffer 0 (y offset -3) was drawn 509 lines down, outside the drawing
+  area: the map flickered every other frame. Fixed by
+  `patches/psyz/0001-signed-draw-offset.patch` (sign-extend, no wrap); apply it
+  after checking out the submodule:
+  `git -C external/psyz apply ../../patches/psyz/0001-signed-draw-offset.patch`.
+
 - `include/libmcrd.h` defines its own `struct DIRENTRY` behind
   `#ifndef DIRENTRY`, which is always true, so it clashes with `kernel.h`'s
   (the correct PSY-Q layout). Worked around in `port/include/libmcrd.h`.

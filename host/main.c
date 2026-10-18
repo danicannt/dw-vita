@@ -43,6 +43,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    dw1_disc_set_path(disc);
     dw1_memcard_set_dir(DW1_DATA_DIR);
     dw1_overlay_init();
     return dw1_game_main();

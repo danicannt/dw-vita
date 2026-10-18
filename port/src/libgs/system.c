@@ -7,6 +7,7 @@
  * Ordering tables are linked in reverse, as in PSY-Q: entry 0 is drawn last
  * (front), the last entry first (back), and GsOT.tag points at the last
  * entry, where drawing starts. */
+#include <stddef.h>
 #include <string.h>
 
 #include <libetc.h>
@@ -356,10 +357,16 @@ void GsSortGLine(GsGLINE *lp, GsOT *otp, u_short pri)
     GsOUT_PACKET_P = (PACKET *)(p + 1);
 }
 
-/* register an already built primitive */
+/* copy an already built primitive into the packet area and register the copy;
+ * callers (DW1's textboxes) pass primitives that live on their stack */
 void GsSortPoly(void *pp, GsOT *otp, u_short pri)
 {
-    addPrim(ot_slot(otp, pri), pp);
+    size_t size = offsetof(P_TAG, r0) + getlen(pp) * sizeof(u_long);
+    void *p = GsOUT_PACKET_P;
+
+    memcpy(p, pp, size);
+    addPrim(ot_slot(otp, pri), p);
+    GsOUT_PACKET_P = (PACKET *)((char *)p + size);
 }
 
 /* ---- TIM ------------------------------------------------------------------- */

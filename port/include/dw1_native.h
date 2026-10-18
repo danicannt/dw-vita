@@ -36,6 +36,11 @@ extern unsigned char dw1_scratchpad[DW1_SCRATCHPAD_SIZE];
 void dw1_overlay_init(void);
 void dw1_overlay_reset(int lib);
 
+/* ---- movies ----------------------------------------------------------------
+ * STR video is streamed straight from the disc image (port/src/movie_stream.c);
+ * host/main.c passes it the same .cue PSY-Z mounts. */
+void dw1_disc_set_path(const char *cue);
+
 #ifdef __cplusplus
 }
 #endif

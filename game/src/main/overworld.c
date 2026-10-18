@@ -1167,7 +1167,9 @@ void clearMapDigimon(void)
 		}
 		MAP_DIGIMON_TABLE[i].path.activeSection = 0;
 		ENTITY_TABLE[i + 2] = NULL;
+#ifndef DW1_NATIVE /* writes through the NULL just stored; the PS1 hits low RAM */
 		ENTITY_TABLE[i + 2]->isOnMap = 0;
+#endif
 		MAP_DIGIMON_TABLE[i].typeId = -1;
 		MAP_DIGIMON_TABLE[i].waypointWaitTimer = 0;
 		MAP_DIGIMON_TABLE[i].targetAngle = MAP_DIGIMON_TABLE[i].ccDiff =
