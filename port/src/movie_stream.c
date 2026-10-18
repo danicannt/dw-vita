@@ -38,6 +38,7 @@ static int misses;          /* sectors in a row without video */
 static double t0;
 static u_long header[8];
 static int frames;          /* frames delivered by this stream */
+static int turbo = -1;      /* DW1_TURBO: no drive pacing */
 
 /* the first FILE of the .cue; a .bin given directly is used as is */
 void dw1_disc_set_path(const char *cue)
@@ -154,13 +155,15 @@ u_long __wrap_StGetNext(u_long **addr, u_long **hdr)
 
     if (!on)
         return 1;
+    if (turbo < 0)
+        turbo = getenv("DW1_TURBO") != NULL;
     for (;;) {
         const unsigned char *d = body + 8;
         double due = t0 + (double)pos / STR_SPEED;
         double wait = due - now();
         int cn, cc;
 
-        if (wait > 0) {
+        if (wait > 0 && !turbo) {
             struct timespec ts = { 0, (long)(wait * 1e9) };
             nanosleep(&ts, NULL);
         }

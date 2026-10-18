@@ -67,12 +67,18 @@ int32_t loadTextureFile(char *path, uint32_t *outTPage, uint32_t *outClut)
 	setRECT(&rect, image.px, image.py, image.pw, image.ph);
 	LoadImage(&rect, image.pixel);
 
+#ifdef DW1_NATIVE /* callers that only want the upload pass NULL; the PS1 writes low RAM */
+	if (outTPage != NULL)
+#endif
 	*outTPage = GetTPage(image.pmode & 3, 0, image.px, image.py);
 
 	if (((image.pmode >> 3) & 1) != 0) {
 		setRECT(&rect, image.cx, image.cy, image.cw, image.ch);
 		LoadImage(&rect, image.clut);
 
+#ifdef DW1_NATIVE
+		if (outClut != NULL)
+#endif
 		*outClut = GetClut(image.cx, image.cy);
 	}
 }

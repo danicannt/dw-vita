@@ -117,7 +117,13 @@ uint8_t CLOUD_FX_COLOR[16] = {
 	0x80, 0x80, 0x80, 0x80, 0x79, 0x73, 0x6c, 0x66,
 	0x60, 0x59, 0x53, 0x4c, 0x46, 0x40, 0x00, 0x00,
 };
+#ifdef DW1_NATIVE
+/* 16 characters fill the PS1's [16]: its NUL comes from EFEDAT_CD_LOCATION,
+ * which follows in RAM there; natively the strcpy in findEFEDATFile ran on */
+char MAIN_D_8012342C[17] = "ETCHI\\EFEDAT.EFE";
+#else
 char MAIN_D_8012342C[16] = "ETCHI\\EFEDAT.EFE";
+#endif
 uint32_t EFEDAT_CD_LOCATION[4] = {0};
 
 static void *efe_data_order[] = {
@@ -1043,7 +1049,11 @@ void initializeEFE(void)
 CdlLOC *getEFEDATEntry(int32_t id)
 {
 	int32_t sector;
+#ifdef DW1_NATIVE
+	static CdlLOC loc; /* the PS1's caller copies it before the stack is reused */
+#else
 	CdlLOC loc;
+#endif
 
 	id -= 256;
 	sector = EFEDAT_CD_LOCATION[0] + (id * 10);

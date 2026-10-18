@@ -397,7 +397,7 @@ void MURD_setOtherEntitiesVisible(int32_t restore)
 	MURD_ENTITIES_VISIBLE = restore;
 	if (restore == 0) {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if ((ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) && (ENTITY_TABLE[i]->isOnMap != 0)) {
+			if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL */ (ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) && (ENTITY_TABLE[i]->isOnMap != 0)) {
 				ENTITY_TABLE[i]->isOnMap = 0;
 				MURD_ENTITY_VISIBILITY[i] = 1;
 			} else {
@@ -406,7 +406,7 @@ void MURD_setOtherEntitiesVisible(int32_t restore)
 		}
 	} else {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if (ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) {
+			if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL */ ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) {
 				ENTITY_TABLE[i]->isOnMap = MURD_ENTITY_VISIBILITY[i];
 			}
 		}

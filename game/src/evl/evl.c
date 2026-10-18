@@ -683,7 +683,7 @@ void EVL_setOtherEntitiesVisible(int32_t restore)
 	MAIN_D_801349F4 = restore;
 	if (restore == 0) {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if ((ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) && (ENTITY_TABLE[i]->isOnMap != 0)) {
+			if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL */ (ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) && (ENTITY_TABLE[i]->isOnMap != 0)) {
 				ENTITY_TABLE[i]->isOnMap = 0;
 				EVL_D_80068938[i] = 1;
 			} else {
@@ -692,7 +692,7 @@ void EVL_setOtherEntitiesVisible(int32_t restore)
 		}
 	} else {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if (ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) {
+			if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL */ ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) {
 				ENTITY_TABLE[i]->isOnMap = EVL_D_80068938[i];
 			}
 		}

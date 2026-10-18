@@ -3,7 +3,9 @@
  *   DW1_RECORD=file   play normally; every change of the pad state is written
  *                     to file (flushed at once, so a crash keeps the log)
  *   DW1_REPLAY=file   feed the recorded pad states back instead of the real
- *                     pad; once the log runs out the real pad takes over
+ *                     pad; once the log runs out the last state is held for
+ *                     REPLAY_TAIL more calls (a recording cut by a crash ends
+ *                     on the press that caused it), then the real pad takes over
  *
  * Time is counted in PadRead calls rather than wall-clock frames: the game
  * polls the pad once per logic tick, so a replay stays in step even when
@@ -18,6 +20,8 @@ unsigned int __real_PadRead(int id);
 
 enum { MODE_UNSET, MODE_OFF, MODE_RECORD, MODE_REPLAY };
 
+#define REPLAY_TAIL 240
+
 static int mode = MODE_UNSET;
 static FILE *script;
 static unsigned long calls;
@@ -25,12 +29,15 @@ static unsigned int last_state;
 static unsigned long next_call;     /* replay: call at which next_state applies */
 static unsigned int next_state;
 static int replay_done;
+static unsigned long tail_end;  /* replay: last call that still holds last_state */
 
 static void read_next(void)
 {
     if (fscanf(script, "%lu %x", &next_call, &next_state) != 2) {
         replay_done = 1;
-        fprintf(stderr, "dw1: replay finished at call %lu, real pad active\n", calls);
+        tail_end = calls + REPLAY_TAIL;
+        fprintf(stderr, "dw1: replay finished at call %lu, real pad active from call %lu\n",
+                calls, tail_end);
     }
 }
 
@@ -66,7 +73,7 @@ unsigned int __wrap_PadRead(int id)
     if (mode == MODE_UNSET)
         init();
 
-    if (mode == MODE_REPLAY && !replay_done) {
+    if (mode == MODE_REPLAY && (!replay_done || calls <= tail_end)) {
         while (!replay_done && next_call <= calls) {
             last_state = next_state;
             read_next();

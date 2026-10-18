@@ -380,15 +380,25 @@ void loadDynamicLibrary(Overlay lib, uint8_t *isComplete, uint8_t isAsync,
 
 #ifdef DW1_NATIVE
 	/* The overlay's code is already linked in: restore its data as a fresh
-	 * load would, and read the file into a throwaway buffer so the request
-	 * keeps its place, timing and callbacks in the file queue. */
-	static uint8_t overlayReadBuffer[0x80000];
+	 * load would. The file still goes to its PS1 load address in the RAM
+	 * arena, because some overlays carry assets the game reads at fixed
+	 * addresses (BTL_REL.BIN starts with the finisher TIM at 0x80052AE0).
+	 * The request also keeps its place, timing and callbacks in the queue.
+	 * Load addresses: the first vram of each external/dw_decomp/config/us
+	 * overlay; SHOP_REL loads to shop_START. */
+	static const unsigned long REL_BIN_PS1_ADDR[16] = {
+		0x80052AE0, 0x80052AE0, 0x80070000, 0x80060000, /* btl std fish evl */
+		0x80053800, 0x80052AE0, 0x80010000, 0x80070000, /* kar vs mov doo2 */
+		0x80080000, 0x80088800, 0x80080800, 0x80080800, /* dooa trn shop dget */
+		0x80088800, 0x8007C000, 0x80060000, 0x80060000, /* trn2 murd endi eab */
+	};
+	uint8_t *dest = (uint8_t *)DW1_PS1_ADDR(REL_BIN_PS1_ADDR[lib - 1]);
 
 	dw1_overlay_reset(lib);
 	if (!isAsync) {
-		readFile(REL_BIN_FILES[lib - 1], overlayReadBuffer);
+		readFile(REL_BIN_FILES[lib - 1], dest);
 	} else {
-		addFileReadRequestPath(REL_BIN_FILES[lib - 1], overlayReadBuffer,
+		addFileReadRequestPath(REL_BIN_FILES[lib - 1], dest,
 				       isComplete, (FileRequestCallback)callback,
 				       param);
 	}
@@ -441,6 +451,11 @@ void handlePause(void)
 		PAUSE_BOX_VISIBLE++;
 	}
 	while (PAUSE_STATE != 0) {
+#ifdef DW1_NATIVE
+		/* the PS1 BIOS refreshes the pad on every VBlank interrupt, even inside
+		 * this busy loop; natively the pad and window events update in VSync */
+		VSync(0);
+#endif
 		PAUSE_INPUT = PadRead(1);
 		if ((PAUSE_INPUT & 0x800) && !(PAUSE_INPUT_PREVIOUS & 0x800)) {
 			PAUSE_STATE = (PAUSE_STATE + 1) & 1;

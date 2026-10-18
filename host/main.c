@@ -6,6 +6,7 @@
  * own disc image; nothing from the game ships with the port. Memory cards are
  * card1.mcd / card2.mcd (raw 128 KB images) in the data directory. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <psyz.h>
@@ -29,6 +30,7 @@ int main(int argc, char **argv)
 {
     char disc[512];
 
+    dw1_crash_handler_install();
     if (argc > 1) {
         snprintf(disc, sizeof(disc), "%s", argv[1]);
     } else if (DW1_DATA_DIR[0] != '\0') {
@@ -43,6 +45,11 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* DW1_TURBO=1: no frame pacing, for fast replays (they count pad reads,
+     * not time, so they play the same at any speed) */
+    if (getenv("DW1_TURBO") != NULL) {
+        Psyz_VideoSetVsyncMode(PSYZ_VSYNC_LIMITLESS);
+    }
     dw1_disc_set_path(disc);
     dw1_memcard_set_dir(DW1_DATA_DIR);
     dw1_overlay_init();

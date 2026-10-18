@@ -41,6 +41,10 @@ void dw1_overlay_reset(int lib);
  * host/main.c passes it the same .cue PSY-Z mounts. */
 void dw1_disc_set_path(const char *cue);
 
+/* ---- crashes ---------------------------------------------------------------
+ * Linux: print the call stack on SIGSEGV and friends (port/src/crash_handler.c). */
+void dw1_crash_handler_install(void);
+
 #ifdef __cplusplus
 }
 #endif

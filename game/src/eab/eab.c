@@ -494,7 +494,7 @@ void EAB_setEntitiesVisible(int32_t enabled)
 	MAIN_D_80134C48 = enabled;
 	if (enabled == 0) {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if ((i != 2) && (ENTITY_TABLE[i]->isOnMap != 0)) {
+			if ((i != 2) && ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL */ (ENTITY_TABLE[i]->isOnMap != 0)) {
 				ENTITY_TABLE[i]->isOnMap = 0;
 				EAB_D_80061A04[i] = 1;
 			} else {
@@ -503,7 +503,7 @@ void EAB_setEntitiesVisible(int32_t enabled)
 		}
 	} else {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if (i != 2) {
+			if ((i != 2) && ENTITY_TABLE[i] != NULL) { /* DW1_NATIVE: empty slots are NULL */
 				ENTITY_TABLE[i]->isOnMap = EAB_D_80061A04[i];
 			}
 		}

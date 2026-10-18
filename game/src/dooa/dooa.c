@@ -697,7 +697,7 @@ void DOOA_setOtherEntitiesVisible(int32_t restore)
 
 	if (restore == 0) {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if ((ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) && (ENTITY_TABLE[i]->isOnMap != 0)) {
+			if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL */ (ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) && (ENTITY_TABLE[i]->isOnMap != 0)) {
 				ENTITY_TABLE[i]->isOnMap = 0;
 				DOOA_SAVED_ENTITY_VISIBILITY[i] = 1;
 			} else {
@@ -706,7 +706,7 @@ void DOOA_setOtherEntitiesVisible(int32_t restore)
 		}
 	} else {
 		for (i = 0; i < ENTITY_MAX; i++) {
-			if (ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) {
+			if (ENTITY_TABLE[i] != NULL && /* DW1_NATIVE: empty slots are NULL */ ENTITY_TABLE[i] != (Entity *)&PARTNER_ENTITY) {
 				ENTITY_TABLE[i]->isOnMap = DOOA_SAVED_ENTITY_VISIBILITY[i];
 			}
 		}
@@ -718,7 +718,7 @@ void DOOA_hideAllButPartner(void)
 	int32_t i;
 
 	for (i = 0; i < ENTITY_MAX; i++) {
-		if (i == 1) {
+		if (i == 1 || ENTITY_TABLE[i] == NULL) { /* DW1_NATIVE: empty slots are NULL */
 			continue;
 		}
 		ENTITY_TABLE[i]->isOnMap = 0;

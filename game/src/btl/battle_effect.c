@@ -1743,12 +1743,19 @@ int32_t BTL_setupLoadedEFEFile(EfeLoad *load)
 			setRECT(&rect, im.px, im.py, im.pw, im.ph);
 			LoadImage(&rect, im.pixel);
 		}
+#ifdef DW1_NATIVE
+		/* an effect without a texture has no CLUT either; the PS1 parses
+		 * whatever sits at address 4 */
+		if (tim != NULL)
+#endif
+		{
 		GsGetTimInfo((unsigned long *)(tim + 4), &im2);
 		im2.cx = (m->clutPage & 0x3f) << 4;
 		im2.cy = m->clutPage >> 6;
 		if ((im2.pmode >> 3 & 1) != 0) {
 			setRECT(&rect2, im2.cx, im2.cy, im2.cw, im2.ch);
 			LoadImage(&rect2, im2.clut);
+		}
 		}
 		BTL_EFE_LOAD_STATE = 1;
 	case 1:

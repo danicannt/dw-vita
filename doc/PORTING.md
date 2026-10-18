@@ -43,7 +43,7 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 | Piece | State | Notes |
 |---|---|---|
 | Game code (US, 120 files, 17 units) | compiles, links | PS1-only prototypes guarded, fixed addresses mapped |
-| Boot to title loop | works (x86, ARM/qemu) | with a blank disc image; **not yet run with the real disc** |
+| Boot to title loop | works (x86, ARM/qemu) | real disc on Linux: intro, title, NEW GAME, Jijimon's house, first maps |
 | libgs: display buffers, OT, sprites, box fill | done | PSY-Q reversed OTs; `GsSortClear` uses a fill primitive |
 | libgs: coordinates, view, lights | done, untested on game data | `GsSetRefView2` and light sign need a check against the PS1 |
 | libgs: TMD objects (`GsSortObject4J`, 48 drivers) | done, unit-tested | one generic renderer behind the `GsFCALL4` table; no subdivision, no fog |
@@ -51,10 +51,11 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 | heap3 (`InitHeap3`/`malloc3`/`free3`) | done | first-fit, retail size |
 | GTE extras | done | `ApplyMatrixLV/SV`, `ApplyTransposeMatrixLV`, `MulMatrix0`, `NormalColorCol3`, `RotNclip3/4` |
 | Overlays | done | data reset on load; SHOP_REL is resident (see below) |
-| Sound (libsnd/libspu) | PSY-Z | `SsUtAutoVol` applies the end volume at once (no ramp) |
-| Movies (libpress) | partial | `DecDCTvlc2` maps to PSY-Z's `DecDCTvlc`; table build is a no-op |
+| Sound (libsnd/libspu) | PSY-Z, plays on Linux | `SsUtAutoVol` applies the end volume at once (no ramp); i386 SDL needs PulseAudio |
+| Movies (STR, libpress) | works on Linux | streaming in `movie_stream.c`, C MDEC from DW2-PC with STR v3; intro checked |
 | Renderer | PSY-Z SDL_GPU / GL | desktop only; no Vita backend |
 | Vita build | not started | VitaSDK toolchain, PSY-Z Vita platform, `.vpk` |
+| Debug aids | done | pad record/replay (`DW1_RECORD`/`DW1_REPLAY`), VRAM dumps (`DW1_DUMP`, `DW1_DUMP_VSYNC`), `DW1_TURBO`, crash stacks |
 
 ## Backlog, in order
 
@@ -65,7 +66,7 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 2. **Battle and the overlays.** A battle (BTL), training (TRN/TRN2), a fishing
    trip (FISH), a tournament (STD/VS), an evolution (EVL), the intro movie
    (MOV). Overlay data resets are the thing to watch.
-3. **Movies.** Check MOV against the retail intro; finish `DecDCTvlc2` if needed.
+3. **Movies.** Done for the intro; check the other movies (MOV ids 1-3).
 4. **PSY-Z Vita platform.** PSY-Z's PSP backend (`external/psyz/psyz/src/psp`)
    is the model: video, input, audio. Two routes for video:
    - start with PSY-Z's software rasterizer (`sdl3_software.c`) at 320x240
@@ -95,6 +96,11 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 - **Overlay read buffer** is 512 KB; the largest overlay (MOV) is 0x73428 bytes.
 - **Warnings are off** for game code (`-w`). Before the Vita work, build once
   with warnings on and review pointer/int casts.
+- **Division by zero**: DW1 was built without zero-division checks and relies
+  on the R3000's result (quotient -1, or 1 for a negative dividend; remainder =
+  dividend), e.g. `tickHealingParticles`. On Linux/i386 the SIGFPE handler in
+  `port/src/crash_handler.c` returns that result and logs each site once; the
+  Vita's ARM returns 0 instead, so logged sites need a fix in the source.
 - **TMD subdivision** ("div" drivers) is not done; large textured polygons near
   the camera will warp more than on the PS1.
 

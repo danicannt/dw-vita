@@ -245,7 +245,7 @@ int32_t handleBattleStart(id)
 					break;
 				}
 			}
-			if (j != 3) {
+			if (j != 3 || ENTITY_TABLE[i] == NULL) { /* DW1_NATIVE: empty slots are NULL */
 				continue;
 			}
 			if (ENTITY_TABLE[i]->isOnScreen == 0) {
