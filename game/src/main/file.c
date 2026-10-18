@@ -88,6 +88,10 @@ int32_t readFile(char *path, void *buffer)
 	FileLookup lookup;
 	int32_t result;
 
+#ifdef DW1_NATIVE
+	dw1_file_queue_drain(); /* queued reads first, as the busy PS1 drive did */
+#endif
+
 	if (lookupFileTable(&lookup, path) != 0) {
 		do {
 			do {
@@ -142,6 +146,10 @@ int32_t readFileSectors(char *path, void *buffer, int32_t offset,
 {
 	FileLookup lookup;
 	int32_t result;
+
+#ifdef DW1_NATIVE
+	dw1_file_queue_drain(); /* queued reads first, as the busy PS1 drive did */
+#endif
 
 	if (lookupFileTable(&lookup, path) != 0) {
 		CdIntToPos(offset + CdPosToInt(&lookup.pos), &lookup.pos);

@@ -68,6 +68,33 @@ static void file_queue__garbage__(void)
 	FILE_READ_QUEUE_TAIL = NULL;
 }
 
+#ifdef DW1_NATIVE
+/* for port/src/smoke.c: no read is queued or in progress */
+int dw1_file_queue_idle(void)
+{
+	return FILE_READ_QUEUE_HEAD == NULL;
+}
+
+/* Finish the queued reads before a synchronous one (readFile and friends).
+ * On the PS1 a queued read is on the CD for most of a second once started,
+ * so a synchronous read issued meanwhile waits for the drive and lands after
+ * it; natively queued reads complete only as the queue is ticked, and a
+ * synchronous read jumped ahead, then got overwritten (map tiles at
+ * 0x80010000 over the evolution TIM at 0x80020000). Not re-entered from a
+ * queue callback. */
+void dw1_file_queue_drain(void)
+{
+	static int draining;
+
+	if (draining)
+		return;
+	draining = 1;
+	while (FILE_READ_QUEUE_HEAD != NULL)
+		tickFileReadQueue(0);
+	draining = 0;
+}
+#endif
+
 void initFileReadQueueTable(void)
 {
 	int32_t i;

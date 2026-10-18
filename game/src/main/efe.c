@@ -922,8 +922,8 @@ void renderEFEFlash(int32_t id)
 	}
 	depth = worldPosToScreenPos(&data->worldPos, &flash.screenPos);
 	if (data->mode >= 0) {
-		flash.screenPos.vx += data->offsetX * VIEWPORT_DISTANCE / depth;
-		flash.screenPos.vy += data->offsetY * VIEWPORT_DISTANCE / depth;
+		flash.screenPos.vx += dw1_div(data->offsetX * VIEWPORT_DISTANCE, depth); /* DW1_NATIVE: depth 0 */
+		flash.screenPos.vy += dw1_div(data->offsetY * VIEWPORT_DISTANCE, depth); /* DW1_NATIVE */
 	} else {
 		flash.screenPos.vx += (int32_t)data->offsetX;
 		flash.screenPos.vy += (int32_t)data->offsetY;
@@ -952,7 +952,7 @@ void renderEFEFlash(int32_t id)
 	flash.color.g = (green * factor) >> 12;
 	flash.color.b = (blue * factor) >> 12;
 	flash.colorScale = 0x80;
-	flash.scale = (uint32_t)(VIEWPORT_DISTANCE * lerp(data->scaleMin, data->scaleMax, 0, data->tMax, data->progress) * 10) / (uint32_t)depth;
+	flash.scale = dw1_divu((uint32_t)(VIEWPORT_DISTANCE * lerp(data->scaleMin, data->scaleMax, 0, data->tMax, data->progress) * 10), (uint32_t)depth); /* DW1_NATIVE */
 	factor = lerp(0, 0x1eb, 0, 0x17, data->progress);
 	flash.scale += ((_sin(factor) * 300) >> 12) + 1;
 	if (flash.scale >= 0x8000) {

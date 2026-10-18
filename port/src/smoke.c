@@ -10,6 +10,12 @@
  *                             (default 300), pressing X now and then to get
  *                             through dialogue; logs "dw1: smoke: map N NAME"
  *                             before each one and exits when done
+ *   DW1_SMOKE=evos[:a-b]      evolve the partner to every EVOLUTION_STATS_GAINS
+ *                             target a..b (default 0..65) the way the game
+ *                             does (tamer state 6, partner state 13): loads each
+ *                             model and plays the whole sequence
+ *   DW1_SMOKE=battles[:a-b]   visit maps a..b like "maps" and fight every
+ *                             Digimon on each one (startBattle per entity slot)
  *
  * Anything a map breaks (crash stack, division by zero, unsupported GPU
  * command) lands in the log after its "smoke: map" line; dw1-run/smoke.sh
@@ -39,14 +45,21 @@ typedef struct {
 extern SmokeMapEntry MAP_ENTRIES[255];
 
 int dw1_replay_running(void);
+void tamerSetState(int state);
+void partnerSetState(int state);
+signed char startBattle(short instanceId);
+extern short EVOLUTION_TARGET;
+int dw1_file_queue_idle(void);
+extern void *ENTITY_TABLE[];
 
-enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS };
+enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES };
 
 static int mode = -1;
 static int warp_map, warp_exit;
 static int map_cur, map_end, frames_per_map, frame;
 static int active;   /* a driver owns the pad */
 static int visited;  /* the battery has entered its first map */
+static int settle;   /* idle frames since the last evolution finished */
 static unsigned long pad_tick;
 
 static void parse(void)
@@ -59,13 +72,28 @@ static void parse(void)
         warp_map = atoi(s);
         s = strchr(s, ':');
         warp_exit = s ? atoi(s + 1) : 0;
-    } else if ((s = getenv("DW1_SMOKE")) != NULL && strncmp(s, "maps", 4) == 0) {
-        mode = SMOKE_MAPS;
+    } else if ((s = getenv("DW1_SMOKE")) != NULL) {
+        size_t n;
+
+        if (strncmp(s, "maps", 4) == 0) {
+            mode = SMOKE_MAPS;
+            n = 4;
+            map_end = 254;
+        } else if (strncmp(s, "battles", 7) == 0) {
+            mode = SMOKE_BATTLES;
+            n = 7;
+            map_end = 254;
+        } else if (strncmp(s, "evos", 4) == 0) {
+            mode = SMOKE_EVOS;
+            n = 4;
+            map_end = 65;
+        } else {
+            return;
+        }
         map_cur = 0;
-        map_end = 254;
-        if (s[4] == ':') {
-            map_cur = atoi(s + 5);
-            s = strchr(s + 5, '-');
+        if (s[n] == ':') {
+            map_cur = atoi(s + n + 1);
+            s = strchr(s + n + 1, '-');
             if (s)
                 map_end = atoi(s + 1);
         }
@@ -122,6 +150,68 @@ void dw1_smoke_frame(void)
         fprintf(stderr, "dw1: warp: map %d exit %d\n", warp_map, warp_exit);
         mode = SMOKE_OFF;
         changeMap((short)warp_map, (short)warp_exit);
+        break;
+    case SMOKE_EVOS:
+        active = 1;
+        /* wait for the previous evolution (EVOLUTION_TARGET back to -1), then
+         * for the loads it queued on its way out (map tiles) and a short
+         * breather: back-to-back evolutions never happen in play, and a queued
+         * read landing after the next one's synchronous TIM read overwrites it */
+        if (visited) {
+            if (EVOLUTION_TARGET != -1 || tamerGetState() != 0 || !dw1_file_queue_idle()) {
+                settle = 0;
+                if (++frame < 6000)
+                    break;
+                fprintf(stderr, "dw1: smoke: model %d still busy, next anyway\n", map_cur);
+            } else if (++settle < 90) {
+                break;
+            }
+        }
+        settle = 0;
+        /* target 62 is Digimon 62 ("wEAG"), which has no model on the disc:
+         * no evolution in the game leads there, and waiting for its MMD
+         * never ends (on the PS1 too) */
+        if (++map_cur == 62)
+            ++map_cur;
+        if (map_cur > map_end) {
+            fprintf(stderr, "dw1: smoke: done\n");
+            exit(0);
+        }
+        visited = 1;
+        frame = 0;
+        fprintf(stderr, "dw1: smoke: model %d evolution target\n", map_cur);
+        fflush(stderr);
+        EVOLUTION_TARGET = (short)map_cur;
+        tamerSetState(6);
+        partnerSetState(13);
+        break;
+    case SMOKE_BATTLES:
+        active = 1;
+        if (++frame < frames_per_map / 2)
+            break;
+        if (visited && tamerGetState() != 0 && frame < frames_per_map + 1200)
+            break;
+        if (visited) {
+            int slot;
+
+            /* everyone the map put in the entity table besides tamer and partner */
+            for (slot = 2; slot < 10; slot++) {
+                if (ENTITY_TABLE[slot] == NULL)
+                    continue;
+                fprintf(stderr, "dw1: smoke: fight map %d slot %d\n", map_cur, slot);
+                fflush(stderr);
+                startBattle((short)slot);
+            }
+        }
+        visited = 1;
+        frame = 0;
+        if (!next_map()) {
+            fprintf(stderr, "dw1: smoke: done\n");
+            exit(0);
+        }
+        fprintf(stderr, "dw1: smoke: battle %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
+        fflush(stderr);
+        changeMap((short)map_cur, 0);
         break;
     case SMOKE_MAPS:
         active = 1;

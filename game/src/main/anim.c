@@ -214,6 +214,23 @@ void startAnimation(entity, animId)
 	uint8_t boneCount;
 
 	animTable = (uint32_t *)entity->animPtr;
+#ifdef DW1_NATIVE
+	/* The table is 32-bit offsets and the first animation starts right after
+	 * it, so the smallest offset gives its length. Some NPCs (type 165 on
+	 * GCAN11) have no battle animations and a shorter table; a battle starting
+	 * near them asks for 0x21 past its end, which the PS1 reads as garbage and
+	 * a native build as a wild pointer. */
+	{
+		uint32_t first = 0;
+
+		for (i = 0; i < animId; i++) {
+			if (animTable[i] != 0 && (first == 0 || animTable[i] < first))
+				first = animTable[i];
+		}
+		if (first != 0 && animId >= first / 4)
+			return;
+	}
+#endif
 	if (animTable[animId] == 0)
 		return;
 

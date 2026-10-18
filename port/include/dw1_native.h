@@ -67,6 +67,10 @@ void dw1_crash_handler_install(void);
  * DW1_WARP / DW1_SMOKE (port/src/smoke.c), stepped from the top of gameLoop. */
 void dw1_smoke_frame(void);
 
+/* ---- file queue ------------------------------------------------------------
+ * game/src/main/file_queue.c: let synchronous reads wait for queued ones. */
+void dw1_file_queue_drain(void);
+
 #ifdef __cplusplus
 }
 #endif

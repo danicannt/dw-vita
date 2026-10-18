@@ -1333,7 +1333,11 @@ void EVL_applyEvolution(Entity *entity, Stats *stats, PartnerPara *para, int16_t
 {
 	int32_t oldType;
 	int32_t newId;
+#ifdef DW1_NATIVE
+	uint8_t candidates[17]; /* up to 16 moves plus the 0xff end mark */
+#else
 	uint8_t candidates[16];
+#endif
 	uint8_t *movePtr;
 	int32_t i;
 	int32_t count;
