@@ -1,0 +1,98 @@
+diff --git a/psyz/include/psyz/audio.h b/psyz/include/psyz/audio.h
+index 620a98a..e5ae669 100644
+--- a/psyz/include/psyz/audio.h
++++ b/psyz/include/psyz/audio.h
+@@ -19,6 +19,21 @@ extern "C" {
+  */
+ int Psyz_AudioInit(void);
+ 
++/**
++ * @brief Frame-locked audio: the SPU advances by one video frame's worth of
++ * samples per Psyz_AudioFrame call instead of when the device asks. Game logic
++ * that polls voice status then runs the same at any speed or without a device
++ * (record / replay). Call before Psyz_AudioInit.
++ */
++void Psyz_AudioSetFrameLocked(int on);
++
++/**
++ * @brief In frame-locked mode, render @p frames video frames of SPU output
++ * (44100 / 59.94 samples each) and queue them to the device, dropping what the
++ * device cannot take (turbo).
++ */
++void Psyz_AudioFrame(int frames);
++
+ /**
+  * @brief Shut down the audio subsystem and release its resources
+  *
+diff --git a/psyz/src/platform/sdl3_audio.c b/psyz/src/platform/sdl3_audio.c
+index 7f56f3f..1471d5f 100644
+--- a/psyz/src/platform/sdl3_audio.c
++++ b/psyz/src/platform/sdl3_audio.c
+@@ -34,6 +34,36 @@ static void SDLCALL audio_callback(void* userdata, SDL_AudioStream* stream,
+ }
+ 
+ static bool is_audio_init = false;
++static int frame_locked = 0;
++
++void Psyz_AudioSetFrameLocked(int on) { frame_locked = on; }
++
++void Psyz_AudioFrame(int frames) {
++    // 44100 Hz / 59.94 Hz = 735.735 samples per NTSC frame
++    static unsigned long long acc;
++    short buf[4096];
++    int n;
++
++    if (!frame_locked || !is_audio_init) {
++        return;
++    }
++    acc += (unsigned long long)frames * PSYZ_SPU_SAMPLE_RATE * 1001;
++    n = (int)(acc / 60000);
++    acc -= (unsigned long long)n * 60000;
++    SDL_LockMutex(mutex);
++    while (n > 0) {
++        int batch = n > 2048 ? 2048 : n;
++        Psyz_SpuPullSamples(buf, batch);
++        // keep at most ~0.1 s queued; in turbo the rest is dropped
++        if (sdl_stream &&
++            SDL_GetAudioStreamQueued(sdl_stream) < PSYZ_SPU_SAMPLE_RATE / 10 * N_CHANNELS * (int)SAMPLE_SIZE) {
++            SDL_PutAudioStreamData(sdl_stream, buf, batch * N_CHANNELS * SAMPLE_SIZE);
++        }
++        n -= batch;
++    }
++    SDL_UnlockMutex(mutex);
++}
++
+ int Psyz_AudioInit(void) {
+     if (is_audio_init) {
+         return 0;
+@@ -58,13 +88,29 @@ int Psyz_AudioInit(void) {
+         .freq = PSYZ_SPU_SAMPLE_RATE,
+     };
+     sdl_stream = SDL_OpenAudioDeviceStream(
+-        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, audio_callback, NULL);
++        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec,
++        frame_locked ? NULL : audio_callback, NULL);
++    if (!sdl_stream) {
++        // The SPU only advances in audio_callback: without a device, voices
++        // never end and a game waiting on one waits forever. Fall back to
++        // SDL's dummy driver, which calls back in real time and plays nothing.
++        ERRORF("failed to open audio device: %s; using the silent dummy driver",
++               SDL_GetError());
++        SDL_QuitSubSystem(SDL_INIT_AUDIO);
++        SDL_SetHintWithPriority(SDL_HINT_AUDIO_DRIVER, "dummy", SDL_HINT_OVERRIDE);
++        if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
++            sdl_stream = SDL_OpenAudioDeviceStream(
++                SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec,
++        frame_locked ? NULL : audio_callback, NULL);
++        }
++    }
+     if (!sdl_stream) {
+         ERRORF("failed to open audio device: %s", SDL_GetError());
+         SDL_DestroyMutex(mutex);
+         mutex = NULL;
+         return -1;
+     }
++    INFOF("audio driver: %s", SDL_GetCurrentAudioDriver());
+ 
+     if (!SDL_ResumeAudioStreamDevice(sdl_stream)) {
+         WARNF("failed to resume audio device: %s", SDL_GetError());

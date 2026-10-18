@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include <libgpu.h>
+#include <psyz/audio.h>
 
 void __real_GsSwapDispBuff(void);
 int __real_VSync(int mode);
@@ -89,7 +90,12 @@ void __wrap_GsSwapDispBuff(void)
 
 int __wrap_VSync(int mode)
 {
-    if (mode >= 0 && due(&by_vsync, "DW1_DUMP_VSYNC"))
-        dump(-by_vsync.count); /* negative: numbered by VSync */
+    if (mode >= 0) {
+        if (due(&by_vsync, "DW1_DUMP_VSYNC"))
+            dump(-by_vsync.count); /* negative: numbered by VSync */
+        /* frame-locked audio (recordings / replays): one frame per VSync, or
+         * the n VBlanks VSync(n) waits for */
+        Psyz_AudioFrame(mode > 1 ? mode : 1);
+    }
     return __real_VSync(mode);
 }

@@ -55,6 +55,12 @@ int main(int argc, char **argv)
     if (getenv("DW1_TURBO") != NULL) {
         Psyz_VideoSetVsyncMode(PSYZ_VSYNC_LIMITLESS);
     }
+    /* recordings and replays: the SPU advances per frame, not per audio
+     * callback, so voice timing (which game logic polls) is the same live,
+     * in turbo and without a device */
+    if (getenv("DW1_RECORD") != NULL || getenv("DW1_REPLAY") != NULL) {
+        Psyz_AudioSetFrameLocked(1);
+    }
     /* picture options: DW1_RES=2..8 internal resolution (default 1, the PS1's
      * 320x240), DW1_DITHER=0 no PS1 dithering, DW1_ASPECT=square 1:1 pixels */
     if (getenv("DW1_RES") != NULL) {
