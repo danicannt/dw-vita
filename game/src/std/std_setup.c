@@ -24,11 +24,11 @@
 
 #include "common.h"
 
-#define STD_FINISHER_TIM	((char *)0x80052ae0)
-#define STD_FINISHER_MODEL	((char *)0x80053800)
-#define STD_CONFUSION_MODEL	((char *)0x80054838)
-#define STD_STUN_MODEL		((char *)0x80054d00)
-#define STD_BUFF_MODEL		((TMDModel *)0x80055328)
+#define STD_FINISHER_TIM	((char *)DW1_PS1_ADDR(0x80052ae0)) /* DW1_NATIVE */
+#define STD_FINISHER_MODEL	((char *)DW1_PS1_ADDR(0x80053800)) /* DW1_NATIVE */
+#define STD_CONFUSION_MODEL	((char *)DW1_PS1_ADDR(0x80054838)) /* DW1_NATIVE */
+#define STD_STUN_MODEL		((char *)DW1_PS1_ADDR(0x80054d00)) /* DW1_NATIVE */
+#define STD_BUFF_MODEL		((TMDModel *)DW1_PS1_ADDR(0x80055328)) /* DW1_NATIVE */
 
 extern TMDModel *STD_ARENA_MODEL;
 extern int8_t GAME_STATE;

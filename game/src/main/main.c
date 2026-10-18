@@ -3534,8 +3534,16 @@ void initializeHeap(void)
 	unsigned long heap;
 	unsigned long size;
 
+#ifdef DW1_NATIVE
+	/* Retail: from the end of the executable's bss (0x801BFB64) up to the
+	 * stack. The heap keeps its PS1 address inside the RAM arena; the end
+	 * leaves 32 KB for the PS1 stack, which natively is unused. */
+	heap = (unsigned long)DW1_PS1_ADDR(0x801BFB70);
+	size = 0x801F8000 - 0x801BFB70;
+#else
 	heap = (_end & 0xfffffff0) + 0x10;
 	size = ((_stack_addr - (_stack_size << 10)) & 0xfffffff0) - heap;
+#endif
 	InitHeap3((unsigned long *)heap, size);
 }
 

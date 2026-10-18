@@ -38,36 +38,59 @@ endforeach()
 add_custom_target(dw1_text DEPENDS ${DW1_TEXT_HEADERS})
 
 # --- game code ---------------------------------------------------------------
-set(DW1_GAME_SRC)
-foreach(unit ${DW1_UNITS})
-    list(APPEND DW1_GAME_SRC ${DW1_${unit}_SRC})
-endforeach()
-# PS1 boot code (register setup, bss clear, gp): replaced by host/main.c
-list(REMOVE_ITEM DW1_GAME_SRC game/src/main/_psstart.c)
-
+# MAIN and SHOP are resident (part of SLUS_010.32); the other units are the
+# *_REL.BIN overlays the PS1 loads one at a time over the same memory. Every
+# unit is an object library so the linker script below can group each
+# overlay's writable data and reset it when the game "loads" the overlay.
 string(TOUPPER ${DW1_VERSION} DW1_VERSION_UPPER)
+set(DW1_RESIDENT_UNITS MAIN SHOP)
+set(DW1_OVERLAY_UNITS ${DW1_UNITS})
+list(REMOVE_ITEM DW1_OVERLAY_UNITS ${DW1_RESIDENT_UNITS})
+# PS1 boot code (register setup, bss clear, gp): replaced by host/main.c
+list(REMOVE_ITEM DW1_MAIN_SRC game/src/main/_psstart.c)
 
-add_library(dw1_game STATIC ${DW1_GAME_SRC})
-add_dependencies(dw1_game dw1_text)
-target_include_directories(dw1_game PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/port/include   # native overrides, searched first
-    ${CMAKE_CURRENT_SOURCE_DIR}/game/include
-    ${DW1_GEN_DIR})
-target_compile_definitions(dw1_game PRIVATE
-    LANGUAGE_C
-    VERSION_${DW1_VERSION_UPPER}
-    DW1_NATIVE
-    main=dw1_game_main)
-target_compile_options(dw1_game PRIVATE
-    -fsigned-char            # MIPS char is signed, ARM's is not
-    -fno-strict-aliasing
-    -fwrapv
-    -fcommon
-    -finput-charset=UTF-8
-    -fexec-charset=CP932     # the game's strings are Shift-JIS
-    -include ${CMAKE_CURRENT_SOURCE_DIR}/port/include/dw1_native.h
-    -w)                      # upstream code is warning-heavy; port fixes are reviewed by hand
-target_link_libraries(dw1_game PUBLIC dw1_port psyz_extra psyz)
+function(dw1_game_unit target)
+    add_library(${target} OBJECT ${ARGN})
+    add_dependencies(${target} dw1_text)
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/port/include   # native overrides, searched first
+        ${CMAKE_CURRENT_SOURCE_DIR}/game/include
+        ${DW1_GEN_DIR}
+        $<TARGET_PROPERTY:psyz,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_compile_definitions(${target} PRIVATE
+        __psyz
+        LANGUAGE_C
+        VERSION_${DW1_VERSION_UPPER}
+        DW1_NATIVE
+        main=dw1_game_main)
+    target_compile_options(${target} PRIVATE
+        -fsigned-char            # MIPS char is signed, ARM's is not
+        -fno-strict-aliasing
+        -fwrapv
+        -fcommon
+        -finput-charset=UTF-8
+        -fexec-charset=CP932     # the game's strings are Shift-JIS
+        -include ${CMAKE_CURRENT_SOURCE_DIR}/port/include/dw1_native.h
+        -w)                      # upstream code is warning-heavy; port fixes are reviewed by hand
+endfunction()
+
+dw1_game_unit(dw1_resident ${DW1_MAIN_SRC} ${DW1_SHOP_SRC})
+set(DW1_GAME_OBJECTS $<TARGET_OBJECTS:dw1_resident>)
+set(DW1_OVERLAY_LD "SECTIONS\n{\n")
+foreach(unit ${DW1_OVERLAY_UNITS})
+    string(TOLOWER ${unit} ovl)
+    dw1_game_unit(dw1ovl_${ovl} ${DW1_${unit}_SRC})
+    list(APPEND DW1_GAME_OBJECTS $<TARGET_OBJECTS:dw1ovl_${ovl}>)
+    string(APPEND DW1_OVERLAY_LD
+        "    .dw1ovl_${ovl} : ALIGN(16) {\n"
+        "        dw1_ovl_${ovl}_start = .;\n"
+        "        *dw1ovl_${ovl}.dir/*(.data .data.* .bss .bss.* COMMON)\n"
+        "        . = ALIGN(16);\n"
+        "        dw1_ovl_${ovl}_end = .;\n"
+        "    }\n")
+endforeach()
+string(APPEND DW1_OVERLAY_LD "}\nINSERT AFTER .data;\n")
+file(WRITE ${DW1_GEN_DIR}/overlays.ld "${DW1_OVERLAY_LD}")
 
 # --- port layer -------------------------------------------------------------
 # Native pieces that replace PS1-only code: libgs (PSY-Z's is incomplete for the
@@ -80,6 +103,23 @@ target_link_libraries(dw1_port PUBLIC psyz)
 target_compile_options(dw1_port PRIVATE -fsigned-char -Wall -Wno-unused-function)
 
 # --- executable --------------------------------------------------------------
-add_executable(dw1 host/main.c)
-target_link_libraries(dw1 PRIVATE dw1_game dw1_port psyz_extra psyz)
+add_executable(dw1 host/main.c ${DW1_GAME_OBJECTS})
+target_link_libraries(dw1 PRIVATE dw1_port psyz_extra psyz)
+target_link_options(dw1 PRIVATE -Wl,-T,${DW1_GEN_DIR}/overlays.ld)
+set_property(TARGET dw1 APPEND PROPERTY LINK_DEPENDS ${DW1_GEN_DIR}/overlays.ld)
 psyz_title(dw1 "Digimon World")
+
+# --- tests -------------------------------------------------------------------
+# Unit tests for port code that can run without the game's disc.
+enable_testing()
+add_executable(memcard_test tests/memcard_test.c port/src/memcard.c)
+target_include_directories(memcard_test PRIVATE port/include
+    $<TARGET_PROPERTY:psyz,INTERFACE_INCLUDE_DIRECTORIES>)
+target_compile_definitions(memcard_test PRIVATE __psyz)
+add_test(NAME memcard COMMAND memcard_test ${CMAKE_CURRENT_BINARY_DIR})
+
+add_executable(libgs_test tests/libgs_test.c)
+target_link_libraries(libgs_test PRIVATE dw1_port psyz)
+target_compile_definitions(libgs_test PRIVATE __psyz)
+add_test(NAME libgs COMMAND libgs_test)
+set_tests_properties(libgs PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")

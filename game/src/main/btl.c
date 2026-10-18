@@ -20,11 +20,11 @@
 #include <dw/version.h>
 #include <dw/world_object.h>
 
-#define BTL_FINISHER_TIM	((char *)0x80052ae0)
-#define BTL_FINISHER_MODEL	((char *)0x80053800)
-#define BTL_CONFUSION_MODEL	((char *)0x80054838)
-#define BTL_STUN_MODEL		((char *)0x80054d00)
-#define BTL_BUFF_MODEL		((TMDModel *)0x80055328)
+#define BTL_FINISHER_TIM	((char *)DW1_PS1_ADDR(0x80052ae0)) /* DW1_NATIVE */
+#define BTL_FINISHER_MODEL	((char *)DW1_PS1_ADDR(0x80053800)) /* DW1_NATIVE */
+#define BTL_CONFUSION_MODEL	((char *)DW1_PS1_ADDR(0x80054838)) /* DW1_NATIVE */
+#define BTL_STUN_MODEL		((char *)DW1_PS1_ADDR(0x80054d00)) /* DW1_NATIVE */
+#define BTL_BUFF_MODEL		((TMDModel *)DW1_PS1_ADDR(0x80055328)) /* DW1_NATIVE */
 
 #define NUM_CONCAVE_SCREENS	18
 

@@ -21,7 +21,7 @@
 #include <dw/version.h>
 #include <text/main/utils2.h>
 
-#define shop_START		((char *)0x80080800)
+#define shop_START		((char *)DW1_PS1_ADDR(0x80080800)) /* DW1_NATIVE */
 
 void reinitializeAfterTournament(void);
 void thunkReinitializeAfterTournament(void);
@@ -377,6 +377,24 @@ void loadDynamicLibrary(Overlay lib, uint8_t *isComplete, uint8_t isAsync,
 			FileCallback callback, void *param)
 {
 	uint8_t *nv;
+
+#ifdef DW1_NATIVE
+	/* The overlay's code is already linked in: restore its data as a fresh
+	 * load would, and read the file into a throwaway buffer so the request
+	 * keeps its place, timing and callbacks in the file queue. */
+	static uint8_t overlayReadBuffer[0x80000];
+
+	dw1_overlay_reset(lib);
+	if (!isAsync) {
+		readFile(REL_BIN_FILES[lib - 1], overlayReadBuffer);
+	} else {
+		addFileReadRequestPath(REL_BIN_FILES[lib - 1], overlayReadBuffer,
+				       isComplete, (FileRequestCallback)callback,
+				       param);
+	}
+	(void)nv;
+	return;
+#endif
 
 	if (!isAsync) {
 		readFile(REL_BIN_FILES[lib - 1], (nv = REL_BIN_OFFSETS[lib - 1]));

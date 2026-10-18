@@ -25,7 +25,7 @@
 #include <dw/vecmath.h>
 #include <dw/version.h>
 
-#define MURD_ORDERING_TABLE_0	((GsOT_TAG *)0x8008c000)
+#define MURD_ORDERING_TABLE_0	((GsOT_TAG *)DW1_PS1_ADDR(0x8008c000)) /* DW1_NATIVE */
 
 extern int32_t ACTIVE_FRAMEBUFFER;
 extern int32_t VIEWPORT_DISTANCE;

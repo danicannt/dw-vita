@@ -17,7 +17,7 @@
 
 #include "common.h"
 
-#define VS_TMD_BUFFER	((uint8_t *)0x80038000)
+#define VS_TMD_BUFFER	((uint8_t *)DW1_PS1_ADDR(0x80038000)) /* DW1_NATIVE */
 
 extern int16_t BTL_FINISHER_CHARGEUP_POS[2];
 extern int8_t GAME_STATE;

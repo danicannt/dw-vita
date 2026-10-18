@@ -5,9 +5,9 @@
 #include <dw/params.h>
 #include <dw/types.h>
 
-#define GENERAL_BUFFER		((uint8_t *)0x80010000)
-#define TEXTURE_BUFFER		((uint8_t *)0x80088800)
-#define BOSS_EFE_TMD_BUFFER	((uint8_t *)0x80058000)
+#define GENERAL_BUFFER		((uint8_t *)DW1_PS1_ADDR(0x80010000)) /* DW1_NATIVE */
+#define TEXTURE_BUFFER		((uint8_t *)DW1_PS1_ADDR(0x80088800)) /* DW1_NATIVE */
+#define BOSS_EFE_TMD_BUFFER	((uint8_t *)DW1_PS1_ADDR(0x80058000)) /* DW1_NATIVE */
 
 typedef struct {
 	VECTOR playerPos;
