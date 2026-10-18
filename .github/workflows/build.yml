@@ -1,0 +1,34 @@
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  linux32:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - run: git -C external/psyz submodule update --init external/SDL
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build gcc-multilib g++-multilib python3-yaml
+      - run: HEADLESS=1 tools/configure_linux32.sh
+      - run: ninja -C build/linux32
+      - run: cd build/linux32 && ctest --output-on-failure
+
+  armhf:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - run: git -C external/psyz submodule update --init external/SDL
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user python3-yaml
+      - run: >
+          cmake -S . -B build/armhf -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-linux-gnueabihf.cmake
+          -DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_X11=OFF -DSDL_WAYLAND=OFF
+          -DSDL_PULSEAUDIO=OFF -DSDL_PIPEWIRE=OFF -DSDL_ALSA=OFF -DSDL_JACK=OFF
+          -DSDL_SNDIO=OFF -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF -DSDL_VULKAN=OFF
+          -DSDL_LIBUDEV=OFF -DSDL_DBUS=OFF -DSDL_IBUS=OFF -DSDL_HIDAPI_LIBUSB=OFF
+      - run: ninja -C build/armhf
+      - run: cd build/armhf && ctest --output-on-failure
