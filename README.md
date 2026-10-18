@@ -63,6 +63,10 @@ that DuckStation, PCSX-Redux and ePSXe use, so saves move both ways.
 
 ## ARM check (no Vita needed)
 
+On Ubuntu the ARM cross compilers and `gcc-multilib` cannot be installed
+together (apt removes one for the other); use separate machines or containers,
+as the CI does.
+
 ```sh
 sudo apt install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user
 cmake -S . -B build/armhf -G Ninja \
