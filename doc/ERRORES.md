@@ -12,11 +12,21 @@ bajo `#ifdef DW1_NATIVE`.
 |---|---|---|
 | Cabeza o torso de un Digimon desaparece en ataques (cabeza de Agumon en el ataque a distancia) | Arreglo aplicado, **sin confirmar jugando** | `GsMulCoord3` guardaba en la matriz equivocada (ver abajo). Si sigue pasando: `DW1_BONECHECK=1` registra los huesos dibujados lejos de su raíz. Agumon no usa la animación de textura de la cara, así que esto no es el fallo de los ojos |
 | Modelo del personaje repetido por la pantalla en el lago al moverse la cámara | Probablemente arreglado, **sin confirmar** | Lo más probable es el desbordamiento de `MAP_CLUTS`, que pisaba `MAP_TILE_X`, el que mueve el anillo de tiles del fondo. El recorrido `walk` por Dragon Eye Lake (mapa 6) ya no lo muestra |
-| Filtro "pixel art" (`DW1_FILTER=pixel[:N]`) | Hecho, **sin probar** | Solo funciona con el renderer `sdl3_gl`, y en Linux 32 bits falta la libGL de 32 bits (`sudo apt install libgl1:i386`). El renderer por defecto (`sdl3_gpu`) avisa y lo ignora |
+| Filtro "pixel art" (`DW1_FILTER=pixel[:N]`) | **Roto, aparcado para el final** | Probado en ventana (build `build/linux32-gl`): parpadea, mezcla dos imágenes y el escenario sale casi negro. Probablemente muestrea el buffer que se está dibujando en vez del que se presenta, o la textura equivocada. Solo existe en el renderer `sdl3_gl`; el de por defecto (`sdl3_gpu`) lo ignora |
+| Bocadillos de estado (hambre, etc.) se ven mal | Arreglo parcial, **falta que confirmes qué ves** | Arreglado: `GsSortSprite` del port dibujaba sin su pivote cuando la escala salía justo 1.0, y el bocadillo saltaba. La animación de hambre (carne → mordida → hueso) sale con sus fotogramas; sin una referencia de PS1 no se sabe qué más falla. Para reproducirlo: `bocadillo 0` en la consola |
 | Mapas "busy" en las baterías (el evento no termina solo pulsando X) | Sin investigar | YAKA12/13/24/25, FRZL17, OMOC01, GOMI02, FACT11B, MGEN14-16, MIHA05/06… Pueden ser eventos que esperan otra entrada |
 | Evolución al objetivo 62 (wEAG) | Fuera de alcance | No tiene modelo en el disco; tampoco se puede alcanzar en PS1 |
 
 ## Arreglados en esta tanda
+
+### El juego iba al triple de velocidad
+- **Causa:** el bucle principal se sincroniza con `VSync(3)` (esperar 3
+  refrescos: 20 fps, como en PS1). PSY-Z presentaba un frame y esperaba uno
+  solo, así que el juego corría a 60 fps. Al grabar o reproducir, el audio
+  sincronizado por frame también iba al triple.
+- **Arreglo:** `VSync(n)` presenta el frame y espera n refrescos
+  (`patches/psyz/0005-vsync-n-vblanks.patch`). Medido con ventana: 20 vueltas
+  por segundo. En turbo (`DW1_TURBO`) sigue sin esperar.
 
 ### Bloqueo en Drill Tunnel (cuadro "A / Drill Tunnel" que no se cierra)
 - **Causa:** `setupMap` guarda un puntero por cada CLUT del `.TFS` del mapa en
@@ -79,6 +89,14 @@ bajo `#ifdef DW1_NATIVE`.
 | Combate que no acababa / Agumon que no atacaba | Timing del SPU en tiempo real | SPU sincronizado por frame |
 
 ## Herramientas para encontrar más
+
+- **Consola de debug** (`port/game/debug_console.c`): escribe comandos en la
+  terminal donde lanzaste el juego; `ayuda` los lista. Sirve para dar
+  objetos, dinero, cambiar de mapa, forzar combates, evoluciones, triggers,
+  eventos de script, estados del Digimon (hambre, sueño, enfermo…),
+  bocadillos, hora y día, y para hacer capturas. Los mismos comandos pueden
+  ir en un fichero, `DW1_DEBUG_SCRIPT=fichero`, con líneas
+  `<llamada al mando> <comando>`, para pruebas automáticas.
 
 - **F9 mientras juegas** (`port/src/bug_mark.c`): anota el momento en el log
   (`dw1: MARCA n en llamada C`), guarda una captura y el estado del script. Con

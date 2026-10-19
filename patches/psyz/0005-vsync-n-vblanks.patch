@@ -1,0 +1,38 @@
+diff --git a/psyz/src/psyz/libapi.c b/psyz/src/psyz/libapi.c
+index bf4d015..3ad6fe5 100644
+--- a/psyz/src/psyz/libapi.c
++++ b/psyz/src/psyz/libapi.c
+@@ -50,23 +50,25 @@ PsyzVSyncCb Psyz_SetVSyncCb(PsyzVSyncCb cb) {
+     return prev;
+ }
+ 
+-// Known limitation: VSync(n) with n > 1 paces a single frame, not n vblanks
++// VSync(n) with n > 1 waits n vblanks: the frame is presented once and then
++// again for each further vblank (the display area still holds it), so a game
++// that paces itself with VSync(3) runs at 20 fps instead of 60. Unpaced modes
++// (PSYZ_VSYNC_LIMITLESS) present once.
+ int VSync(int mode) {
+-    int elapsed, n;
++    int elapsed, n, i;
+     Psyz_KernelPoll();
+     if (mode < 0) {
+         return Psyz_VideoVSync(-1);
+     } else if (mode == 1) {
+         return Psyz_VideoVSync(1);
+-    } else if (mode > 1) {
+-        static int logged_once = 0;
+-        if (!logged_once) {
+-            logged_once = 1;
+-            WARNF("VSync(n>1) is not fully implemented.");
+-        }
+     }
+     n = mode > 0 ? mode : 1;
+     elapsed = Psyz_VideoVSync(0);
++    if (Psyz_VideoGetVsyncMode() != PSYZ_VSYNC_LIMITLESS) {
++        for (i = 1; i < n; i++) {
++            Psyz_VideoVSync(0);
++        }
++    }
+     ReadPadsOnVsync(); // this is done on vsync by the BIOS
+     if (g_PsyzVsyncCb) {
+         g_PsyzVsyncCb();

@@ -249,7 +249,15 @@ void GsSortSprite(GsSPRITE *sp, GsOT *otp, u_short pri)
     if (sp->attribute & GsDOFF)
         return;
     if (sp->rotate == 0 && sp->scalex == 4096 && sp->scaley == 4096) {
-        GsSortFastSprite(sp, otp, pri);
+        /* unscaled: a plain SPRT, still placed by its (mx, my) pivot like
+         * the scaled path below (GsSortFastSprite ignores the pivot; going
+         * straight there made condition bubbles jump by (mx, my) whenever
+         * their scale happened to land on exactly 1.0) */
+        GsSPRITE fast = *sp;
+
+        fast.x = (short)(sp->x - sp->mx);
+        fast.y = (short)(sp->y - sp->my);
+        GsSortFastSprite(&fast, otp, pri);
         return;
     }
 

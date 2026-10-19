@@ -81,6 +81,8 @@ function(dw1_game_unit target)
         -w)                      # upstream code is warning-heavy; port fixes are reviewed by hand
 endfunction()
 
+# port/game: native-only code built like the game units (it uses their headers)
+list(APPEND DW1_MAIN_SRC port/game/debug_console.c)
 dw1_game_unit(dw1_resident ${DW1_MAIN_SRC} ${DW1_SHOP_SRC})
 set(DW1_GAME_OBJECTS $<TARGET_OBJECTS:dw1_resident>)
 set(DW1_OVERLAY_LD "SECTIONS\n{\n")

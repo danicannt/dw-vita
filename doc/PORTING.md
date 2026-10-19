@@ -139,6 +139,11 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
   palette snap and dark outlines in GLSL. Other renderers return -1.
   `patches/psyz/0004-pixel-filter.patch`.
 
+- `libapi.c`: `VSync(n)` with n > 1 waited a single vblank, so the game's
+  `VSync(3)` pacing ran it at 60 fps instead of 20. It now presents once and
+  waits n vblanks (except in `PSYZ_VSYNC_LIMITLESS`).
+  `patches/psyz/0005-vsync-n-vblanks.patch`.
+
 Bugs found so far and their causes: [ERRORES.md](ERRORES.md).
 
 - `include/libmcrd.h` defines its own `struct DIRENTRY` behind

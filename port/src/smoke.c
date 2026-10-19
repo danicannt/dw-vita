@@ -204,8 +204,11 @@ int dw1_smoke_pad(void)
     return (pad_tick % 40) < 3 ? 0x40 : 0; /* tap X */
 }
 
+void dw1_debug_frame(void);
+
 void dw1_smoke_frame(void)
 {
+    dw1_debug_frame(); /* port/game/debug_console.c */
     if (mode < 0)
         parse();
     if (dump_requested) {
