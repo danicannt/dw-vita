@@ -283,7 +283,15 @@ void GsSortSprite(GsSPRITE *sp, GsOT *otp, u_short pri)
         py[i] = sp->y + sy;
     }
     setXY4(p, px[0], py[0], px[1], py[1], px[2], py[2], px[3], py[3]);
-    setUVWH(p, sp->u, sp->v, sp->w, sp->h);
+    /* the far edge is u + w, which wraps to 0 in a byte for a sprite ending
+     * at the page edge (the third poop bubble frame: u 0xf0, w 16) and made
+     * the quad sample the whole page backwards; stop at 255 instead */
+    {
+        int u1 = sp->u + sp->w > 255 ? 255 : sp->u + sp->w;
+        int v1 = sp->v + sp->h > 255 ? 255 : sp->v + sp->h;
+
+        setUV4(p, sp->u, sp->v, u1, sp->v, sp->u, v1, u1, v1);
+    }
     p->tpage = sprite_tpage(sp->attribute, sp->tpage);
     p->clut = getClut(sp->cx, sp->cy);
     addPrim(ot_slot(otp, pri), p);

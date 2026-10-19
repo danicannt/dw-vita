@@ -1084,6 +1084,17 @@ int32_t tickLookAtEntity(uint8_t scriptId1, uint8_t scriptId2)
 	}
 
 	result = 0;
+#ifdef DW1_NATIVE
+	/* turning an NPC that is not on this map, or towards one: entityId is
+	 * never set and the target is NULL. Done at once */
+	{
+		uint8_t s1 = scriptId1, s2 = scriptId2;
+
+		if (getEntityFromScriptId(&s1) == NULL || getEntityFromScriptId(&s2) == NULL) {
+			return 1;
+		}
+	}
+#endif
 	switch (HAS_ROTATION_DATA[entityId]) {
 	case 0:
 		target = getEntityFromScriptId(&scriptId2);
@@ -1111,6 +1122,11 @@ int32_t tickEntitySetRotation(uint32_t scriptId, int16_t rotationY)
 	Entity *entity;
 
 	entity = getEntityFromScriptId((uint8_t *)&scriptId);
+#ifdef DW1_NATIVE
+	if (entity == NULL) {
+		return 1; /* NPC not on this map */
+	}
+#endif
 	entity->posData->rotation.vy = rotationY;
 	return 1;
 }
@@ -1269,6 +1285,11 @@ Entity *getEntityFromScriptId(uint8_t *scriptId)
 			return ENTITY_TABLE[i + 2];
 		}
 	}
+#ifdef DW1_NATIVE
+	/* not on this map: the original falls off the end and returns
+	 * whatever was left in v0 */
+	return NULL;
+#endif
 }
 
 void worldPosToScreenPos2(int16_t *x, int16_t *y, int16_t *z)

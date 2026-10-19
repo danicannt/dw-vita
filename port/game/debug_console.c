@@ -74,6 +74,46 @@ static const struct {
     { "infeliz", 0x10 }, { "herido", 0x20 }, { "enfermo", 0x40 },
 };
 
+extern int8_t TALKED_TO_ENTITY;
+
+/* Start a section of the current map's script the way the game would: a
+ * section that belongs to an NPC on the map runs as talking to it
+ * (TALKED_TO_ENTITY set, param 1, like checkMapInteraction), so its battles
+ * and look-at/unload instructions find that NPC. Returns the NPC's entity
+ * slot or 0. Also used by the DW1_SMOKE=events battery. */
+int dw1_debug_start_section(int section)
+{
+    int slot;
+
+    for (slot = 2; slot < 10; slot++) {
+        if (ENTITY_TABLE[slot] != NULL && NPC_ENTITIES[slot - 2].scriptId == section) {
+            TALKED_TO_ENTITY = (int8_t)slot;
+            callScriptSection(CURRENT_SCRIPT_ID, section, 1);
+            return slot;
+        }
+    }
+    TALKED_TO_ENTITY = 0;
+    callScriptSection(CURRENT_SCRIPT_ID, section, 0);
+    return 0;
+}
+
+/* Keep the partner's age and remaining life where they were at the first
+ * call, so long test runs (DW1_SMOKE=events) do not wander into evolutions
+ * or death scenes the battery then cuts short. */
+void dw1_debug_freeze_partner(void)
+{
+    static int saved;
+    static int16_t age, life;
+
+    if (!saved) {
+        saved = 1;
+        age = PARTNER_PARA.age;
+        life = PARTNER_PARA.remainingLifetime > 100 ? PARTNER_PARA.remainingLifetime : 100;
+    }
+    PARTNER_PARA.age = age;
+    PARTNER_PARA.remainingLifetime = life;
+}
+
 /* ---- helpers ----------------------------------------------------------- */
 
 static int ci_contains(const char *hay, const char *needle)
@@ -260,8 +300,15 @@ static void run(char *line)
         }
         if (IS_SCRIPT_PAUSED != 1)
             fprintf(stderr, "dw1: aviso: ya hay un script en marcha, se reemplaza\n");
-        callScriptSection(NUM(1, 0), NUM(2, 0), 0);
-        fprintf(stderr, "dw1: evento script %d seccion %d\n", NUM(1, 0), NUM(2, 0));
+        if (NUM(1, 0) == CURRENT_SCRIPT_ID) {
+            int npc = dw1_debug_start_section(NUM(2, 0));
+
+            fprintf(stderr, "dw1: evento script %d seccion %d%s\n", NUM(1, 0), NUM(2, 0),
+                    npc ? " (hablando con su NPC)" : "");
+        } else {
+            callScriptSection(NUM(1, 0), NUM(2, 0), 0);
+            fprintf(stderr, "dw1: evento script %d seccion %d\n", NUM(1, 0), NUM(2, 0));
+        }
     } else if (IS("stat")) {
         int16_t *f = ARG(1) ? stat_field(argv[1]) : NULL;
 

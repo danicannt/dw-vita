@@ -2209,6 +2209,13 @@ void BTL_stopEFESubEffect(int32_t a, int32_t b)
 
 	if (EFE_DATA_PTR != NULL) {
 	}
+#ifdef DW1_NATIVE
+	/* no effect data loaded (a battle torn down before its effects): the
+	 * PS1 writes into low RAM */
+	if (EFE_DATA_PTR == NULL) {
+		return;
+	}
+#endif
 
 	EFE_SCRIPT_CONTEXT = &EFE_DATA_PTR[a].subEffects[b];
 	EFE_SCRIPT_CONTEXT->inst = NULL;

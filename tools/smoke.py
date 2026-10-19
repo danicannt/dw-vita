@@ -28,6 +28,7 @@ import sys
 import time
 
 ITEM_RE = re.compile(r"dw1: smoke: (map|model|battle) (\d+)(.*)")
+EVENT_RE = re.compile(r"dw1: smoke: event (\d+) (\d+)(.*)")
 PRINT_LOCK = threading.Lock()
 
 
@@ -70,7 +71,9 @@ def run_once(args, first, last, workdir, env_base):
             time.sleep(0.5)
             text = open(log_path, errors="replace").read()
             items = ITEM_RE.findall(text)
-            size = len(items)
+            # progress: maps, events and movie frames (the ending movie runs
+            # for minutes without any other line)
+            size = len(items) + len(EVENT_RE.findall(text)) + text.count("dw1: movie:")
             if size != last_size:
                 last_size, last_change = size, time.time()
             # the replay itself may take a while before the first item
@@ -89,10 +92,18 @@ def run_range(args, first, last, workdir):
         log_path, how = run_once(args, first, last, workdir, os.environ)
         lines = open(log_path, errors="replace").read().splitlines()
         cur = None
+        event = None
         for l in lines:
+            m = EVENT_RE.match(l)
+            if m and cur is not None:
+                event = int(m.group(2))
+                if m.group(3).strip().startswith("still busy"):
+                    report[cur]["notes"].append("event %d busy" % event)
+                continue
             m = ITEM_RE.match(l)
             if m:
                 cur = int(m.group(2))
+                event = None
                 rest = m.group(3).strip()
                 if rest.startswith("still busy"):
                     report.setdefault(cur, {"name": "", "notes": []})["notes"].append("busy (event did not end)")
@@ -113,9 +124,11 @@ def run_range(args, first, last, workdir):
             break
         if how == "crash":
             stack = resolve(args.bin, lines[next((i for i, l in enumerate(lines) if "crashed" in l), len(lines)):])
-            report[cur]["notes"].append("CRASH: " + " <- ".join(stack[:4]))
+            where = " in event section %d" % event if event is not None else ""
+            report[cur]["notes"].append("CRASH%s: " % where + " <- ".join(stack[:4]))
         else:
-            report[cur]["notes"].append("HANG (no progress for %ds)" % args.stall)
+            where = " in event section %d" % event if event is not None else ""
+            report[cur]["notes"].append("HANG%s (no progress for %ds)" % (where, args.stall))
         with PRINT_LOCK:
             print("%s at %s %d, restarting after it" % (how, args.battery, cur), flush=True)
         first = cur + 1

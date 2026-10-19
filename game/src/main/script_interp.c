@@ -1918,6 +1918,18 @@ void scriptInstruction64to7E(op)
 				}
 			}
 		}
+#ifdef DW1_NATIVE
+		/* the opponent is whoever the section was started by talking to;
+		 * a section reached any other way would fight the tamer (slot 0)
+		 * and load battle data for a type that has none */
+		if (MAIN_D_80134F9C < 2 || MAIN_D_80134F9C >= 10 ||
+		    ENTITY_TABLE[MAIN_D_80134F9C] == NULL) {
+			fprintf(stderr, "dw1: battle against slot %d skipped (no NPC there)\n",
+			        MAIN_D_80134F9C);
+			writePStat(0xff, 1); /* as won: 0 is fled, -1 lost */
+			break;
+		}
+#endif
 		stopBGM();
 		{
 			int16_t outcome;

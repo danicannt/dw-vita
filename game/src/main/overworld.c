@@ -1144,6 +1144,11 @@ void scriptUnloadEntity(uint8_t scriptId)
 	Entity *entity;
 
 	entity = getEntityFromScriptId(&scriptId);
+#ifdef DW1_NATIVE
+	if (entity == NULL) {
+		return; /* NPC not on this map */
+	}
+#endif
 	entity->isOnMap = 0;
 	removeEntity(entity->type, scriptId);
 }

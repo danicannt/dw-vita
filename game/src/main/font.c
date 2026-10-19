@@ -1735,6 +1735,12 @@ void drawString(str, x, y)
 	uint16_t hi;
 	uint16_t lo;
 
+#ifdef DW1_NATIVE
+	/* the US KAR prompt passes NULL for its second string; on the PS1 that
+	 * reads low RAM, which starts with zeros, and draws nothing */
+	if (str == NULL)
+		return;
+#endif
 	while (*str != '\0') {
 		if (isAsciiEncoded(str) != 0) {
 			if (*str == '.') {

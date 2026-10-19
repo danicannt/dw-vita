@@ -79,6 +79,14 @@ int32_t getSpeakerName(speakerId, buf)
 
 	if (speakerId < 0xc8) {
 		speakerId = scriptIdToEntityId(speakerId);
+#ifdef DW1_NATIVE
+		/* the speaker is an NPC not on this map: 0xff indexes far past
+		 * ENTITY_TABLE (garbage name on the PS1, a wild pointer here) */
+		if (speakerId == 0xff || ENTITY_TABLE[speakerId] == NULL) {
+			buf[0] = '\0';
+			return 0;
+		}
+#endif
 		speakerId = ENTITY_TABLE[speakerId]->type;
 		goto digimon;
 	}

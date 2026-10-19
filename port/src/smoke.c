@@ -54,7 +54,7 @@ extern short EVOLUTION_TARGET;
 int dw1_file_queue_idle(void);
 extern void *ENTITY_TABLE[];
 
-enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES, SMOKE_WALK, SMOKE_ANIMS };
+enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES, SMOKE_WALK, SMOKE_ANIMS, SMOKE_EVENTS };
 
 static int mode = -1;
 static int warp_map, warp_exit;
@@ -138,6 +138,10 @@ static void parse(void)
             mode = SMOKE_ANIMS;
             n = 5;
             map_end = 0x60;
+        } else if (strncmp(s, "events", 6) == 0) {
+            mode = SMOKE_EVENTS;
+            n = 6;
+            map_end = 254;
         } else if (strncmp(s, "walk", 4) == 0) {
             mode = SMOKE_WALK;
             n = 4;
@@ -190,6 +194,16 @@ static int next_map(void)
 
 static int walking; /* SMOKE_WALK: frames since the tamer got free, or 0 */
 void dw1_dump_request(const char *name);
+void callScriptSection(int scriptId, int section, int param);
+int dw1_debug_start_section(int section);
+void dw1_debug_freeze_partner(void);
+extern unsigned short CURRENT_SCREEN_ID;
+extern signed char GAME_STATE;
+
+/* SMOKE_EVENTS state */
+static int ev_running;  /* a section was started and has not finished */
+static int ev_section;  /* next section to try */
+static int ev_frames;   /* frames in the current phase */
 
 /* pad state a driver wants, or -1 to leave the pad alone */
 int dw1_smoke_pad(void)
@@ -312,6 +326,71 @@ void dw1_smoke_frame(void)
         tamerSetState(6);
         partnerSetState(12);
         partnerStartAnimation((short)map_cur);
+        break;
+    case SMOKE_EVENTS:
+        /* every section of the map's own script, one after the other: the
+         * events, NPC dialogues and tile triggers, with X tapped through the
+         * text. A section that changes map is followed by a warp back; one
+         * that has not finished after 900 frames is logged busy and the map
+         * is reloaded. Crashes then point at "event <map> <section>". */
+        active = 1;
+        ++ev_frames;
+        dw1_debug_freeze_partner(); /* no evolution or death mid-battery */
+        if (!visited)
+            goto events_next_map;
+        if (ev_running) {
+            int done = IS_SCRIPT_PAUSED == 1 && tamerGetState() == 0 && ev_frames > 10;
+
+            /* battles (GAME_STATE != 0) get longer: the partner fights on
+             * its own, and reloading the map mid-battle breaks the next
+             * event, not the game */
+            if (!done && (ev_frames < 900 || (GAME_STATE != 0 && ev_frames < 6000)))
+                break;
+            if (!done) {
+                fprintf(stderr, "dw1: smoke: event %d %d still busy (game state %d)\n", map_cur,
+                        ev_section - 1, GAME_STATE);
+                dw1_dump_state();
+            }
+            ev_running = 0;
+            ev_frames = 0;
+            if (!done || CURRENT_SCREEN_ID != map_cur) {
+                changeMap((short)map_cur, 0);
+                break;
+            }
+        }
+        /* wait until the tamer is free on this map before the next section */
+        if (tamerGetState() != 0 || IS_SCRIPT_PAUSED != 1 || ev_frames < 30) {
+            if (ev_frames < frames_per_map + 600)
+                break;
+            fprintf(stderr, "dw1: smoke: map %d still busy, changing anyway\n", map_cur);
+            goto events_next_map;
+        }
+        {
+            unsigned char *script = getScript(CURRENT_SCRIPT_ID);
+
+            while (ev_section < 256 && getScriptSection(script, (unsigned short)ev_section) == NULL)
+                ev_section++;
+            if (ev_section < 256) {
+                fprintf(stderr, "dw1: smoke: event %d %d (script %d)\n", map_cur, ev_section, CURRENT_SCRIPT_ID);
+                fflush(stderr);
+                dw1_debug_start_section(ev_section++); /* port/game/debug_console.c */
+                ev_running = 1;
+                ev_frames = 0;
+                break;
+            }
+        }
+events_next_map:
+        visited = 1;
+        ev_running = 0;
+        ev_section = 0;
+        ev_frames = 0;
+        if (!next_map()) {
+            fprintf(stderr, "dw1: smoke: done\n");
+            exit(0);
+        }
+        fprintf(stderr, "dw1: smoke: map %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
+        fflush(stderr);
+        changeMap((short)map_cur, 0);
         break;
     case SMOKE_WALK:
         /* like maps, but once the tamer is free walk a square (45 frames per

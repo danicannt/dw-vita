@@ -13,11 +13,38 @@ bajo `#ifdef DW1_NATIVE`.
 | Cabeza o torso de un Digimon desaparece en ataques (cabeza de Agumon en el ataque a distancia) | Arreglo aplicado, **sin confirmar jugando** | `GsMulCoord3` guardaba en la matriz equivocada (ver abajo). Si sigue pasando: `DW1_BONECHECK=1` registra los huesos dibujados lejos de su raíz. Agumon no usa la animación de textura de la cara, así que esto no es el fallo de los ojos |
 | Modelo del personaje repetido por la pantalla en el lago al moverse la cámara | Probablemente arreglado, **sin confirmar** | Lo más probable es el desbordamiento de `MAP_CLUTS`, que pisaba `MAP_TILE_X`, el que mueve el anillo de tiles del fondo. El recorrido `walk` por Dragon Eye Lake (mapa 6) ya no lo muestra |
 | Filtro "pixel art" (`DW1_FILTER=pixel[:N]`) | **Roto, aparcado para el final** | Probado en ventana (build `build/linux32-gl`): parpadea, mezcla dos imágenes y el escenario sale casi negro. Probablemente muestrea el buffer que se está dibujando en vez del que se presenta, o la textura equivocada. Solo existe en el renderer `sdl3_gl`; el de por defecto (`sdl3_gpu`) lo ignora |
-| Bocadillos de estado (hambre, etc.) se ven mal | Arreglo parcial, **falta que confirmes qué ves** | Arreglado: `GsSortSprite` del port dibujaba sin su pivote cuando la escala salía justo 1.0, y el bocadillo saltaba. La animación de hambre (carne → mordida → hueso) sale con sus fotogramas; sin una referencia de PS1 no se sabe qué más falla. Para reproducirlo: `bocadillo 0` en la consola |
+| Batería de eventos: 8 crashes y 7 "HANG" restantes | **A repetir** | Los 8 crashes (DOOA, `reincarnatePartner`, `EVL_applyEvolution`) siguen a un "map N still busy, changing anyway": la batería cambió de mapa en mitad de una evolución o un renacimiento. Una muerte y renacimiento forzados (`para vida 0`) funcionan. Ahora la batería congela edad y vida del compañero. Los HANG de TEND01/02 eran la película del final; `smoke.py` ya cuenta sus fotogramas como progreso. Falta repetir los mapas 19 35 47 75 78 101 109 139 153 213 236 237 254 |
+| Funciones sin `return` en algún camino (unas 60, `-Wreturn-type`) | Auditoría pendiente | En x86 devuelven basura distinta que en MIPS. Revisadas: las operaciones de la VM de efectos (`BTL_/STD_*Variable`) no usan el valor; `_sin` y `BTL_calculateElementBonus` cubren todos los casos reales; `getEntityFromScriptId` arreglada. Quedan las de `file.c`, `sound*.c`, `script_*`, `kar.c`, `fish.c`, `dooa.c` |
 | Mapas "busy" en las baterías (el evento no termina solo pulsando X) | Sin investigar | YAKA12/13/24/25, FRZL17, OMOC01, GOMI02, FACT11B, MGEN14-16, MIHA05/06… Pueden ser eventos que esperan otra entrada |
 | Evolución al objetivo 62 (wEAG) | Fuera de alcance | No tiene modelo en el disco; tampoco se puede alcanzar en PS1 |
 
 ## Arreglados en esta tanda
+
+### Bocadillo de caca con textura basura
+- **Causa:** `GsSortSprite` del port dibuja un sprite escalado como polígono
+  con el borde derecho en `u + w`. El último fotograma de la caca está en
+  `u = 0xF0` con 16 de ancho: `0x100` se convierte en 0 en un byte y el
+  polígono recorría la página de textura al revés.
+- **Arreglo:** el borde se limita a 255 (`port/src/libgs/system.c`). Antes,
+  en el mismo sitio: el atajo sin escala ignoraba el pivote `(mx, my)` y el
+  bocadillo saltaba.
+
+### Crashes de la batería de eventos (`DW1_SMOKE=events`)
+- **Diálogo de un NPC que no está:** `getSpeakerName` leía
+  `ENTITY_TABLE[0xff]` (`script_value.c`).
+- **NPC ausente en giros y descargas:** `getEntityFromScriptId` no tenía
+  `return` si no encontraba el NPC (en PS1 devolvía lo que quedase en `v0`);
+  ahora devuelve NULL, y `tickLookAtEntity`, `tickEntitySetRotation` y
+  `scriptUnloadEntity` lo comprueban.
+- **Combate contra el hueco 0 (el tamer):** la instrucción de combate pelea
+  contra quien inició el diálogo; una sección alcanzada de otra forma cargaba
+  datos de combate para un tipo sin ellos. Ahora se salta y cuenta como
+  victoria (`script_interp.c`).
+- **Minijuego KAR (curling), versión US:** su segunda cadena de menú es NULL
+  también en el disco original; `drawString(NULL)` ya no dibuja nada (en PS1
+  la RAM baja empieza con ceros) (`font.c`).
+- **Fin de combate sin efectos cargados:** `BTL_stopEFESubEffect` con
+  `EFE_DATA_PTR` a NULL (`battle_effect.c`).
 
 ### El juego iba al triple de velocidad
 - **Causa:** el bucle principal se sincroniza con `VSync(3)` (esperar 3
@@ -105,6 +132,14 @@ bajo `#ifdef DW1_NATIVE`.
 - **`kill -USR1 <pid>`**: vuelca el estado (mapa, script, sección, instrucción
   en espera, cajas abiertas, objetos) sin parar el juego. Es útil porque gdb
   cambia el timing y el replay diverge.
+- **`DW1_SMOKE=events`**: entra en cada mapa y lanza una a una todas las
+  secciones de su script (diálogos, tiles de evento, escenas), como si
+  hablaras con el NPC dueño de cada una, pulsando X para avanzar. Los
+  "event N busy" suelen ser escenas sin su contexto de historia; los crashes
+  indican la sección.
+- **`DW1_VRAMWATCH=x,y,w,h`**: registra quién escribe en ese rectángulo de
+  VRAM (`LoadImage`/`MoveImage`/`ClearImage`), para encontrar texturas
+  pisadas.
 - **`DW1_SMOKE=walk`**: entra en cada mapa, camina en cuadrado para que la
   cámara se desplace y guarda capturas `walk_<mapa>_<n>.ppm` en
   `DW1_DUMP_DIR`. Es la batería que encontró los crashes de TUNN04, ROOM20 e
