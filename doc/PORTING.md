@@ -134,6 +134,12 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
   an audio device voices never end and anything waiting on one (dialogue)
   waits forever. Falls back to SDL's silent dummy driver and logs the driver
   in use. Recordings and replays also lock the SPU to video frames (`Psyz_AudioSetFrameLocked`), so voice timing no longer depends on the real-time audio clock. `patches/psyz/0003-audio-fallback-and-frame-lock.patch`.
+- `sdl3_gl.c`: optional "pixel art" presentation pass,
+  `Psyz_VideoSetPixelFilter` (`DW1_FILTER=pixel[:N]`): block sampling,
+  palette snap and dark outlines in GLSL. Other renderers return -1.
+  `patches/psyz/0004-pixel-filter.patch`.
+
+Bugs found so far and their causes: [ERRORES.md](ERRORES.md).
 
 - `include/libmcrd.h` defines its own `struct DIRENTRY` behind
   `#ifndef DIRENTRY`, which is always true, so it clashes with `kernel.h`'s

@@ -129,9 +129,19 @@ void GsMulCoord0(MATRIX *m1, MATRIX *m2, MATRIX *m3)
     compose(m1, m2, m3);
 }
 
-void GsMulCoord3(MATRIX *m1, MATRIX *m2)
+/* PSY-Q: GsMulCoord2 stores m1 * m2 in m2, GsMulCoord3 in m1. calculatePosition
+ * (vecmath.c) accumulates a bone's world matrix in m1 with GsMulCoord3; storing
+ * into m2 overwrote every bone's local matrix on the way with world values, and
+ * the next frame drew the model in pieces (battle attacks ask for bone
+ * positions to aim their effects) */
+void GsMulCoord2(MATRIX *m1, MATRIX *m2)
 {
     compose(m1, m2, m2);
+}
+
+void GsMulCoord3(MATRIX *m1, MATRIX *m2)
+{
+    compose(m1, m2, m1);
 }
 
 /* ---- view ------------------------------------------------------------------ */

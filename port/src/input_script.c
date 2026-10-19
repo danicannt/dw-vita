@@ -18,6 +18,7 @@
 
 unsigned int __real_PadRead(int id);
 int dw1_smoke_pad(void);
+void dw1_bug_mark_poll(void);
 
 enum { MODE_UNSET, MODE_OFF, MODE_RECORD, MODE_REPLAY };
 
@@ -68,6 +69,11 @@ static void init(void)
 }
 
 /* a replay is still feeding the pad (port/src/smoke.c waits for it) */
+unsigned dw1_pad_calls(void)
+{
+    return (unsigned)calls;
+}
+
 int dw1_replay_running(void)
 {
     if (mode == MODE_UNSET)
@@ -82,6 +88,7 @@ unsigned int __wrap_PadRead(int id)
 
     if (mode == MODE_UNSET)
         init();
+    dw1_bug_mark_poll();
     if (!dw1_replay_running() && (smoke = dw1_smoke_pad()) >= 0) {
         calls++;
         return (unsigned int)smoke;

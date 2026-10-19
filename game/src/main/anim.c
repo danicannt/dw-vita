@@ -340,6 +340,27 @@ void tickAnimation(Entity *entity)
 			break;
 		case 0x3000:
 			(*instrPtrPtr)++;
+#ifdef DW1_NATIVE
+			/* the MoveImage arguments below read and advance the
+			 * same pointer unsequenced: the PS1 compiler evaluated
+			 * them left to right, x86 GCC does it right to left
+			 * and pasted face frames (eyes, mouths) at the next
+			 * instruction's x */
+			{
+				int16_t srcX = (**instrPtrPtr & 0xff00) >> 8;
+				int16_t srcY = *(*instrPtrPtr)++ & 0xff;
+				int16_t w = (**instrPtrPtr & 0xff00) >> 8;
+				int16_t h = *(*instrPtrPtr)++ & 0xff;
+				int16_t dstX = (**instrPtrPtr & 0xff00) >> 8;
+				int16_t dstY = *(*instrPtrPtr)++ & 0xff;
+
+				setRECT(&rect, anim->textureX + srcX,
+					anim->textureY + srcY, w, h);
+				MoveImage(&rect, anim->textureX + dstX,
+					  anim->textureY + dstY);
+			}
+			break;
+#endif
 			setRECT(&rect,
 				anim->textureX + ((**instrPtrPtr & 0xff00) >> 8),
 				anim->textureY + (*(*instrPtrPtr)++ & 0xff),

@@ -2878,6 +2878,57 @@ void initializeDigimonObject(int32_t type, int32_t instanceId,
 	addObject((int16_t)type, (int16_t)instanceId, tick, renderDigimon);
 }
 
+#ifdef DW1_NATIVE
+#include <stdio.h>
+/* DW1_BONECHECK: log bones drawn far from the model's root (a model coming
+ * apart), once per type, animation and bone */
+static void dw1_bone_check(Entity *e, int32_t bone, MATRIX *lw)
+{
+	static int enabled = -1;
+	static long rootX, rootY, rootZ;
+	static uint8_t seen[180][64][4];
+	long dx, dy, dz, limit;
+
+	if (enabled < 0)
+		enabled = getenv("DW1_BONECHECK") != NULL;
+	if (!enabled)
+		return;
+	rootX = e->posData->location.vx;
+	rootY = e->posData->location.vy;
+	rootZ = e->posData->location.vz;
+	dx = lw->t[0] - rootX;
+	dy = lw->t[1] - rootY;
+	dz = lw->t[2] - rootZ;
+	limit = DIGIMON_DATA[e->type].height * 3 / 2 + 150;
+	if (dx * dx + dy * dy + dz * dz <= limit * limit || e->type >= 180 || bone >= 64)
+		return;
+	if (seen[e->type][e->anim.animId & 63][bone & 3] & (1 << (bone >> 2 & 7)))
+		return;
+	seen[e->type][e->anim.animId & 63][bone & 3] |= 1 << (bone >> 2 & 7);
+	fprintf(stderr, "dw1: bonecheck: type %d anim %d frame %d bone %d at %ld,%ld,%ld from root (limit %ld)\n",
+	        e->type, e->anim.animId, e->anim.animFrame, bone, dx, dy, dz, limit);
+	{
+		static int detail;
+		int32_t b;
+
+		for (b = 0; detail < 3 && b < 4; b++) {
+			PositionData *p = &e->posData[b];
+			MomentumData *m = &e->anim.momentum[b];
+
+			fprintf(stderr, "dw1: bonecheck:   bone %d loc %ld,%ld,%ld rot %d,%d,%d scale %ld,%ld,%ld t %ld,%ld,%ld"
+			        " delta %d,%d,%d|%d,%d,%d|%d,%d,%d sub %d,%d,%d\n",
+			        b, p->location.vx, p->location.vy, p->location.vz,
+			        p->rotation.vx, p->rotation.vy, p->rotation.vz,
+			        p->scale.vx, p->scale.vy, p->scale.vz,
+			        p->posMatrix.coord.t[0], p->posMatrix.coord.t[1], p->posMatrix.coord.t[2],
+			        m->delta[0], m->delta[1], m->delta[2], m->delta[3], m->delta[4], m->delta[5],
+			        m->delta[6], m->delta[7], m->delta[8], m->subDelta[0], m->subDelta[1], m->subDelta[2]);
+		}
+		detail++;
+	}
+}
+#endif
+
 void renderDigimon(instanceId)
 	int16_t instanceId;
 {
@@ -2902,6 +2953,9 @@ void renderDigimon(instanceId)
 			continue;
 		}
 		GsGetLws(pos->obj.coord2, &lw, &ls);
+#ifdef DW1_NATIVE
+		dw1_bone_check(ENTITY_TABLE[instanceId], i, &lw);
+#endif
 		GsSetLightMatrix(&lw);
 		GsSetLsMatrix(&ls);
 		if (ENTITY_TABLE[instanceId]->flatSprite != -1) {

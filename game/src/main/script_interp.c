@@ -1,3 +1,6 @@
+#ifdef DW1_NATIVE
+#include <stdio.h>
+#endif
 #include <string.h>
 
 #include <libcd.h>
@@ -2258,6 +2261,16 @@ void callScriptSection(scriptId, section, param)
 	SCRIPT_POINTER =
 		getScriptSection((uint8_t *)(int32_t)ACTIVE_SCRIPT,
 	                         section);
+#ifdef DW1_NATIVE
+	/* a section this script does not have (an NPC of ICSA08 talks with
+	 * section 6 of script 100): the PS1 interprets low RAM from address 0,
+	 * natively that is a crash, so the call does nothing */
+	if (SCRIPT_POINTER == NULL) {
+		fprintf(stderr, "dw1: script %d has no section %d, not run\n",
+		        scriptId, section);
+		return;
+	}
+#endif
 	SCRIPT_SECTION_IS_EVENT = param;
 	SCRIPT_SECTION = section;
 	TEXTBOX_CLOSE_MODE = 0;
@@ -2822,6 +2835,24 @@ void readFileSection(char *filename, void *dest, uint32_t offset,
 	while (CdReadSync(0, 0) > 0)
 		;
 }
+
+#ifdef DW1_NATIVE
+/* for port/src/smoke.c's state dump */
+void dw1_script_debug(void)
+{
+	extern int8_t CAMERA_REACHED_TARGET;
+	int32_t i;
+
+	fprintf(stderr, "dw1: state: wait entity %d camera reached %d\n",
+	        WAIT_FOR_ENTITY_ID, CAMERA_REACHED_TARGET);
+	for (i = 0; i < 0x16; i++) {
+		if (SCRIPT_MOVEMENT[i].type != 0xff) {
+			fprintf(stderr, "dw1: state: movement %d type %d entity %d\n",
+			        i, SCRIPT_MOVEMENT[i].type, SCRIPT_MOVEMENT[i].entityId);
+		}
+	}
+}
+#endif
 
 void tickScriptedMovements(void)
 {

@@ -72,6 +72,12 @@ int main(int argc, char **argv)
     if (getenv("DW1_ASPECT") != NULL && strcmp(getenv("DW1_ASPECT"), "square") == 0) {
         Psyz_VideoSetAspectMode(PSYZ_ASPECT_SQUARE);
     }
+    /* DW1_FILTER=pixel[:N] "pixel art" look, N game pixels per block
+     * (default 1); needs the sdl3_gl renderer (-DPSYZ_RENDERER=sdl3_gl) */
+    if (getenv("DW1_FILTER") != NULL && strncmp(getenv("DW1_FILTER"), "pixel", 5) == 0) {
+        const char *n = strchr(getenv("DW1_FILTER"), ':');
+        Psyz_VideoSetPixelFilter(n ? (unsigned)atoi(n + 1) : 1);
+    }
     dw1_disc_set_path(disc);
     dw1_memcard_set_dir(DW1_DATA_DIR);
     dw1_overlay_init();

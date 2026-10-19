@@ -1,4 +1,8 @@
 #include <string.h>
+#ifdef DW1_NATIVE
+#include <stdio.h>
+int32_t dw1_object_exists(int32_t objectId);
+#endif
 
 #include <inline_n.h>
 #include <libetc.h>
@@ -2909,7 +2913,15 @@ static void *map_sbss_order[] = {
 int8_t MAP_TILES[35];
 MapTiles MAP_TILE_DATA;
 GsF_LIGHT MAP_LIGHTS[3];
+#ifdef DW1_NATIVE
+/* setupMap stores one pointer per CLUT in the map's TFS file, and some maps
+ * have more than three (Drill Tunnel): on the PS1 the extra ones land on
+ * whatever follows, natively they overwrote CAMERA_REACHED_TARGET and the
+ * script waiting for a camera move hung with the area-name textbox open */
+u_long *MAP_CLUTS[16];
+#else
 u_long *MAP_CLUTS[3];
+#endif
 VECTOR CAMERA_TARGET;
 
 static void *map_bss_order[] = {
@@ -4239,6 +4251,9 @@ void setupMap(void)
 
 	for (i = 0; i < numCluts; i++) {
 		LoadClut(data, 0, 0x1e1 + i);
+#ifdef DW1_NATIVE
+		if (i < 16)
+#endif
 		MAP_CLUTS[i] = data;
 		data += 128;
 	}
@@ -5094,6 +5109,17 @@ int32_t checkCameraMovement(instanceId)
 		CAMERA_REACHED_TARGET = -1;
 		return 1;
 	}
+#ifdef DW1_NATIVE
+	/* TODO: find what removes the camera mover early. Waiting for a camera
+	 * move with no 0xfb1 object left to finish it never ends (the script
+	 * that shows the "Drill Tunnel" sign hangs in its SCRIPT_OP_WAIT_FOR_ENTITY
+	 * with the textbox open); force it done instead */
+	if (CAMERA_REACHED_TARGET == 0 && !dw1_object_exists(0xfb1)) {
+		fprintf(stderr, "dw1: camera move had no mover, forced done\n");
+		CAMERA_REACHED_TARGET = -1;
+		return 1;
+	}
+#endif
 out:
 	return 0;
 }
@@ -5222,7 +5248,15 @@ void updateTileRow(bottom)
 		for (i = 0; i < count; i++) {
 			setRECT(&rect, MAP_TILE_DATA.tiles[i + (base + start)].texU, MAP_TILE_DATA.tiles[i + (base + start)].texV, 64, 128);
 
+#ifdef DW1_NATIVE
+			/* the original tests the top row's tile but uploads the
+			 * bottom row's: an empty bottom tile has no image, and
+			 * the PS1 uploaded whatever lay at address 0 */
+			if (MAP_TILE_DATA.tiles[i + (base + start)].tileId == -1 ||
+			    MAP_TILE_DATA.tiles[i + (base + start)].imagePtr == NULL) {
+#else
 			if (MAP_TILE_DATA.tiles[base + i].tileId == -1) {
+#endif
 				ClearImage(&rect, 0, 0, 0);
 			} else {
 				LoadImage(&rect, (u_long *)MAP_TILE_DATA.tiles[i + (base + start)].imagePtr);

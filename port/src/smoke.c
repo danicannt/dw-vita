@@ -20,6 +20,7 @@
  * Anything a map breaks (crash stack, division by zero, unsupported GPU
  * command) lands in the log after its "smoke: map" line; dw1-run/smoke.sh
  * restarts after a crash from the next map. */
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,12 +48,13 @@ extern SmokeMapEntry MAP_ENTRIES[255];
 int dw1_replay_running(void);
 void tamerSetState(int state);
 void partnerSetState(int state);
+void partnerStartAnimation(short animId);
 signed char startBattle(short instanceId);
 extern short EVOLUTION_TARGET;
 int dw1_file_queue_idle(void);
 extern void *ENTITY_TABLE[];
 
-enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES };
+enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES, SMOKE_WALK, SMOKE_ANIMS };
 
 static int mode = -1;
 static int warp_map, warp_exit;
@@ -62,11 +64,60 @@ static int visited;  /* the battery has entered its first map */
 static int settle;   /* idle frames since the last evolution finished */
 static unsigned long pad_tick;
 
+/* kill -USR1 <pid>: log the script/textbox state at the next frame, for runs
+ * that gdb would perturb (replays diverge under its timing) */
+static volatile sig_atomic_t dump_requested;
+extern signed char TAMER_STATE;
+extern int IS_SCRIPT_PAUSED;
+extern unsigned char ACTIVE_INSTRUCTION, MAIN_D_80134FE9, SCRIPT_SECTION;
+extern unsigned short CURRENT_SCREEN_ID, CURRENT_SCRIPT_ID;
+extern unsigned char *ACTIVE_SCRIPT, *SCRIPT_POINTER;
+typedef struct { short x, y, w, h; } SmokeRect;
+typedef struct {
+    SmokeRect startPos, finalPos;
+    short frame, state, rowOffset, visibleRows, totalRows;
+    unsigned char features, color;
+    void *tick, *render;
+} SmokeUIBox; /* game/include/dw/ui.h UIBoxData */
+extern SmokeUIBox UI_BOX_DATA[6];
+typedef struct { short objectId, instanceId; void *tick, *render; } SmokeObject;
+extern SmokeObject WORLD_OBJECTS[];
+unsigned dw1_pad_calls(void);
+void dw1_script_debug(void);
+
+static void on_usr1(int sig)
+{
+    (void)sig;
+    dump_requested = 1;
+}
+
+/* also logged by an F9 mark (port/src/bug_mark.c) */
+void dw1_dump_state(void)
+{
+    int i;
+
+    fprintf(stderr, "dw1: state: pad %u map %d script %d section %d off %d tamer %d paused %d instr %d fe9 %d\n",
+            dw1_pad_calls(), CURRENT_SCREEN_ID, CURRENT_SCRIPT_ID, SCRIPT_SECTION,
+            (int)(SCRIPT_POINTER - ACTIVE_SCRIPT), TAMER_STATE, IS_SCRIPT_PAUSED,
+            ACTIVE_INSTRUCTION, MAIN_D_80134FE9);
+    dw1_script_debug();
+    for (i = 0; i < 6; i++)
+        if (UI_BOX_DATA[i].state != 0)
+            fprintf(stderr, "dw1: state: ui box %d state %d frame %d\n", i,
+                    UI_BOX_DATA[i].state, UI_BOX_DATA[i].frame);
+    for (i = 0; i < 128; i++)
+        if (WORLD_OBJECTS[i].objectId != -1)
+            fprintf(stderr, "dw1: state: object %#x/%d\n", WORLD_OBJECTS[i].objectId,
+                    WORLD_OBJECTS[i].instanceId);
+    fflush(stderr);
+}
+
 static void parse(void)
 {
     const char *s;
 
     mode = SMOKE_OFF;
+    signal(SIGUSR1, on_usr1);
     if ((s = getenv("DW1_WARP")) != NULL) {
         mode = SMOKE_WARP;
         warp_map = atoi(s);
@@ -82,6 +133,14 @@ static void parse(void)
         } else if (strncmp(s, "battles", 7) == 0) {
             mode = SMOKE_BATTLES;
             n = 7;
+            map_end = 254;
+        } else if (strncmp(s, "anims", 5) == 0) {
+            mode = SMOKE_ANIMS;
+            n = 5;
+            map_end = 0x60;
+        } else if (strncmp(s, "walk", 4) == 0) {
+            mode = SMOKE_WALK;
+            n = 4;
             map_end = 254;
         } else if (strncmp(s, "evos", 4) == 0) {
             mode = SMOKE_EVOS;
@@ -129,12 +188,19 @@ static int next_map(void)
     return 0;
 }
 
+static int walking; /* SMOKE_WALK: frames since the tamer got free, or 0 */
+void dw1_dump_request(const char *name);
+
 /* pad state a driver wants, or -1 to leave the pad alone */
 int dw1_smoke_pad(void)
 {
+    static const int dirs[4] = { 0x1000, 0x2000, 0x4000, 0x8000 }; /* up right down left */
+
     if (!active)
         return -1;
     pad_tick++;
+    if (walking)
+        return dirs[(walking / 45) % 4];
     return (pad_tick % 40) < 3 ? 0x40 : 0; /* tap X */
 }
 
@@ -142,6 +208,10 @@ void dw1_smoke_frame(void)
 {
     if (mode < 0)
         parse();
+    if (dump_requested) {
+        dump_requested = 0;
+        dw1_dump_state();
+    }
     if (mode == SMOKE_OFF || dw1_replay_running())
         return;
 
@@ -210,6 +280,67 @@ void dw1_smoke_frame(void)
             exit(0);
         }
         fprintf(stderr, "dw1: smoke: battle %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
+        fflush(stderr);
+        changeMap((short)map_cur, 0);
+        break;
+    case SMOKE_ANIMS:
+        /* play partner animation map_cur..map_end the way scripts do
+         * (partner state 12 leaves the animation alone), 150 frames each,
+         * saving both buffers at frames 20, 50, 80 and 110 as anim_<id>_<n> */
+        active = 1;
+        if (visited) {
+            if (++frame % 30 == 20 && frame < 120) {
+                char name[32];
+
+                snprintf(name, sizeof(name), "anim_%03d_%d", map_cur, frame / 30);
+                dw1_dump_request(name);
+            }
+            if (frame < 150)
+                break;
+        }
+        if (++map_cur > map_end) {
+            fprintf(stderr, "dw1: smoke: done\n");
+            exit(0);
+        }
+        visited = 1;
+        frame = 0;
+        fprintf(stderr, "dw1: smoke: model %d animation\n", map_cur);
+        fflush(stderr);
+        tamerSetState(6);
+        partnerSetState(12);
+        partnerStartAnimation((short)map_cur);
+        break;
+    case SMOKE_WALK:
+        /* like maps, but once the tamer is free walk a square (45 frames per
+         * side) so the camera scrolls, saving both display buffers every 30
+         * frames as walk_<map>_<n>.ppm in DW1_DUMP_DIR */
+        active = 1;
+        ++frame;
+        if (visited && walking == 0 && tamerGetState() == 0 && frame > 60)
+            walking = 1;
+        if (walking) {
+            if (walking % 30 == 0) {
+                char name[32];
+
+                snprintf(name, sizeof(name), "walk_%03d_%02d", map_cur, walking / 30);
+                dw1_dump_request(name);
+            }
+            if (++walking <= 180)
+                break;
+        } else if (frame < frames_per_map + 600 || !visited) {
+            if (visited || frame < frames_per_map)
+                break;
+        }
+        if (visited && walking == 0)
+            fprintf(stderr, "dw1: smoke: map %d still busy, changing anyway\n", map_cur);
+        walking = 0;
+        visited = 1;
+        frame = 0;
+        if (!next_map()) {
+            fprintf(stderr, "dw1: smoke: done\n");
+            exit(0);
+        }
+        fprintf(stderr, "dw1: smoke: map %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
         fflush(stderr);
         changeMap((short)map_cur, 0);
         break;

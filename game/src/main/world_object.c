@@ -16,6 +16,21 @@ void initializeWorldObjects(void)
 }
 
 
+#ifdef DW1_NATIVE
+/* for the port's watchdogs: some instance of objectId is registered */
+int32_t dw1_object_exists(int32_t objectId)
+{
+	int32_t i;
+
+	for (i = 0; i < NUM_WORLD_OBJECTS; i++) {
+		if (WORLD_OBJECTS[i].objectId == objectId) {
+			return 1;
+		}
+	}
+	return 0;
+}
+#endif
+
 int32_t addObject(objectId, instanceId, tick, render)
 int16_t objectId;
 int16_t instanceId;

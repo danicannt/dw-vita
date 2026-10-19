@@ -1,0 +1,205 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+index ca7300e..6afb9e1 100644
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -198,6 +198,23 @@ int Psyz_VideoSetInternalResolution(unsigned multiplier);
+  */
+ unsigned Psyz_VideoGetInternalResolution(void);
+ 
++/**
++ * @brief Present the frame through a "pixel art" filter (default: 0, off)
++ *
++ * Samples the frame in blocks of `block` game pixels, snaps colours to a
++ * small palette and outlines strong luminance edges in a dark tone.
++ * Only the sdl3_gl renderer implements it; others return -1.
++ *
++ * @param block 0 to disable, or the block size in game pixels (1 to 8)
++ * @return 0 on success, -1 if unsupported or out of range
++ */
++int Psyz_VideoSetPixelFilter(unsigned block);
++
++/**
++ * @brief Get the current pixel filter block size (0 when off)
++ */
++unsigned Psyz_VideoGetPixelFilter(void);
++
+ /**
+  * @brief Synchronize with vertical blank
+  *
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index dd73056..71338f8 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -305,6 +305,100 @@ static GLuint Init_SetupShader() {
+     return program;
+ }
+ 
++// Optional "pixel art" presentation filter (Psyz_VideoSetPixelFilter): the
++// frame is sampled in blocks of pixel_filter game pixels, its colours snapped
++// to a small palette per channel and dark outlines drawn where the luminance
++// jumps, giving a hand-drawn sprite look. Off (0) presents the plain blit.
++static unsigned pixel_filter = 0;
++static GLuint filter_program = 0;
++static GLuint filter_vao = 0;
++static GLint filter_u_src, filter_u_scale, filter_u_dst, filter_u_block;
++
++static const char filter_vertex_body[] = {
++    "void main() {\n"
++    "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
++    "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
++    "}\n"};
++
++static const char filter_fragment_body[] = {
++    "uniform sampler2D tex;\n"
++    "uniform vec4 srcRect;\n" // x, y, w, h in game pixels
++    "uniform float scale;\n"  // texels per game pixel (internal resolution)
++    "uniform vec4 dstRect;\n" // window rectangle, GL bottom-left origin
++    "uniform float block;\n"  // game pixels per output pixel block
++    "out vec4 fragColor;\n"
++    "vec3 fetch(vec2 g) {\n"
++    "    g = clamp(g, vec2(0.0), srcRect.zw - 1.0);\n"
++    "    ivec2 t = ivec2((srcRect.xy + floor(g) + 0.5) * scale);\n"
++    "    return texelFetch(tex, t, 0).rgb;\n"
++    "}\n"
++    "float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }\n"
++    "vec3 quantize(vec3 c) {\n"
++    // lift saturation a little, then snap to 6 levels per channel
++    "    float l = luma(c);\n"
++    "    c = clamp(mix(vec3(l), c, 1.25), 0.0, 1.0);\n"
++    "    return floor(c * 5.0 + 0.5) / 5.0;\n"
++    "}\n"
++    "void main() {\n"
++    "    vec2 f = (gl_FragCoord.xy - dstRect.xy) / dstRect.zw;\n"
++    "    vec2 g = vec2(f.x, 1.0 - f.y) * srcRect.zw;\n"
++    "    vec2 b = (floor(g / block) + 0.5) * block;\n"
++    "    vec3 c = fetch(b);\n"
++    "    float l = luma(c);\n"
++    "    float e = abs(l - luma(fetch(b + vec2(block, 0.0))))\n"
++    "            + abs(l - luma(fetch(b - vec2(block, 0.0))))\n"
++    "            + abs(l - luma(fetch(b + vec2(0.0, block))))\n"
++    "            + abs(l - luma(fetch(b - vec2(0.0, block))));\n"
++    "    vec3 q = quantize(c);\n"
++    "    if (e > 0.45) {\n"
++    "        q *= 0.35;\n"
++    "    } else if (e > 0.25) {\n"
++    "        q *= 0.7;\n"
++    "    }\n"
++    "    fragColor = vec4(q, 1.0);\n"
++    "}\n"};
++
++static bool InitPixelFilter(void) {
++    if (filter_program) {
++        return true;
++    }
++    GLuint vs = Init_CompileShader(filter_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs = Init_CompileShader(filter_fragment_body, GL_FRAGMENT_SHADER);
++    GLuint program = glCreateProgram();
++    glAttachShader(program, vs);
++    glAttachShader(program, fs);
++    glLinkProgram(program);
++    glDeleteShader(vs);
++    glDeleteShader(fs);
++    int success = 0;
++    glGetProgramiv(program, GL_LINK_STATUS, &success);
++    if (!success) {
++        ERRORF("pixel filter shader failed to link, filter disabled");
++        glDeleteProgram(program);
++        pixel_filter = 0;
++        return false;
++    }
++    filter_program = program;
++    filter_u_src = glGetUniformLocation(program, "srcRect");
++    filter_u_scale = glGetUniformLocation(program, "scale");
++    filter_u_dst = glGetUniformLocation(program, "dstRect");
++    filter_u_block = glGetUniformLocation(program, "block");
++    glUseProgram(program);
++    glUniform1i(glGetUniformLocation(program, "tex"), 0);
++    glGenVertexArrays(1, &filter_vao);
++    return true;
++}
++
++int Psyz_VideoSetPixelFilter(unsigned block) {
++    if (block > 8) {
++        return -1;
++    }
++    pixel_filter = block;
++    return 0;
++}
++
++unsigned Psyz_VideoGetPixelFilter(void) { return pixel_filter; }
++
+ static PsyzOverlayInitCB_SDL3GL overlay_init_cb;
+ PsyzOverlayInitCB_SDL3GL Psyz_OverlayInit_SDL3GL(PsyzOverlayInitCB_SDL3GL cb) {
+     const PsyzOverlayInitCB_SDL3GL prev = overlay_init_cb;
+@@ -670,7 +764,28 @@ static void PlatformBackend_Present(void) {
+     glClearColor(0, 0, 0, 1);
+     glClear(GL_COLOR_BUFFER_BIT);
+ 
+-    if (disp_on) {
++    if (disp_on && pixel_filter && !debug_show_vram && InitPixelFilter()) {
++        GLuint src_tex = use_rgb24             ? rgb24_texture
++                         : HasSeparateDrawTarget() ? scaled_vram_texture
++                                                   : vram_texture;
++        glBindFramebuffer(GL_FRAMEBUFFER, 0);
++        glViewport(dst.x, dst.y, dst.w, dst.h);
++        glUseProgram(filter_program);
++        glUniform4f(filter_u_src, (float)src.x, (float)src.y, (float)src.w,
++                    (float)src.h);
++        glUniform1f(filter_u_scale, (float)n);
++        glUniform4f(filter_u_dst, (float)dst.x, (float)dst.y, (float)dst.w,
++                    (float)dst.h);
++        glUniform1f(filter_u_block, (float)pixel_filter);
++        glActiveTexture(GL_TEXTURE0);
++        glBindTexture(GL_TEXTURE_2D, src_tex);
++        glDisable(GL_BLEND);
++        glBindVertexArray(filter_vao);
++        glDrawArrays(GL_TRIANGLES, 0, 3);
++        glBindVertexArray(0);
++        glEnable(GL_BLEND);
++        glViewport(0, 0, win.w, win.h);
++    } else if (disp_on) {
+         glBlitFramebuffer(src.x * n, (src.y + src.h) * n, (src.x + src.w) * n,
+                           src.y * n, dst.x, dst.y, dst.x + dst.w, dst.y + dst.h,
+                           GL_COLOR_BUFFER_BIT, GL_NEAREST);
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index 33c8e7e..d1d3907 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -746,6 +746,16 @@ static SDL_GPUTexture* PrepareRgb24(void) {
+     return rgb24_texture;
+ }
+ 
++// the pixel filter is a GLSL pass of the sdl3_gl renderer only
++int Psyz_VideoSetPixelFilter(unsigned block) {
++    if (block) {
++        WARNF("pixel filter needs the sdl3_gl renderer");
++    }
++    return block ? -1 : 0;
++}
++
++unsigned Psyz_VideoGetPixelFilter(void) { return 0; }
++
+ static void PlatformBackend_Present(void) {
+     if (!sdl3_window && !InitPlatform()) {
+         return;
+diff --git a/psyz/src/psp/psp_gpu.c b/psyz/src/psp/psp_gpu.c
+index 8bbfa55..217912b 100644
+--- a/psyz/src/psp/psp_gpu.c
++++ b/psyz/src/psp/psp_gpu.c
+@@ -1005,6 +1005,16 @@ int Psyz_VideoSetDitheringMode(PsyzDitherMode mode) {
+ 
+ PsyzDitherMode Psyz_VideoGetDitheringMode(void) { return dither_mode; }
+ 
++// the pixel filter is a GLSL pass of the sdl3_gl renderer only
++int Psyz_VideoSetPixelFilter(unsigned block) {
++    if (block) {
++        WARNF("pixel filter needs the sdl3_gl renderer");
++    }
++    return block ? -1 : 0;
++}
++
++unsigned Psyz_VideoGetPixelFilter(void) { return 0; }
++
+ int Psyz_VideoSetAspectMode(PsyzAspectMode mode) {
+     switch (mode) {
+     case PSYZ_ASPECT_DISPLAY:

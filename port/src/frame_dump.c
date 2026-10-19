@@ -81,8 +81,49 @@ static void dump(long frame)
     fprintf(stderr, "dw1: dumped %s\n", path);
 }
 
+/* port/src/smoke.c's walk battery: both display buffers (320x480) to
+ * DW1_DUMP_DIR/<name>.ppm at the next swap */
+static char named_request[64];
+
+void dw1_dump_request(const char *name)
+{
+    snprintf(named_request, sizeof(named_request), "%s", name);
+}
+
+static void dump_named(const char *name)
+{
+    static u_short vram[320 * 480];
+    static unsigned char rgb[320 * 480 * 3];
+    const char *dir = getenv("DW1_DUMP_DIR");
+    char path[512];
+    RECT r;
+    FILE *f;
+    int i;
+
+    setRECT(&r, 0, 0, 320, 480);
+    DrawSync(0);
+    StoreImage(&r, (u_long *)vram);
+    DrawSync(0);
+    for (i = 0; i < 320 * 480; i++) {
+        rgb[i * 3 + 0] = (unsigned char)((vram[i] & 31) << 3);
+        rgb[i * 3 + 1] = (unsigned char)(((vram[i] >> 5) & 31) << 3);
+        rgb[i * 3 + 2] = (unsigned char)(((vram[i] >> 10) & 31) << 3);
+    }
+    snprintf(path, sizeof(path), "%s%s%s.ppm", dir ? dir : "", dir ? "/" : "", name);
+    f = fopen(path, "wb");
+    if (f == NULL)
+        return;
+    fprintf(f, "P6\n320 480\n255\n");
+    fwrite(rgb, 1, sizeof(rgb), f);
+    fclose(f);
+}
+
 void __wrap_GsSwapDispBuff(void)
 {
+    if (named_request[0] != '\0') {
+        dump_named(named_request);
+        named_request[0] = '\0';
+    }
     if (due(&by_swap, "DW1_DUMP"))
         dump(by_swap.count);
     __real_GsSwapDispBuff();
