@@ -17,7 +17,26 @@
 int dw1_game_main(void);
 
 #if defined(__vita__)
+#include <SDL3/SDL.h>
+#include <psp2/power.h>
 #define DW1_DATA_DIR "ux0:data/dw1"
+/* newlib's default heap is small; SDL, the software VRAM and the game's
+ * buffers need more */
+int _newlib_heap_size_user = 192 * 1024 * 1024;
+
+/* No console: everything logged (fprintf(stderr), SDL_Log and PSY-Z's log,
+ * which goes through SDL) lands in ux0:data/dw1/log.txt. freopen() on stderr
+ * does not work with the Vita's newlib, so stderr is pointed at our file. */
+static FILE *vita_log;
+
+static void SDLCALL vita_log_output(void *userdata, int category,
+                                    SDL_LogPriority priority, const char *message)
+{
+    (void)userdata;
+    (void)category;
+    (void)priority;
+    fprintf(vita_log, "%s\n", message);
+}
 #else
 #define DW1_DATA_DIR ""
 #endif
@@ -31,6 +50,20 @@ int main(int argc, char **argv)
     char disc[512];
 
     dw1_crash_handler_install();
+#if defined(__vita__)
+    vita_log = fopen(DW1_DATA_DIR "/log.txt", "w");
+    if (vita_log != NULL) {
+        setvbuf(vita_log, NULL, _IONBF, 0);
+        stderr = vita_log;
+        SDL_SetLogOutputFunction(vita_log_output, NULL);
+        fprintf(vita_log, "dw1: log started\n");
+    }
+    /* full speed: the CPU runs at 333 MHz unless asked (444 is the max) */
+    scePowerSetArmClockFrequency(444);
+    scePowerSetBusClockFrequency(222);
+    scePowerSetGpuClockFrequency(222);
+    scePowerSetGpuXbarClockFrequency(166);
+#endif
     if (argc > 1) {
         snprintf(disc, sizeof(disc), "%s", argv[1]);
     } else if (DW1_DATA_DIR[0] != '\0') {

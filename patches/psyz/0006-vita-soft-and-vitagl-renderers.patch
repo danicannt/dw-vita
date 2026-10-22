@@ -1,0 +1,1209 @@
+diff --git a/psyz/CMakeLists.txt b/psyz/CMakeLists.txt
+index f728e40..1d410fd 100644
+--- a/psyz/CMakeLists.txt
++++ b/psyz/CMakeLists.txt
+@@ -205,10 +205,10 @@ else()
+ endif()
+ 
+ set(PSYZ_RENDERER_DEFAULT "sdl3_gpu")
+-set(PSYZ_RENDERER "${PSYZ_RENDERER_DEFAULT}" CACHE STRING "Rendering backend: sdl3_gpu or sdl3_gl")
+-set_property(CACHE PSYZ_RENDERER PROPERTY STRINGS sdl3_gl sdl3_gpu)
+-if(NOT PSYZ_RENDERER STREQUAL "sdl3_gpu" AND NOT PSYZ_RENDERER STREQUAL "sdl3_gl")
+-    message(FATAL_ERROR "invalid PSYZ_RENDERER '${PSYZ_RENDERER}', expected sdl3_gpu or sdl3_gl")
++set(PSYZ_RENDERER "${PSYZ_RENDERER_DEFAULT}" CACHE STRING "Rendering backend: sdl3_gpu, sdl3_gl or sdl3_soft")
++set_property(CACHE PSYZ_RENDERER PROPERTY STRINGS sdl3_gl sdl3_gpu sdl3_soft)
++if(NOT PSYZ_RENDERER STREQUAL "sdl3_gpu" AND NOT PSYZ_RENDERER STREQUAL "sdl3_gl" AND NOT PSYZ_RENDERER STREQUAL "sdl3_soft")
++    message(FATAL_ERROR "invalid PSYZ_RENDERER '${PSYZ_RENDERER}', expected sdl3_gpu, sdl3_gl or sdl3_soft")
+ endif()
+ message(STATUS "Using the ${PSYZ_RENDERER} rendering backend")
+ 
+@@ -289,6 +289,27 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+         message(FATAL_ERROR "UIKit framework not found for iOS target")
+     endif()
+     list(APPEND PSYZ_LIBS ${PSYZ_UIKIT_FRAMEWORK})
++elseif(VITA)
++    # PS Vita (VitaSDK): SDL3 for window, input and audio; the software
++    # rasterizer draws and SDL's GXM renderer only scales the picture. No
++    # dynamic modules (no dlopen) and no debug server.
++    list(APPEND PSYZ_SOURCES src/platform/plat_unix.c)
++    list(APPEND PSYZ_SOURCES src/platform/sdl3_log.c)
++    list(APPEND PSYZ_SOURCES src/platform/sdl3_audio.c)
++    list(APPEND PSYZ_SOURCES src/platform/sdl3_os.c)
++    list(APPEND PSYZ_SOURCES src/psyz/psyz_spu.c)
++    if(PSYZ_RENDERER STREQUAL "sdl3_soft")
++        list(APPEND PSYZ_SOURCES src/platform/sdl3_soft.c src/platform/sdl3_software.c)
++    else()
++        # GPU renderer through vitaGL (float-only shaders, see
++        # gl_float_shaders.h); needs libshacccg.suprx on the console
++        list(APPEND PSYZ_SOURCES src/platform/sdl3_gl.c)
++        list(APPEND PSYZ_LIBS vitaGL vitashark SceShaccCgExt taihen_stub mathneon
++            SceShaccCg_stub SceKernelDmacMgr_stub SceGxm_stub SceDisplay_stub
++            SceAppMgr_stub SceCommonDialog_stub SceIme_stub SceSysmodule_stub
++            SceLibKernel_stub SceRazorCapture_stub_weak stdc++)  # vitaGL has C++ inside
++        message(STATUS "PS Vita: vitaGL renderer")
++    endif()
+ elseif(PSP)
+     # The pspdev toolchain provides the SDK include/link paths; the GE, the
+     # display, the controller and the audio channel are driven directly, so
+@@ -322,12 +343,15 @@ else()
+     if(PSYZ_RENDERER STREQUAL "sdl3_gl")
+         list(APPEND PSYZ_SOURCES src/platform/sdl3_gl.c)
+         list(APPEND PSYZ_LIBS -lGL)
++    elseif(PSYZ_RENDERER STREQUAL "sdl3_soft")
++        # CPU rasterizer, presented through SDL's 2D renderer
++        list(APPEND PSYZ_SOURCES src/platform/sdl3_soft.c src/platform/sdl3_software.c)
+     else()
+         list(APPEND PSYZ_SOURCES src/platform/sdl3_gpu.c)
+     endif()
+ endif()
+ 
+-if(NOT PSP AND NOT EMSCRIPTEN AND PSYZ_RENDERER STREQUAL "sdl3_gpu")
++if(NOT PSP AND NOT EMSCRIPTEN AND NOT VITA AND PSYZ_RENDERER STREQUAL "sdl3_gpu")
+     list(APPEND PSYZ_SOURCES src/platform/sdl3_software.c)
+ endif()
+ 
+diff --git a/psyz/src/platform/gl_float_shaders.h b/psyz/src/platform/gl_float_shaders.h
+new file mode 100644
+index 0000000..4426308
+--- /dev/null
++++ b/psyz/src/platform/gl_float_shaders.h
+@@ -0,0 +1,182 @@
++// Float-only variant of the sdl3_gl PS1 shaders, for GPUs without integer
++// arithmetic in shaders (the PS Vita's SGX543 through vitaGL). Same inputs
++// and same results as vertex_shader_body / fragment_shader_body: bit fields
++// come out with floor/mod, the 16-bit VRAM word is rebuilt from the RGBA5551
++// texel and palette indices are taken from it arithmetically.
++//
++// The bodies are shared: the prologue picks the dialect (GLSL 330 core on
++// desktop, vitaGL's GLSL 1.x on the Vita) through these macros
++//   ATTR      vertex input        VARY      vertex->fragment varying
++//   TEX2D     texture sampling    FragColor fragment output
++// and PSYZ_NO_DITHER drops the dither pattern (it needs gl_FragCoord tables).
++#ifndef PSYZ_GL_FLOAT_SHADERS_H
++#define PSYZ_GL_FLOAT_SHADERS_H
++
++static const char float_prologue_vs_core[] = {
++    "#version 330 core\n"
++    "#define ATTR in\n"
++    "#define VARY out\n"};
++static const char float_prologue_fs_core[] = {
++    "#version 330 core\n"
++    "#define VARY in\n"
++    "#define TEX2D texture\n"
++    "out vec4 FragColor;\n"};
++static const char float_prologue_vs_vita[] = {
++    "#define ATTR attribute\n"
++    "#define VARY varying\n"};
++static const char float_prologue_fs_vita[] = {
++    "#define VARY varying\n"
++    "#define TEX2D texture2D\n"
++    "#define FragColor gl_FragColor\n"
++    "#define PSYZ_NO_DITHER\n"};
++
++static const char float_vertex_shader_body[] = {
++    "ATTR vec2 pos;\n"
++    "ATTR vec4 tex;\n"   // u, v, clut, tpage word (with the TPAGE_* flags)
++    "ATTR vec4 color;\n" // normalized RGBA8
++    "ATTR vec4 twin;\n"  // texture window: and.x, and.y, or.x, or.y
++    "uniform vec2 drawOffset;\n"
++    "uniform vec2 halfPixel;\n"
++    "VARY vec4 vColor;\n"
++    "VARY vec2 vUV;\n"
++    // x mode (0 untextured, 1 16-bit, 2 indexed), y texels per VRAM pixel,
++    // z palette size, w dither
++    "VARY vec4 vMode;\n"
++    "VARY vec4 vPage;\n" // xy texture page origin, zw palette origin
++    "VARY vec4 vTwin;\n"
++    "VARY float vAbr;\n" // semi-transparency mode
++    "float bit(float word, float value) {\n"
++    "    return mod(floor(word / value), 2.0);\n"
++    "}\n"
++    "void main() {\n"
++    "    float word = tex.w;\n"
++    "    vec2 shift = bit(word, 8192.0) > 0.5 ? halfPixel : vec2(0.0);\n"
++    "    float x = ((pos.x + drawOffset.x + shift.x) / (1024.0 / 2.0)) - 1.0;\n"
++    "    float y = ((pos.y + drawOffset.y + shift.y) / (512.0 / 2.0)) - 1.0;\n"
++    "    gl_Position = vec4(x, y, 0.0, 1.0);\n"
++    "    vColor = color;\n"
++    "    float tpage = mod(word, 512.0);\n"
++    "    vUV = tex.xy + shift - halfPixel;\n"
++    "    float depth = mod(floor(tpage / 128.0), 4.0);\n"
++    "    vMode = vec4(0.0, 1.0, 1.0, bit(word, 16384.0));\n"
++    "    if (word < 32768.0) {\n"
++    "        vColor.rgb *= 2.0;\n"
++    "        if (depth >= 2.0) {\n"
++    "            vMode.x = 1.0;\n"
++    "        } else if (depth >= 1.0) {\n"
++    "            vMode.xyz = vec3(2.0, 2.0, 256.0);\n" // 8-bit indexed
++    "        } else {\n"
++    "            vMode.xyz = vec3(2.0, 4.0, 16.0);\n" // 4-bit indexed
++    "        }\n"
++    "    }\n"
++    "    vPage = vec4(mod(tpage, 16.0) * 64.0,\n"
++    "                 mod(floor(tpage / 16.0), 2.0) * 256.0,\n"
++    "                 mod(tex.z, 64.0) * 16.0, floor(tex.z / 64.0));\n"
++    "    vTwin = twin;\n"
++    "    vAbr = mod(floor(tpage / 32.0), 4.0);\n"
++    "}\n"};
++
++static const char float_fragment_shader_body[] = {
++    "VARY vec4 vColor;\n"
++    "VARY vec2 vUV;\n"
++    "VARY vec4 vMode;\n"
++    "VARY vec4 vPage;\n"
++    "VARY vec4 vTwin;\n"
++    "VARY float vAbr;\n"
++    "uniform sampler2D texVram;\n"
++    "\n"
++    "vec4 fetch(vec2 p) {\n"
++    "    return TEX2D(texVram, (p + 0.5) / vec2(1024.0, 512.0));\n"
++    "}\n"
++    // a & m for 0..255 values, one bit at a time
++    "float and8(float a, float m) {\n"
++    "    float r = 0.0;\n"
++    "    float p = 1.0;\n"
++    "    for (int i = 0; i < 8; i++) {\n"
++    "        r += p * mod(floor(a / p), 2.0) * mod(floor(m / p), 2.0);\n"
++    "        p *= 2.0;\n"
++    "    }\n"
++    "    return r;\n"
++    "}\n"
++    "vec2 resolveTexel() {\n"
++    "    vec2 t = clamp(floor(vUV + 1.0 / 512.0), vec2(0.0), vec2(255.0));\n"
++    "    vec4 w = floor(vTwin + 0.5);\n"
++    // the window keeps the high bits and replaces the low ones (disjoint)
++    "    if (w.x < 255.0 || w.y < 255.0 || w.z > 0.0 || w.w > 0.0) {\n"
++    "        t = vec2(and8(t.x, w.x), and8(t.y, w.y)) + w.zw;\n"
++    "    }\n"
++    "    return t;\n"
++    "}\n"
++    "#ifndef PSYZ_NO_DITHER\n"
++    "float ditherOffset() {\n"
++    "    float dx = mod(floor(gl_FragCoord.x), 4.0);\n"
++    "    float dy = mod(floor(gl_FragCoord.y), 4.0);\n"
++    "    vec4 row = dy < 0.5 ? vec4(-4.0, +0.0, -3.0, +1.0)\n"
++    "             : dy < 1.5 ? vec4(+2.0, -2.0, +3.0, -1.0)\n"
++    "             : dy < 2.5 ? vec4(-3.0, +1.0, -4.0, +0.0)\n"
++    "                        : vec4(+3.0, -1.0, +2.0, -2.0);\n"
++    "    return dot(row, vec4(equal(vec4(dx), vec4(0.0, 1.0, 2.0, 3.0))));\n"
++    "}\n"
++    "#endif\n"
++    "vec3 applyDither(vec3 c) {\n"
++    "#ifndef PSYZ_NO_DITHER\n"
++    "    if (vMode.w > 0.5) {\n"
++    "        vec3 c8 = c * 255.0 + ditherOffset();\n"
++    "        return clamp(floor(c8 / 8.0), 0.0, 31.0) / 31.0;\n"
++    "    }\n"
++    "#endif\n"
++    "    return c;\n"
++    "}\n"
++    "\n"
++    "void main() {\n"
++    "    float mode = floor(vMode.x + 0.5);\n"
++    "    bool dither = vMode.w > 0.5;\n"
++    "    vec4 texColor;\n"
++    "    if (mode < 0.5) {\n"
++    "        texColor = vec4(1.0, 1.0, 1.0, 2.0);\n"
++    "    } else if (mode < 1.5) {\n"
++    "        texColor = fetch(vPage.xy + resolveTexel());\n"
++    "    } else {\n"
++    "        float perPixel = floor(vMode.y + 0.5);\n"
++    "        float size = floor(vMode.z + 0.5);\n"
++    "        vec2 t = resolveTexel();\n"
++    "        vec4 c = fetch(vPage.xy + vec2(floor(t.x / perPixel), t.y));\n"
++    "        float word = floor(c.r * 31.0 + 0.5)\n"
++    "                   + floor(c.g * 31.0 + 0.5) * 32.0\n"
++    "                   + floor(c.b * 31.0 + 0.5) * 1024.0\n"
++    "                   + floor(c.a + 0.5) * 32768.0;\n"
++    "        float sub = mod(t.x, perPixel);\n"
++    "        float index = mod(floor(word / pow(size, sub)), size);\n"
++    "        texColor = fetch(vPage.zw + vec2(index, 0.0));\n"
++    "    }\n"
++    "    if (texColor == vec4(0.0)) {\n"
++    "        FragColor = vec4(0.0);\n"
++    "        return;\n"
++    "    }\n"
++    "    bool isSemiTrans = vColor.a < 0.75;\n"
++    "    bool colorSemiTrans = texColor.a > 0.0;\n"
++    "    vec3 modColor;\n"
++    "    if (mode < 0.5) {\n"
++    "        modColor = texColor.rgb * vColor.rgb;\n"
++    "    } else {\n"
++    "        vec3 tex5 = floor(texColor.rgb * 31.0 + 0.5);\n"
++    "        vec3 col8 = min(floor(vColor.rgb * 127.5 + 0.5), vec3(255.0));\n"
++    "        vec3 prod8 = min(tex5 * col8 / 16.0, vec3(255.0));\n"
++    "        modColor = dither ? prod8 / 255.0 : floor(prod8 / 8.0) / 31.0;\n"
++    "    }\n"
++    "    modColor = applyDither(modColor);\n"
++    "    if (colorSemiTrans && isSemiTrans) {\n"
++    "        float abr = floor(vAbr + 0.5);\n"
++    "        if (abr < 0.5) {\n"
++    "            FragColor = vec4(modColor * 0.5, 0.5);\n"
++    "        } else if (abr < 2.5) {\n"
++    "            FragColor = vec4(modColor, 0.0);\n" // additive / subtractive
++    "        } else {\n"
++    "            FragColor = vec4(modColor * 0.25, 0.0);\n"
++    "        }\n"
++    "    } else {\n"
++    "        FragColor = vec4(modColor, 1.0);\n"
++    "    }\n"
++    "}\n"};
++
++#endif
+diff --git a/psyz/src/platform/plat_unix.c b/psyz/src/platform/plat_unix.c
+index d635c5f..0c918df 100644
+--- a/psyz/src/platform/plat_unix.c
++++ b/psyz/src/platform/plat_unix.c
+@@ -47,11 +47,19 @@ typedef struct {
+ } DIRENTRY_RESERVED;
+ static DIRENTRY_RESERVED singleton_dir = {0};
+ 
++// PS Vita's newlib dirent has no d_type, only the SceIoStat of the entry
++#if defined(__vita__)
++#include <psp2/io/stat.h>
++#define DIRENT_IS_REGULAR(e) SCE_S_ISREG((e)->d_stat.st_mode)
++#else
++#define DIRENT_IS_REGULAR(e) ((e)->d_type == DT_REG)
++#endif
++
+ static int filter_regular_files(const struct dirent* entry) {
+     if (entry->d_name[0] == '.') {
+         return 0;
+     }
+-    if (entry->d_type != DT_REG) {
++    if (!DIRENT_IS_REGULAR(entry)) {
+         return 0;
+     }
+     return 1;
+@@ -151,7 +159,7 @@ long my_format(char* fs) {
+     }
+     struct dirent* entry;
+     while ((entry = readdir(dir)) != 0) {
+-        if (entry->d_type != DT_REG) {
++        if (!DIRENT_IS_REGULAR(entry)) {
+             continue;
+         }
+         strncpy(path + path_end, entry->d_name, sizeof(path) - path_end - 1);
+@@ -181,7 +189,9 @@ long my_erase(char* path) {
+ #undef ioctl
+ #include <fcntl.h>
+ #include <unistd.h>
++#if !defined(__vita__)
+ #include <sys/ioctl.h>
++#endif
+ int psyz_open(const char* devname, int flag) {
+     int oflag = O_RDONLY;
+     if (flag & FCREAT) {
+@@ -262,4 +272,8 @@ long psyz_read(long fd, void* buf, long n) {
+ int psyz_write(int fd, char* buf, int n) {
+     return (int)write(fd, buf, (size_t)n);
+ }
++#if defined(__vita__)
++long psyz_ioctl(int fd, int com, int arg) { return -1; } // no ioctl on Vita
++#else
+ long psyz_ioctl(int fd, int com, int arg) { return ioctl(fd, com, arg); }
++#endif
+diff --git a/psyz/src/platform/sdl3_audio.c b/psyz/src/platform/sdl3_audio.c
+index 1471d5f..67675c8 100644
+--- a/psyz/src/platform/sdl3_audio.c
++++ b/psyz/src/platform/sdl3_audio.c
+@@ -21,7 +21,22 @@ static void SDLCALL audio_callback(void* userdata, SDL_AudioStream* stream,
+ 
+     int num_frames = additional_amount / (N_CHANNELS * SAMPLE_SIZE);
+     short buf[4096] = {0};
++    // PSYZ_SOFT_PERF=1 (always on on the Vita): log how much of real time
++    // the SPU emulation takes, every 5 s of audio
++    static int perf = -1;
++    static Uint64 spu_time, spu_frames;
++    Uint64 t0 = 0;
++    if (perf < 0) {
++#if defined(__vita__)
++        perf = 1;
++#else
++        perf = SDL_getenv("PSYZ_SOFT_PERF") != NULL;
++#endif
++    }
+     SDL_LockMutex(mutex);
++    if (perf) {
++        t0 = SDL_GetPerformanceCounter();
++    }
+     while (num_frames > 0) {
+         int batch = num_frames;
+         if (batch > 2048)
+@@ -29,6 +44,16 @@ static void SDLCALL audio_callback(void* userdata, SDL_AudioStream* stream,
+         Psyz_SpuPullSamples(buf, batch);
+         SDL_PutAudioStreamData(stream, buf, batch * N_CHANNELS * SAMPLE_SIZE);
+         num_frames -= batch;
++        spu_frames += batch;
++    }
++    if (perf) {
++        spu_time += SDL_GetPerformanceCounter() - t0;
++        if (spu_frames >= 44100 * 5) {
++            double ms = spu_time * 1000.0 / (double)SDL_GetPerformanceFrequency();
++            INFOF("perf: SPU %.1f%% of one core (%.1f ms per 5 s of audio)",
++                  ms / 50.0, ms);
++            spu_time = spu_frames = 0;
++        }
+     }
+     SDL_UnlockMutex(mutex);
+ }
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index 71338f8..4b81d4b 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -6,11 +6,18 @@
+ #include <stdbool.h>
+ #include <stdlib.h>
+ #include <stddef.h>
++#include <string.h>
+ #include <libetc.h>
+ #include "../internal.h"
+ #include <SDL3/SDL.h>
+ #if defined(__EMSCRIPTEN__)
+ #include <GLES3/gl3.h>
++#elif defined(__vita__)
++// PS Vita: vitaGL (OpenGL on sceGxm) owns the display; SDL3 only does input
++// and audio. Shaders are compiled on the console by libshacccg.suprx.
++#include <vitaGL.h>
++#define PSYZ_VITA_SCREEN_W 960
++#define PSYZ_VITA_SCREEN_H 544
+ #elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__APPLE__)
+ #include "glad/glad.h"
+ #else
+@@ -28,6 +35,10 @@
+ #include "sdl3_common.h"
+ #include "sdl3_draw.h"
+ #include "rgb24.h"
++#include "gl_float_shaders.h"
++
++static void SyncNativeVramToScaled(int x, int y, int w, int h);
++static void SyncScaledVramToNative(void);
+ static bool display_rgb24;
+ static GLuint rgb24_texture, rgb24_fbo;
+ static bool rgb24_dirty = true;
+@@ -283,14 +294,65 @@ static GLuint Init_CompileShader(const char* source, GLenum kind) {
+     return shader;
+ }
+ 
++// float-only shaders (gl_float_shaders.h): always on the Vita, else with
++// PSYZ_GL_FLOAT_SHADERS=1 to check them against the integer ones
++static bool float_shaders = false;
++
++static GLuint Init_CompileShaderWith(
++    const char* prologue, const char* source, GLenum kind) {
++    const char* sources[2] = {prologue, source};
++    GLuint shader = glCreateShader(kind);
++    glShaderSource(shader, 2, sources, NULL);
++    glCompileShader(shader);
++
++    int success;
++    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
++    if (!success) {
++        char compilerLog[1024];
++        glGetShaderInfoLog(shader, sizeof(compilerLog), NULL, compilerLog);
++        ERRORF("%s shader compilation failed:\n%s",
++               kind == GL_VERTEX_SHADER ? "vertex" : "fragment", compilerLog);
++    }
++    return shader;
++}
++
+ static GLuint Init_SetupShader() {
+-    GLuint vertShader =
+-        Init_CompileShader(vertex_shader_body, GL_VERTEX_SHADER);
+-    GLuint fragShader =
+-        Init_CompileShader(fragment_shader_body, GL_FRAGMENT_SHADER);
++    GLuint vertShader, fragShader;
++#if defined(__vita__)
++    float_shaders = true;
++#else
++    float_shaders = SDL_getenv("PSYZ_GL_FLOAT_SHADERS") != NULL;
++#endif
++    if (float_shaders) {
++#if defined(__vita__)
++        vertShader = Init_CompileShaderWith(float_prologue_vs_vita,
++                                            float_vertex_shader_body,
++                                            GL_VERTEX_SHADER);
++        fragShader = Init_CompileShaderWith(float_prologue_fs_vita,
++                                            float_fragment_shader_body,
++                                            GL_FRAGMENT_SHADER);
++#else
++        vertShader = Init_CompileShaderWith(float_prologue_vs_core,
++                                            float_vertex_shader_body,
++                                            GL_VERTEX_SHADER);
++        fragShader = Init_CompileShaderWith(float_prologue_fs_core,
++                                            float_fragment_shader_body,
++                                            GL_FRAGMENT_SHADER);
++#endif
++        INFOF("using the float-only PS1 shaders");
++    } else {
++        vertShader = Init_CompileShader(vertex_shader_body, GL_VERTEX_SHADER);
++        fragShader =
++            Init_CompileShader(fragment_shader_body, GL_FRAGMENT_SHADER);
++    }
+     GLuint program = glCreateProgram();
+     glAttachShader(program, vertShader);
+     glAttachShader(program, fragShader);
++    // the float shaders cannot say layout(location); same slots by name
++    glBindAttribLocation(program, 0, "pos");
++    glBindAttribLocation(program, 1, "tex");
++    glBindAttribLocation(program, 2, "color");
++    glBindAttribLocation(program, 3, "twin");
+     glLinkProgram(program);
+ 
+     int success = 0;
+@@ -444,6 +506,25 @@ bool InitPlatform() {
+         return false;
+     }
+ 
++#if defined(__vita__)
++    sdl3_window = SDL_CreateWindow(
++        window_title, PSYZ_VITA_SCREEN_W, PSYZ_VITA_SCREEN_H, 0);
++    if (!sdl3_window) {
++        ERRORF("SDL_CreateWindow: %s", SDL_GetError());
++        return false;
++    }
++    vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, GL_TRUE, GL_FALSE, GL_TRUE);
++    if (!vglInitExtended(0, PSYZ_VITA_SCREEN_W, PSYZ_VITA_SCREEN_H,
++                         8 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE)) {
++        ERRORF("vglInitExtended failed");
++        return false;
++    }
++    vglWaitVblankStart(GL_TRUE);
++    glContext = (SDL_GLContext)1; // vitaGL has no context object; mark it up
++    use_gles = true;
++    INFOF("vitaGL initialized, renderer: %s",
++          (const char*)glGetString(GL_RENDERER));
++#else
+     ResolveGlProfile();
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, glVer_required_major);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, glVer_required_minor);
+@@ -502,6 +583,7 @@ bool InitPlatform() {
+ 
+     INFOF("%s %d.%d initialized", profile_name, glVer_major, glVer_minor);
+     INFOF("renderer: %s", (const char*)glGetString(GL_RENDERER));
++#endif
+     shader_program = Init_SetupShader();
+     if (!shader_program) {
+         ERRORF("failed to compile shaders: %s", SDL_GetError());
+@@ -538,9 +620,9 @@ bool InitPlatform() {
+         return false;
+     }
+ 
+-#if defined(__EMSCRIPTEN__)
+-    // webgl won't let us read a texture we are drawing to. keep a separate
+-    // target
++#if defined(__EMSCRIPTEN__) || defined(__vita__)
++    // webgl (and sceGxm) won't let us read a texture we are drawing to. keep
++    // a separate target
+     if (!CreateScaledVramFbo(1)) {
+         return false;
+     }
+@@ -561,7 +643,12 @@ bool InitPlatform() {
+ }
+ 
+ static bool PlatformBackend_SetDriverVsync(bool enable) {
++#if defined(__vita__)
++    vglWaitVblankStart(enable ? GL_TRUE : GL_FALSE);
++    return enable;
++#else
+     return SDL_GL_SetSwapInterval(enable ? 1 : 0) && enable;
++#endif
+ }
+ 
+ static void UpdateScissor(void);
+@@ -576,7 +663,7 @@ static void BindDrawFbo(void) {
+ }
+ 
+ // mirror a native VRAM region into the scaled draw target
+-static void SyncNativeVramToScaled(int x, int y, int w, int h) {
++static void SyncNativeVramToScaled_impl(int x, int y, int w, int h) {
+     if (!HasSeparateDrawTarget() || w <= 0 || h <= 0) {
+         return;
+     }
+@@ -590,7 +677,7 @@ static void SyncNativeVramToScaled(int x, int y, int w, int h) {
+     glEnable(GL_SCISSOR_TEST);
+ }
+ 
+-static void SyncScaledVramToNative(void) {
++static void SyncScaledVramToNative_impl(void) {
+     if (!HasSeparateDrawTarget()) {
+         return;
+     }
+@@ -677,7 +764,7 @@ static void ApplyPendingInternalRes(void) {
+     }
+     Draw_FlushBuffer(); // render pending prims with the old multiplier
+     bool need_separate_target = n > 1;
+-#if defined(__EMSCRIPTEN__)
++#if defined(__EMSCRIPTEN__) || defined(__vita__)
+     need_separate_target = true;
+ #endif
+     if (need_separate_target && !CreateScaledVramFbo(n)) {
+@@ -729,7 +816,7 @@ static bool PrepareRgb24(void) {
+     return true;
+ }
+ 
+-static void PlatformBackend_Present(void) {
++static void PlatformBackend_Present_impl(void) {
+     if (!sdl3_window && !InitPlatform()) {
+         return;
+     }
+@@ -757,7 +844,12 @@ static void PlatformBackend_Present(void) {
+     }
+ 
+     WndSize win;
++#if defined(__vita__)
++    win.w = PSYZ_VITA_SCREEN_W;
++    win.h = PSYZ_VITA_SCREEN_H;
++#else
+     SDL_GetWindowSizeInPixels(sdl3_window, &win.w, &win.h);
++#endif
+     SDL_Rect dst = FitGameToWindow(game_aspect, win);
+ 
+     glViewport(0, 0, win.w, win.h);
+@@ -793,9 +885,15 @@ static void PlatformBackend_Present(void) {
+     if (overlay_frame_cb) {
+         overlay_frame_cb();
+     }
++#if !defined(__vita__)
+     glFinish(); // fix: black screen on Windows+Nvidia
++#endif
+     finish_time = SDL_GetPerformanceCounter();
++#if defined(__vita__)
++    vglSwapBuffers(GL_FALSE);
++#else
+     SDL_GL_SwapWindow(sdl3_window);
++#endif
+ 
+     BindDrawFbo();
+     glBindTexture(GL_TEXTURE_2D, vram_texture);
+@@ -809,7 +907,11 @@ static void QuitPlatform(void) {
+         overlay_destroy_cb();
+     }
+     if (glContext) {
++#if defined(__vita__)
++        // vitaGL has no shutdown; the system frees it all on exit
++#else
+         SDL_GL_DestroyContext(glContext);
++#endif
+         glContext = NULL;
+     }
+     if (sdl3_window) {
+@@ -1384,7 +1486,7 @@ void Draw_SetOffset(int x, int y) {
+     glUniform2f(uniform_draw_offset, (float)x, (float)y);
+ }
+ 
+-void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
++static void Draw_ClearImage_impl(PS1_RECT* rect, u_char r, u_char g, u_char b) {
+     if (rect->w == 0 || rect->h == 0) {
+         return;
+     }
+@@ -1405,7 +1507,7 @@ void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
+     BindDrawFbo();
+     UpdateScissor();
+ }
+-void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
++static void Draw_LoadImage_impl(PS1_RECT* rect, u_long* p) {
+     if (rect->w == 0 || rect->h == 0) {
+         return;
+     }
+@@ -1426,7 +1528,7 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
+                     GL_RGBA, GL_UNSIGNED_BYTE, buf);
+     SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
+ }
+-void Draw_StoreImage(PS1_RECT* rect, u_long* p) {
++static void Draw_StoreImage_impl(PS1_RECT* rect, u_long* p) {
+     if (rect->w == 0 || rect->h == 0) {
+         return;
+     }
+@@ -1476,7 +1578,7 @@ static bool EnsureScratchFbo(void) {
+     }
+     return ok;
+ }
+-void Draw_MoveImage(PS1_RECT* rect, unsigned int x, unsigned int y) {
++static void Draw_MoveImage_impl(PS1_RECT* rect, unsigned int x, unsigned int y) {
+     if (rect->x == x && rect->y == y) {
+         return;
+     }
+@@ -1578,7 +1680,7 @@ static void DrawIndices(int start, int end) {
+                    (const GLvoid*)((uintptr_t)start * sizeof(unsigned short)));
+ }
+ 
+-void Draw_FlushBuffer(void) {
++static void Draw_FlushBuffer_impl(void) {
+     if (n_vertices == 0) {
+         return;
+     }
+@@ -1588,6 +1690,33 @@ void Draw_FlushBuffer(void) {
+ 
+     glUseProgram(shader_program);
+     glBindVertexArray(VAO);
++#if defined(__vita__)
++    // Rewriting the same buffer object while the GPU may still read it
++    // makes vitaGL wait for the GPU on every flush (about 11 a frame here),
++    // which drew the screen piece by piece. Each flush gets fresh scratch
++    // memory instead (valid for 3 frames) and the buffer objects are just
++    // pointed at it, without a copy or a wait.
++    {
++        size_t vsize = sizeof(Vertex) * (size_t)n_vertices;
++        size_t isize = sizeof(*index_buf) * (size_t)n_indices;
++        void* vmem = vglAllocFromScratch(vsize);
++        void* imem = vglAllocFromScratch(isize);
++        if (vmem && imem) {
++            memcpy(vmem, vertex_buf, vsize);
++            memcpy(imem, index_buf, isize);
++            glBindBuffer(GL_ARRAY_BUFFER, VBO);
++            vglBufferData(GL_ARRAY_BUFFER, vmem);
++            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
++            vglBufferData(GL_ELEMENT_ARRAY_BUFFER, imem);
++        } else {
++            glBindBuffer(GL_ARRAY_BUFFER, VBO);
++            glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)vsize, vertex_buf);
++            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
++            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, (GLsizeiptr)isize,
++                            index_buf);
++        }
++    }
++#else
+     glBindBuffer(GL_ARRAY_BUFFER, VBO);
+     glBufferSubData(
+         GL_ARRAY_BUFFER, 0, (GLsizeiptr)(sizeof(Vertex) * (size_t)n_vertices),
+@@ -1596,6 +1725,7 @@ void Draw_FlushBuffer(void) {
+     glBufferSubData(
+         GL_ELEMENT_ARRAY_BUFFER, 0,
+         (GLsizeiptr)(sizeof(*index_buf) * (size_t)n_indices), index_buf);
++#endif
+     glBindVertexArray(VAO);
+     {
+         const float grid_scale_x = GetDrawGridXScale();
+@@ -1645,3 +1775,85 @@ void Draw_FlushBuffer(void) {
+     }
+     Draw_ResetBuffer();
+ }
++
++// ---- timing (always on the Vita, PSYZ_GL_PERF=1 elsewhere) -----------------
++// Every 120 presents: calls per second and CPU time per second of each VRAM
++// operation. Readbacks (StoreImage) and syncs between the draw target and the
++// sampled VRAM wait for the GPU, so they also show GPU stalls.
++enum {
++    PERF_FLUSH, PERF_CLEAR, PERF_LOAD, PERF_STORE, PERF_MOVE,
++    PERF_SYNC_TO_DRAW, PERF_SYNC_TO_VRAM, PERF_PRESENT, PERF_COUNT
++};
++static const char* const perf_names[PERF_COUNT] = {
++    "flush", "clear", "load", "store", "move", "sync>draw", "sync>vram",
++    "present"};
++static int perf_on = -1;
++static Uint64 perf_ticks[PERF_COUNT];
++static unsigned perf_calls[PERF_COUNT];
++
++static bool PerfOn(void) {
++    if (perf_on < 0) {
++#if defined(__vita__)
++        perf_on = 1;
++#else
++        perf_on = SDL_getenv("PSYZ_GL_PERF") != NULL;
++#endif
++    }
++    return perf_on != 0;
++}
++#define PERF_WRAP(id, call)                                                    \
++    do {                                                                       \
++        if (!PerfOn()) {                                                       \
++            call;                                                              \
++            break;                                                             \
++        }                                                                      \
++        Uint64 t0_ = SDL_GetPerformanceCounter();                              \
++        call;                                                                  \
++        perf_ticks[id] += SDL_GetPerformanceCounter() - t0_;                   \
++        perf_calls[id]++;                                                      \
++    } while (0)
++
++static void SyncNativeVramToScaled(int x, int y, int w, int h) {
++    PERF_WRAP(PERF_SYNC_TO_DRAW, SyncNativeVramToScaled_impl(x, y, w, h));
++}
++static void SyncScaledVramToNative(void) {
++    PERF_WRAP(PERF_SYNC_TO_VRAM, SyncScaledVramToNative_impl());
++}
++void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
++    PERF_WRAP(PERF_CLEAR, Draw_ClearImage_impl(rect, r, g, b));
++}
++void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
++    PERF_WRAP(PERF_LOAD, Draw_LoadImage_impl(rect, p));
++}
++void Draw_StoreImage(PS1_RECT* rect, u_long* p) {
++    PERF_WRAP(PERF_STORE, Draw_StoreImage_impl(rect, p));
++}
++void Draw_MoveImage(PS1_RECT* rect, unsigned int x, unsigned int y) {
++    PERF_WRAP(PERF_MOVE, Draw_MoveImage_impl(rect, x, y));
++}
++void Draw_FlushBuffer(void) { PERF_WRAP(PERF_FLUSH, Draw_FlushBuffer_impl()); }
++
++static void PlatformBackend_Present(void) {
++    static Uint64 last;
++    PERF_WRAP(PERF_PRESENT, PlatformBackend_Present_impl());
++    if (!PerfOn() || perf_calls[PERF_PRESENT] < 120) {
++        return;
++    }
++    Uint64 now = SDL_GetPerformanceCounter();
++    double freq = (double)SDL_GetPerformanceFrequency();
++    if (last != 0) {
++        double span = (double)(now - last) / freq;
++        char line[512];
++        int n = SDL_snprintf(line, sizeof(line), "perf: %.1f presents/s |",
++                             perf_calls[PERF_PRESENT] / span);
++        for (int i = 0; i < PERF_COUNT && n < (int)sizeof(line); i++) {
++            n += SDL_snprintf(line + n, sizeof(line) - n, " %s %.0f/s %.1fms/s",
++                              perf_names[i], perf_calls[i] / span,
++                              perf_ticks[i] * 1000.0 / freq / span);
++        }
++        INFOF("%s", line);
++    }
++    SDL_memset(perf_ticks, 0, sizeof(perf_ticks));
++    SDL_memset(perf_calls, 0, sizeof(perf_calls));
++    last = now;
++}
+diff --git a/psyz/src/platform/sdl3_soft.c b/psyz/src/platform/sdl3_soft.c
+new file mode 100644
+index 0000000..3118942
+--- /dev/null
++++ b/psyz/src/platform/sdl3_soft.c
+@@ -0,0 +1,440 @@
++// Software renderer: the GPU is emulated on the CPU by the rasterizer in
++// sdl3_software.c and the visible part of VRAM is handed to SDL's 2D
++// renderer once per frame, only to be scaled to the window. It needs no
++// OpenGL, no shaders and no SDL_GPU, which makes it the first renderer for
++// targets without them (PS Vita, through SDL3's GXM renderer).
++//
++// Internal resolution is always 1x: the rasterizer draws at the PS1's own
++// resolution, so it looks and behaves like the console.
++#include <psyz.h>
++#include <psyz/overlay.h>
++#include <stdbool.h>
++#include <stdlib.h>
++#include <string.h>
++#include <libetc.h>
++#include "../internal.h"
++#include <SDL3/SDL.h>
++
++#include "sdl3_common.h"
++#include "rasterizer.h"
++#include "rgb24.h"
++
++static const DrawBackend* const raster = &software_rasterizer;
++
++static SDL_Renderer* renderer;
++static SDL_Texture* screen_tex;  // 15-bit display area (PS1 BGR555 layout)
++static SDL_Texture* rgb24_tex;   // 24-bit display area (MDEC movies)
++static int screen_tex_w, screen_tex_h;
++static int rgb24_tex_w, rgb24_tex_h;
++
++static bool display_rgb24;
++static SDL_Point display_area = {0, 0};
++static SDL_Point display_size = {256, 240};
++static SDL_Point draw_area_start = {0, 0};
++static SDL_Point draw_area_end = {VRAM_W - 1, VRAM_H - 1};
++
++// VRAM changed since the picture was last uploaded (a game paced with
++// VSync(3) presents each frame three times; upload it once)
++static bool vram_dirty = true;
++
++// PSYZ_SOFT_PERF=1 (always on on the Vita): every 120 presents log the frame
++// rate and where the time goes, raster = drawing primitives and VRAM
++// transfers, upload = handing the picture to SDL, other = everything else
++// between presents minus the vsync wait (game logic, GTE, ...)
++static bool perf_enabled;
++static Uint64 perf_raster, perf_upload, perf_wait, perf_last;
++static unsigned perf_presents, perf_uploads;
++
++static inline Uint64 PerfNow(void) { return SDL_GetPerformanceCounter(); }
++#define PERF_BEGIN Uint64 perf_t0 = perf_enabled ? PerfNow() : 0
++#define PERF_END(acc) do { if (perf_enabled) acc += PerfNow() - perf_t0; } while (0)
++
++bool InitPlatform() {
++    if (is_platform_initialized) {
++        return is_platform_init_successful;
++    }
++    is_platform_initialized = true;
++
++    if (!SDL_Init(SDL_INIT_VIDEO)) {
++        ERRORF("SDL_Init: %s", SDL_GetError());
++        return false;
++    }
++    sdl3_window = SDL_CreateWindow(
++        window_title, DEFAULT_FRONT_W, DEFAULT_FRONT_H,
++        SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE |
++            SDL_WINDOW_HIGH_PIXEL_DENSITY);
++    if (!sdl3_window) {
++        ERRORF("SDL_CreateWindow: %s", SDL_GetError());
++        return false;
++    }
++    renderer = SDL_CreateRenderer(sdl3_window, NULL);
++    if (!renderer) {
++        ERRORF("SDL_CreateRenderer: %s", SDL_GetError());
++        return false;
++    }
++    INFOF("software renderer, presenting through SDL renderer '%s'",
++          SDL_GetRendererName(renderer));
++
++    SoftwareRasterizer_Reset();
++    Sdl3Common_TimingInit();
++#if defined(__vita__)
++    perf_enabled = true;
++#else
++    perf_enabled = SDL_getenv("PSYZ_SOFT_PERF") != NULL;
++#endif
++    is_platform_init_successful = true;
++    return true;
++}
++
++static bool PlatformBackend_SetDriverVsync(bool enable) {
++    return renderer && SDL_SetRenderVSync(renderer, enable ? 1 : 0) && enable;
++}
++
++// a streaming texture of at least w x h, recreated when the size changes
++static SDL_Texture* EnsureTexture(SDL_Texture** tex, int* tw, int* th,
++                                  SDL_PixelFormat format, int w, int h) {
++    if (*tex && *tw == w && *th == h) {
++        return *tex;
++    }
++    if (*tex) {
++        SDL_DestroyTexture(*tex);
++    }
++    *tex = SDL_CreateTexture(
++        renderer, format, SDL_TEXTUREACCESS_STREAMING, w, h);
++    if (!*tex) {
++        ERRORF("SDL_CreateTexture: %s", SDL_GetError());
++        return NULL;
++    }
++    SDL_SetTextureScaleMode(*tex, SDL_SCALEMODE_NEAREST);
++    *tw = w;
++    *th = h;
++    return *tex;
++}
++
++static SDL_Texture* PrepareScreen(void) {
++    int x = CLAMP(display_area.x, 0, VRAM_W - 1);
++    int y = CLAMP(display_area.y, 0, VRAM_H - 1);
++    int w = CLAMP(display_size.x, 1, VRAM_W - x);
++    int h = CLAMP(display_size.y, 1, VRAM_H - y);
++    const u16* vram = SoftwareRasterizer_GetVram();
++
++    if (display_rgb24) {
++        unsigned char* rgb = AllocRgb24Region(
++            display_area.x, display_area.y, display_size.x, display_size.y);
++        SDL_Texture* tex =
++            EnsureTexture(&rgb24_tex, &rgb24_tex_w, &rgb24_tex_h,
++                          SDL_PIXELFORMAT_RGB24, display_size.x, display_size.y);
++        if (rgb && tex) {
++            SDL_UpdateTexture(tex, NULL, rgb, display_size.x * 3);
++        }
++        free(rgb);
++        return tex;
++    }
++    // PS1 VRAM is R in bits 0-4, G 5-9, B 10-14: SDL's XBGR1555, row pitch
++    // of the whole VRAM, so the display area uploads without a copy
++    SDL_Texture* tex = EnsureTexture(&screen_tex, &screen_tex_w, &screen_tex_h,
++                                     SDL_PIXELFORMAT_XBGR1555, w, h);
++    if (tex) {
++        SDL_UpdateTexture(
++            tex, NULL, vram + (size_t)y * VRAM_W + x, VRAM_W * sizeof(u16));
++    }
++    return tex;
++}
++
++static void PlatformBackend_Present(void) {
++    if (!sdl3_window && !InitPlatform()) {
++        return;
++    }
++    if (Sdl3Common_IsInBackground()) {
++        finish_time = SDL_GetPerformanceCounter();
++        return;
++    }
++    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
++    SDL_RenderClear(renderer);
++    if (disp_on) {
++        SDL_Texture* tex = display_rgb24 ? rgb24_tex : screen_tex;
++        if (vram_dirty || !tex) {
++            PERF_BEGIN;
++            tex = PrepareScreen();
++            vram_dirty = false;
++            perf_uploads++;
++            PERF_END(perf_upload);
++        }
++        WndSize win = {0, 0};
++        SDL_GetRenderOutputSize(renderer, &win.w, &win.h);
++        SDL_Rect dst = FitGameToWindow(
++            GetCurrentGameAspectRatio(display_size.x, display_size.y), win);
++        SDL_FRect fdst = {(float)dst.x, (float)dst.y, (float)dst.w,
++                          (float)dst.h};
++        if (tex) {
++            SDL_RenderTexture(renderer, tex, NULL, &fdst);
++        }
++    }
++    if (overlay_frame_cb) {
++        overlay_frame_cb();
++    }
++    finish_time = SDL_GetPerformanceCounter();
++    {
++        PERF_BEGIN;
++        SDL_RenderPresent(renderer);
++        PERF_END(perf_wait);
++    }
++    if (perf_enabled) {
++        Uint64 now = PerfNow();
++        if (perf_last == 0) {
++            perf_last = now;
++        } else if (++perf_presents == 120) {
++            double f = 1000.0 / (double)SDL_GetPerformanceFrequency();
++            double span = (double)(now - perf_last) * f;
++            double frames = perf_uploads ? perf_uploads : 1;
++            INFOF("perf: %.1f presents/s, %.1f new frames/s | per frame ms: "
++                  "raster %.2f upload %.2f present+vsync %.2f other %.2f",
++                  perf_presents * 1000.0 / span, perf_uploads * 1000.0 / span,
++                  perf_raster * f / frames, perf_upload * f / frames,
++                  perf_wait * f / frames,
++                  (span - (perf_raster + perf_upload + perf_wait) * f) / frames);
++            perf_presents = perf_uploads = 0;
++            perf_raster = perf_upload = perf_wait = 0;
++            perf_last = now;
++        }
++    }
++}
++
++static void QuitPlatform(void) {
++    Sdl3Common_Shutdown();
++    if (overlay_destroy_cb) {
++        overlay_destroy_cb();
++    }
++    if (screen_tex) {
++        SDL_DestroyTexture(screen_tex);
++        screen_tex = NULL;
++    }
++    if (rgb24_tex) {
++        SDL_DestroyTexture(rgb24_tex);
++        rgb24_tex = NULL;
++    }
++    if (renderer) {
++        SDL_DestroyRenderer(renderer);
++        renderer = NULL;
++    }
++    if (sdl3_window) {
++        SDL_DestroyWindow(sdl3_window);
++        sdl3_window = NULL;
++        is_window_visible = false;
++    }
++    SDL_Quit();
++    is_platform_initialized = false;
++    is_platform_init_successful = false;
++}
++
++void ResetPlatform(void) {
++    free(vram_convert_buf);
++    vram_convert_buf = NULL;
++    vram_convert_cap = 0;
++    QuitPlatform();
++}
++
++// ---- video API ------------------------------------------------------------
++
++static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
++    const u16* vram = SoftwareRasterizer_GetVram();
++    unsigned char* out = malloc((size_t)w * h * 3);
++
++    if (!out) {
++        return NULL;
++    }
++    for (int row = 0; row < h; row++) {
++        for (int col = 0; col < w; col++) {
++            int vx = CLAMP(x + col, 0, VRAM_W - 1);
++            int vy = CLAMP(y + row, 0, VRAM_H - 1);
++            u16 c = vram[vy * VRAM_W + vx];
++            unsigned char* p = out + ((size_t)row * w + col) * 3;
++            p[0] = color_5to8(c & 31);
++            p[1] = color_5to8((c >> 5) & 31);
++            p[2] = color_5to8((c >> 10) & 31);
++        }
++    }
++    return out;
++}
++
++unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h) {
++    *w = display_size.x;
++    *h = display_size.y;
++    return display_rgb24
++               ? AllocRgb24Region(display_area.x, display_area.y, *w, *h)
++               : AllocRgb888Region(display_area.x, display_area.y, *w, *h);
++}
++
++unsigned char* Psyz_VideoAllocVramDump(int* w, int* h) {
++    *w = VRAM_W;
++    *h = VRAM_H;
++    return AllocRgb888Region(0, 0, VRAM_W, VRAM_H);
++}
++
++unsigned Psyz_VideoGetInternalResolution(void) { return 1; }
++
++int Psyz_VideoSetInternalResolution(unsigned multiplier) {
++    if (multiplier != 1) {
++        WARNF("the software renderer draws at 1x only");
++        return -1;
++    }
++    return 0;
++}
++
++int Psyz_VideoSetPixelFilter(unsigned block) {
++    if (block) {
++        WARNF("pixel filter needs the sdl3_gl renderer");
++    }
++    return block ? -1 : 0;
++}
++
++unsigned Psyz_VideoGetPixelFilter(void) { return 0; }
++
++// ---- display --------------------------------------------------------------
++
++static void ApplyDisplayPendingChanges(void) {
++    if (!sdl3_window && !InitPlatform()) {
++        return;
++    }
++    if (!is_window_visible) {
++        SetWindowSizeInPixels(DEFAULT_FRONT_W, DEFAULT_FRONT_H);
++        SDL_ShowWindow(sdl3_window);
++        is_window_visible = true;
++    }
++    if (cur_disp_horiz != set_disp_horiz || cur_disp_vert != set_disp_vert) {
++        cur_disp_horiz = set_disp_horiz;
++        cur_disp_vert = set_disp_vert;
++    }
++}
++
++void Draw_Reset() { NOT_IMPLEMENTED; }
++
++void Draw_DisplayEnable(unsigned int on) {
++    disp_on = on;
++    if (on) {
++        ApplyDisplayPendingChanges();
++    }
++}
++
++void Draw_DisplayArea(unsigned int x, unsigned int y) {
++    vram_dirty = true;
++    display_area.x = (int)x;
++    display_area.y = (int)y;
++    ApplyDisplayPendingChanges();
++}
++
++void Draw_DisplayHorizontalRange(unsigned int start, unsigned int end) {
++    set_disp_horiz = (int)(end - start) / 10;
++    ApplyDisplayPendingChanges();
++}
++
++void Draw_DisplayVerticalRange(unsigned int start, int unsigned end) {
++    set_disp_vert = (int)(end - start);
++    ApplyDisplayPendingChanges();
++}
++
++void Draw_SetDisplayMode(DisplayMode* mode) {
++    vram_dirty = true;
++    display_rgb24 = mode->rgb24;
++    if (mode->reversed) {
++        WARNF("reverse mode not supported");
++    }
++    is_pal = mode->pal;
++    if (mode->horizontal_resolution_368) {
++        display_size.x = 368;
++    } else {
++        static const int widths[4] = {256, 320, 512, 640};
++        display_size.x = widths[mode->horizontal_resolution & 3];
++    }
++    display_size.y = mode->vertical_resolution ? 480 : 240;
++    ApplyDisplayPendingChanges();
++
++    double new_target_fps = mode->pal ? VSYNC_PAL : VSYNC_NTSC;
++    if (new_target_fps != target_frame_rate) {
++        UpdateTargetFramerate(new_target_fps);
++    }
++}
++
++// ---- drawing: everything goes to the rasterizer ---------------------------
++
++void Draw_SetTexpageMode(ParamDrawTexpageMode* p) {
++    SetDither((*(u_short*)p & 0x200) ? 1 : 0);
++    raster->texpage_mode(p);
++}
++
++void Draw_SetTextureWindow(unsigned int mask_x, unsigned int mask_y,
++                           unsigned int off_x, unsigned int off_y) {
++    raster->texture_window(mask_x, mask_y, off_x, off_y);
++}
++
++void Draw_SetMask(int bit0, int bit1) { raster->mask(bit0, bit1); }
++
++int Draw_SetHorizontalGrid(unsigned int source, unsigned int target) {
++    return raster->horizontal_grid(source, target);
++}
++
++void Draw_SetAreaStart(int x, int y) {
++    draw_area_start = (SDL_Point){x, y};
++    raster->area_start(x, y);
++}
++
++void Draw_SetAreaEnd(int x, int y) {
++    draw_area_end = (SDL_Point){x, y};
++    raster->area_end(x, y);
++}
++
++void Draw_SetOffset(int x, int y) { raster->offset(x, y); }
++
++void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
++    if (!sdl3_window && !InitPlatform()) {
++        return;
++    }
++    PERF_BEGIN;
++    raster->clear_image(rect, r, g, b);
++    PERF_END(perf_raster);
++    vram_dirty = true;
++}
++
++void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
++    if (!sdl3_window && !InitPlatform()) {
++        return;
++    }
++    PERF_BEGIN;
++    raster->load_image(rect, p);
++    PERF_END(perf_raster);
++    vram_dirty = true;
++}
++
++void Draw_StoreImage(PS1_RECT* rect, u_long* p) {
++    if (!sdl3_window && !InitPlatform()) {
++        return;
++    }
++    raster->store_image(rect, p);
++}
++
++void Draw_MoveImage(PS1_RECT* rect, unsigned int x, unsigned int y) {
++    if (!sdl3_window && !InitPlatform()) {
++        return;
++    }
++    PERF_BEGIN;
++    raster->move_image(rect, x, y);
++    PERF_END(perf_raster);
++    vram_dirty = true;
++}
++
++int Draw_PushPrim(u_long* packets, int max_len) {
++    if (!sdl3_window && !InitPlatform()) {
++        return max_len;
++    }
++    PERF_BEGIN;
++    int n = raster->push_prim(packets, max_len);
++    PERF_END(perf_raster);
++    vram_dirty = true;
++    return n;
++}
++
++void Draw_ResetBuffer(void) { raster->reset_buffer(); }
++
++void Draw_FlushBuffer(void) { raster->flush_buffer(); }
++
++int Draw_ExequeSync() { return raster->exeque_sync(); }

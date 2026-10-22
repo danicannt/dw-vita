@@ -54,7 +54,7 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 | Sound (libsnd/libspu) | PSY-Z, plays on Linux | `SsUtAutoVol` applies the end volume at once (no ramp); i386 SDL needs PulseAudio |
 | Movies (STR, libpress) | works on Linux | streaming in `movie_stream.c`, C MDEC from DW2-PC with STR v3; intro checked |
 | Renderer | PSY-Z SDL_GPU / GL | desktop only; no Vita backend |
-| Vita build | not started | VitaSDK toolchain, PSY-Z Vita platform, `.vpk` |
+| Vita build | builds, untested on hardware | `PSYZ_RENDERER=sdl3_soft` (CPU rasterizer, SDL3 GXM renderer only scales), `dw1.vpk`, data in `ux0:data/dw1/` |
 | Debug aids | done | pad record/replay (`DW1_RECORD`/`DW1_REPLAY`), VRAM dumps (`DW1_DUMP`, `DW1_DUMP_VSYNC`), `DW1_TURBO`, crash stacks |
 | Test batteries | maps, battles, evos | `DW1_WARP`, `DW1_SMOKE=maps|battles|evos` (`port/src/smoke.c`), run in parallel by `tools/smoke.py`; disc read audit `DW1_READLOG` + `tools/check_reads.py` |
 
@@ -143,6 +143,38 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
   `VSync(3)` pacing ran it at 60 fps instead of 20. It now presents once and
   waits n vblanks (except in `PSYZ_VSYNC_LIMITLESS`).
   `patches/psyz/0005-vsync-n-vblanks.patch`.
+
+### PS Vita build
+
+```
+export VITASDK=/usr/local/vitasdk PATH=$VITASDK/bin:$PATH
+cmake -S . -B build/vita -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DPSYZ_RENDERER=sdl3_soft
+cmake --build build/vita        # build/vita/dw1.vpk
+```
+
+GPU renderer (vitaGL; `vdpm install vitaGL`, and `libshacccg.suprx` on the
+device): the same with `-B build/vita-gl -DPSYZ_RENDERER=sdl3_gl`. It uses
+float-only shaders (`gl_float_shaders.h`, the SGX543 has no integer
+arithmetic; `PSYZ_GL_FLOAT_SHADERS=1` tries them on Linux) and copies each
+batch into fresh `vglAllocFromScratch` memory instead of rewriting one VBO,
+as CTR High Octane does. `PSYZ_GL_PERF` / the Vita log print per-call timings.
+All of this is `patches/psyz/0006-vita-soft-and-vitagl-renderers.patch`.
+
+The Linux builds: `BUILD=build/linux32 tools/configure_linux32.sh
+-DPSYZ_RENDERER=sdl3_gpu` (or `sdl3_gl`, `sdl3_soft`). Without the libGL.so
+dev symlink, link the GL one through a shim: `mkdir build/linux32-gl/glshim &&
+ln -s /usr/lib/i386-linux-gnu/libGL.so.1 build/linux32-gl/glshim/libGL.so` and
+`"-DCMAKE_EXE_LINKER_FLAGS=-m32 -Lglshim"` (relative to the build directory,
+so paths with spaces work).
+
+Install `dw1.vpk` with VitaShell, then copy `Digimon World (USA).cue` and
+`.bin` (and `card1.mcd` / `card2.mcd` if any) to `ux0:data/dw1/`. The log goes
+to `ux0:data/dw1/log.txt`. PSY-Z changes: a `VITA` branch in its CMake, the
+`sdl3_soft` renderer (also usable on Linux with `-DPSYZ_RENDERER=sdl3_soft`,
+about 300 fps in turbo on a desktop) and Vita newlib fixes in `plat_unix.c`
+(no `d_type`, no `ioctl`). GCC 15 (VitaSDK) errors on old C the decomp relies
+on; game units turn those back into warnings.
 
 Bugs found so far and their causes: [ERRORES.md](ERRORES.md).
 

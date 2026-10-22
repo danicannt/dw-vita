@@ -79,6 +79,18 @@ function(dw1_game_unit target)
         -fexec-charset=CP932     # the game's strings are Shift-JIS
         -include ${CMAKE_CURRENT_SOURCE_DIR}/port/include/dw1_native.h
         -w)                      # upstream code is warning-heavy; port fixes are reviewed by hand
+    # GCC 14+ (the VitaSDK one is 15) turns these old-C diagnostics into
+    # errors; the decomp relies on them (implicit declarations, int32_t being
+    # long on ARM EABI vs int elsewhere, both 32-bit). Back to warnings.
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14)
+        target_compile_options(${target} PRIVATE
+            -Wno-error=implicit-function-declaration
+            -Wno-error=incompatible-pointer-types
+            -Wno-error=int-conversion
+            -Wno-error=return-mismatch
+            -Wno-error=implicit-int
+            -Wno-error=declaration-missing-parameter-type)
+    endif()
 endfunction()
 
 # port/game: native-only code built like the game units (it uses their headers)
@@ -125,6 +137,44 @@ target_link_options(dw1 PRIVATE -Wl,-T,${DW1_GEN_DIR}/overlays.ld
     -Wl,--wrap=DecDCTReset,--wrap=DecDCTin,--wrap=DecDCTout,--wrap=DecDCToutCallback)
 set_property(TARGET dw1 APPEND PROPERTY LINK_DEPENDS ${DW1_GEN_DIR}/overlays.ld)
 psyz_title(dw1 "Digimon World")
+
+# --- PS Vita package ---------------------------------------------------------
+# cmake -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake gives
+# dw1.vpk: install it with VitaShell and put the disc image and memory cards
+# in ux0:data/dw1/ (see host/main.c). LiveArea art in vita/ is placeholder
+# and holds nothing from the game.
+if(VITA)
+    include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
+    set(DW1_VITA_TITLEID "DGWD00001")
+    set(DW1_VITA_VERSION "00.10")
+    vita_create_self(eboot.bin dw1 UNSAFE)
+    # vita_create_vpk() would do this, but it splits its arguments on spaces
+    # and breaks in a checkout path with one; the same two steps, quoted
+    set(DW1_VITA_SFO ${CMAKE_CURRENT_BINARY_DIR}/dw1_param.sfo)
+    set(DW1_VITA_EBOOT ${CMAKE_CURRENT_BINARY_DIR}/eboot.bin)
+    set(DW1_VITA_VPK ${CMAKE_CURRENT_BINARY_DIR}/dw1.vpk)
+    set(DW1_VITA_PACK_ARGS)
+    set(DW1_VITA_FILES)
+    foreach(f icon0.png livearea/contents/bg.png livearea/contents/startup.png
+              livearea/contents/template.xml)
+        set(src ${CMAKE_CURRENT_SOURCE_DIR}/vita/sce_sys/${f})
+        list(APPEND DW1_VITA_PACK_ARGS -a "${src}=sce_sys/${f}")
+        list(APPEND DW1_VITA_FILES ${src})
+    endforeach()
+    add_custom_command(OUTPUT ${DW1_VITA_SFO}
+        COMMAND ${VITA_MKSFOEX} -s APP_VER=${DW1_VITA_VERSION}
+            -s TITLE_ID=${DW1_VITA_TITLEID} "Digimon World" ${DW1_VITA_SFO}
+        DEPENDS ${DW1_VITA_EBOOT}
+        COMMENT "Generating param.sfo"
+        VERBATIM)
+    add_custom_command(OUTPUT ${DW1_VITA_VPK}
+        COMMAND ${VITA_PACK_VPK} ${DW1_VITA_PACK_ARGS} -s ${DW1_VITA_SFO}
+            -b ${DW1_VITA_EBOOT} ${DW1_VITA_VPK}
+        DEPENDS ${DW1_VITA_SFO} ${DW1_VITA_EBOOT} ${DW1_VITA_FILES}
+        COMMENT "Building dw1.vpk"
+        VERBATIM)
+    add_custom_target(dw1-vpk ALL DEPENDS ${DW1_VITA_VPK})
+endif()
 
 # --- tests -------------------------------------------------------------------
 # Unit tests for port code that can run without the game's disc.
