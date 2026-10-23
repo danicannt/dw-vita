@@ -648,7 +648,13 @@ skipViewpoint:
 					break;
 				}
 				if ((moves[j] != 0xff) && (DIGIMON_DATA[entity->type].moves[moves[j] - 0x2e] == 0x2d)) {
+#ifdef DW1_NATIVE
+					/* level is 0 for the NPC types (Jijimon, Cherrymon, Hagurumon...);
+					 * the PS1's div gives -1 there, so the counter never triggers */
+					if (randomLimit(100) < dw1_div(((DigimonEntity *)entity)->stats.base.speed, DIGIMON_DATA[entity->type].level)) {
+#else
 					if (randomLimit(100) < (((DigimonEntity *)entity)->stats.base.speed / DIGIMON_DATA[entity->type].level)) {
+#endif
 						fighter->queuedAnim = moves[j];
 						fighter->targetId = VS_getFighterSlot(attack.casterId);
 						fighter->moveRange = 1;

@@ -2593,7 +2593,13 @@ void VS__renderPlayerMarker(id)
 	gte_stszotz(&otz);
 	sxy[0] -= (int16_t)(160 - DRAWING_OFFSET_X);
 	sxy[1] -= (int16_t)(120 - DRAWING_OFFSET_Y);
+#ifdef DW1_NATIVE
+	/* otz is 0 for a fighter behind the camera (the GTE clamps SZ3 to 0);
+	 * the PS1's divu gives 0xFFFFFFFF instead of trapping */
+	offset = dw1_divu(VIEWPORT_DISTANCE * (DIGIMON_DATA[entity->type].radius / 2), otz * 4);
+#else
 	offset = VIEWPORT_DISTANCE * (DIGIMON_DATA[entity->type].radius / 2) / (otz * 4);
+#endif
 	sxy[0] += (int16_t)offset;
 
 	prim = (POLY_FT4 *)GsGetWorkBase();

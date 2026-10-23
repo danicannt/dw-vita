@@ -875,10 +875,16 @@ int32_t tickMoveObjectTo(uint8_t objectIndex, uint8_t moveIndex,
                          int8_t steps, int16_t targetX, int16_t targetY)
 {
 	if (MAP_OBJECT_MOVE_TO_DATA[moveIndex] == 0) {
+#ifdef DW1_NATIVE
+		/* steps is a byte of the script; the PS1's div does not trap on 0 */
+		MOVE_OBJECT_DELTA_X[moveIndex] = dw1_div(targetX - MAP_TILE_DATA.objects[objectIndex].x, steps);
+		MOVE_OBJECT_DELTA_Y[moveIndex] = dw1_div(targetY - MAP_TILE_DATA.objects[objectIndex].y, steps);
+#else
 		MOVE_OBJECT_DELTA_X[moveIndex] =
 			(targetX - MAP_TILE_DATA.objects[objectIndex].x) / steps;
 		MOVE_OBJECT_DELTA_Y[moveIndex] =
 			(targetY - MAP_TILE_DATA.objects[objectIndex].y) / steps;
+#endif
 		MAP_OBJECT_MOVE_TO_DATA[moveIndex] = 1;
 	}
 

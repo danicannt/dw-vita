@@ -521,10 +521,17 @@ void renderSprite(GsSPRITE *sprite, int16_t x, int16_t y, int32_t distance,
 {
 	sprite->x = x;
 	sprite->y = y;
+#ifdef DW1_NATIVE
+	/* distance is 0 for a point behind the camera (the GTE clamps SZ3 to
+	 * 0); the PS1's divu gives 0xFFFFFFFF there instead of trapping */
+	sprite->scalex = dw1_divu((uint32_t)(width * VIEWPORT_DISTANCE), (uint32_t)distance);
+	sprite->scaley = dw1_divu((uint32_t)(height * VIEWPORT_DISTANCE), (uint32_t)distance);
+#else
 	sprite->scalex = ((uint32_t)(width * VIEWPORT_DISTANCE) /
 			  (uint32_t)distance);
 	sprite->scaley = ((uint32_t)(height * VIEWPORT_DISTANCE) /
 			  (uint32_t)distance);
+#endif
 #if VERSION_EQUAL_OR_OLDER(JP_TRIAL)
 	GsSortSprite(sprite, ACTIVE_ORDERING_TABLE, distance >> 4);
 #else
@@ -541,12 +548,20 @@ void addFXPrim(POLY_FT4 *prim, int16_t posX, int16_t posY, int16_t width,
 	int32_t scaledWidth;
 	int32_t scaledHeight;
 
+#ifdef DW1_NATIVE
+	/* distance 0 behind the camera, as in renderSprite */
+	scaledWidth = dw1_divu((uint32_t)(width * VIEWPORT_DISTANCE), (uint32_t)distance);
+	posX -= scaledWidth >> 1;
+	scaledHeight = dw1_divu((uint32_t)(height * VIEWPORT_DISTANCE), (uint32_t)distance);
+	posY -= scaledHeight >> 1;
+#else
 	scaledWidth = ((uint32_t)(width * VIEWPORT_DISTANCE) /
 		       (uint32_t)distance);
 	posX -= scaledWidth >> 1;
 	scaledHeight = ((uint32_t)(height * VIEWPORT_DISTANCE) /
 			(uint32_t)distance);
 	posY -= scaledHeight >> 1;
+#endif
 	prim->x0 = posX;
 	prim->y0 = posY;
 	prim->x1 = posX + scaledWidth;

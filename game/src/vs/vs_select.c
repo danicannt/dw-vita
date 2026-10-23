@@ -517,8 +517,15 @@ void VS__tickSelectDigimonPlayer(id)
 		}
 
 		if (POLLED_INPUT & ~POLLED_INPUT_PREVIOUS & 0x2000) {
+#ifdef DW1_NATIVE
+			/* listPageCount is 0 for a card with no Digimon; the PS1's divu leaves
+			 * the dividend */
+			++state->listPage;
+			state->listPage = dw1_modu(state->listPage, state->listPageCount);
+#else
 			++state->listPage;
 			state->listPage %= state->listPageCount;
+#endif
 		}
 
 		if (state->listPage == (state->listPageCount - 1)) {

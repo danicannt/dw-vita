@@ -76,6 +76,11 @@ fuera de rango; casi todos son imposibles en la práctica, estos eran reales:
   12; ahora se pasa el número de animación.
 - Curling (`KAR_setOpponentShot`): sin piedra libre escribía en un puntero
   sin asignar (en PS1, el `$s2` del que llama); ahora se salta el tiro.
+- Renacimiento (`DOOA_renderRebirth`): `rand() % range` con `range` que a
+  veces sale 0. El `div` de MIPS no salta y deja el dividendo como resto
+  (en PS1 daba `rand()`); en PC era SIGFPE. Lo encontró la batería de
+  eventos en GIAS01. En la Vita (ARM) la división por cero da 0 sin cerrar
+  el juego, pero el resultado tampoco era el de PS1.
 
 Baterías después de la auditoría: battles 0-60, 60/60 limpios; events 0-80,
 los mismos crashes de renacimiento que antes (OGRE02, GIAS06A) y GIAS09 pasa
@@ -87,6 +92,76 @@ fallarían con un script mal formado): `_sin`, `getCardAmount`,
 operaciones `*Variable` de la VM de efectos, `selectRandomTargetEntity`,
 `getHighest/LowestScoredMove`, `EVL_tickEvoSequence`, `matrixToEuler`,
 `partnerTickCollision`, `handleRestore`, `scriptCompareValue`, `playBGM`…
+
+## Divisiones por cero (23-10-2026)
+
+El `div`/`divu` del R3000 no salta con divisor 0: el cociente es -1 (1 si el
+dividendo es negativo; 0xFFFFFFFF sin signo) y el resto es el dividendo. En
+el ejecutable y los overlays solo llevan la comprobación `break 7` las
+librerías PsyQ (libsnd, libspu, libgs, `ratan2`); todo el código del juego
+divide sin comprobar. En nativo, x86 genera SIGFPE (el manejador de
+`crash_handler.c` lo emula y registra el sitio) y la libgcc de la Vita
+devuelve INT_MAX/INT_MIN (0 para 0/0) como cociente y 0 como resto, así que
+allí el resultado era distinto aunque no se cerrara el juego. Se repasaron
+las ~310 divisiones y restos con divisor no constante de `game/src`; los
+sitios donde el divisor puede ser 0 usan ahora `dw1_div`/`dw1_divu` y los
+nuevos `dw1_mod`/`dw1_modu` (`port/include/dw1_native.h`) bajo
+`#ifdef DW1_NATIVE`:
+
+- **Proyecciones detrás de la cámara:** el GTE (y PSY-Z) satura SZ3 a 0
+  cuando el punto queda detrás, y estas funciones dividen por la
+  profundidad antes (o en vez) de comprobarla: `renderSprite` y `addFXPrim`
+  (`effect_common.c`; nubes, partículas de entidad, `EFERotateVector`),
+  `renderParticleFX` (`efe.c`), `renderOverworldItem` (`item.c`),
+  `renderFleeBubble` (`btl.c`), `*_renderPoisonBubble` y
+  `*_renderPlayerMarker` (combate, torneo y versus). `*_renderProjectedSprite`
+  comprueba el flag de error del GTE, pero no cubre SZ3 = 1..3 (otz 0).
+- **VM de efectos:** las operaciones `*_divide/moduloInt{8,16,32}Variable`,
+  `*_divideVectorByScalar` y `*_divideVectors` dividen por lo que pase el
+  script. La batería de eventos lo encontró en STIC02
+  (`BTL_divideInt32Variable`). Las de 16 bits dividen por el registro
+  truncado a 16 bits, como el MIPS original. `*_centerTransformOnEntities`
+  divide por el número de entidades en el mapa, que puede ser 0.
+- **Contraataque en combate** (`BTL/STD_tickAttackHits`, `VS_resolveAttack`):
+  `speed / DIGIMON_DATA[type].level`, y el nivel es 0 en los tipos de NPC
+  (Jijimon, Cherrymon, Hagurumon…). Si uno de ellos recibe un golpe con
+  un contraataque aprendido, en PS1 da -1 y no contraataca nunca; en la Vita
+  daba INT_MAX y contraatacaba siempre.
+- **Movimientos de script:** `tickEntityMoveTo`, `tickEntityMoveToAxis` y
+  `tickMoveObjectTo` dividen la distancia por un byte del script, y
+  `renderFadeOut` divide por `frames + 1` (`fadeToWhite` con 0xFFFF).
+- **Distancias 0:** `getClosestTileOffScreen` e `isLinearPathBlocked`
+  (`map.c`) con los dos extremos en la misma casilla (el bucle no se ejecuta,
+  solo cambiaba la excepción en x86); `*_setCameraOrbit` y
+  `*_getFighterDistance` (torneo y versus) con los dos luchadores en el
+  mismo punto.
+- **Selección del versus:** `listPage %= listPageCount` con una tarjeta sin
+  Digimon.
+
+Descartados tras mirarlos (divisor constante, con guarda o imposible con los
+datos del disco): los colores del modo alambre, `lerp`, las interpolaciones
+`*_interpolate*` (comprueban `lo == hi`), `_atan`, `matrixToEuler*`,
+`getDistance`, los fundidos de CLUT y las piezas de DOO2/EVL/ENDI (siempre
+con constantes), `boneCount - 1` (mínimo 3 huesos en `DIGIMON_DATA`),
+`radius >> 1` (radio mínimo 90), las proporciones de radio y altura de EVL,
+`finisherGoal` (3000 - velocidad), los pesos del curling, `DOOA_updateShards`
+(`axisDistance` ya se fuerza a 1), la curva de `DOOA_tickDissolve`,
+`DOOA_tickRebirth` (`level` >= 10), `getRookie/ChampionEvolutionTarget`
+(`statCount` solo sería 0 con un objetivo sin requisitos, y en las rutas de
+evolución solo los hay de bebé a pequeño, que usan otra función), la
+barra de desplazamiento de `renderUIBoxStatic` (solo se dibuja con más
+filas que las visibles), `MONEY / SHOP_ITEM_PRICE` (solo si el coste supera
+el dinero), `steps` del cambio de hora (>= 2), las proyecciones con guarda
+(`murd`, `dooa`, `fish`, `butterfly`, `bubble`), las funciones `__garbage__`
+(no se llaman) y los valores de los ficheros de efectos que no han dado 0
+en las baterías (`numFrames`, `startOffset`, `renderParallelLines`).
+
+Batería de eventos (0-254, 240 mapas), antes y después: desaparecen las 3
+divisiones por cero (`BTL_divideInt32Variable` en TROP02, KODA08 y STIC02).
+Siguen los crashes de antes, de renacimiento y DOOA (`DOOA_updateShards` y
+`GsMapModelingData` en `reincarnatePartner`): 8 antes, 7 después (esta vez
+GIAS09 sale como HANG). Hay 12 HANG en las dos pasadas (ahora pasa
+GCAN04_2 y se añade GIAS09).
 
 ## Arreglados en esta tanda
 

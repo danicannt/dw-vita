@@ -204,9 +204,20 @@ void VS_setCameraOrbit(void)
 		d = 0x1068;
 	}
 	ang = 0x1000 - _atan(diff.vx, diff.vz);
+#ifdef DW1_NATIVE
+	/* dist is 0 when both fighters stand on the same point; the PS1's div
+	 * does not trap */
+	STDVS_CAMERA.translation.vx = b->vx + (int32_t)diff.vx / 2 + dw1_div(d * diff.vz, dist);
+#else
 	STDVS_CAMERA.translation.vx = b->vx + (int32_t)diff.vx / 2 + (d * diff.vz) / dist;
+#endif
 	STDVS_CAMERA.translation.vy = -0x3e8;
+#ifdef DW1_NATIVE
+	/* dist 0: see above */
+	STDVS_CAMERA.translation.vz = b->vz + diff.vz / 2 - dw1_div(d * diff.vx, dist);
+#else
 	STDVS_CAMERA.translation.vz = b->vz + diff.vz / 2 - (d * diff.vx) / dist;
+#endif
 	STDVS_CAMERA.rotation.vx = _atan(d, -0x2bc) + 0x800;
 	STDVS_CAMERA.rotation.vy = ang + 0x800;
 	STDVS_CAMERA.rotation.vz = 0;
@@ -479,7 +490,13 @@ int32_t VS_getFighterDistance(VECTOR *self, VECTOR *other, VECTOR *target)
 
 	toTarget = getDistance(self->vx - target->vx, self->vy - target->vy, self->vz - target->vz);
 	toOther = getDistance(other->vx - self->vx, other->vy - self->vy, other->vz - self->vz);
+#ifdef DW1_NATIVE
+	/* toOther is 0 when both fighters stand on the same point; the PS1's div
+	 * does not trap */
+	return dw1_div(toTarget * 100, toOther);
+#else
 	return (toTarget * 100) / toOther;
+#endif
 }
 
 void VS_updateCameraLerp(int32_t t, int8_t flip)

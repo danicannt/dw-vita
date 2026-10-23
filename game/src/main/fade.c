@@ -130,7 +130,13 @@ void renderFadeOut(void)
 {
 	uint8_t next;
 
+#ifdef DW1_NATIVE
+	/* FADE_DATA is frames + 1 and fadeToWhite takes frames from the script
+	 * (0xffff gives 0); the PS1's div does not trap */
+	next = FADE_PROGRESS += dw1_div(160, FADE_DATA);
+#else
 	next = FADE_PROGRESS += 160 / FADE_DATA;
+#endif
 
 	if (160 < next) {
 		FADE_PROGRESS = next = 160;

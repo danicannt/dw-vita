@@ -2988,8 +2988,15 @@ void getClosestTileOffScreen(int8_t *outX, int8_t *outY, int8_t *targetX,
 
 	if (abs(dx) >= abs(dy)) {
 		acc = dist = abs(dx);
+#ifdef DW1_NATIVE
+		/* dist is 0 when both ends are on the same tile; the PS1's div does
+		 * not trap (the loop below then does not run) */
+		quot = dw1_div(dy, dist);
+		rem = dw1_mod(dy, dist);
+#else
 		quot = dy / dist;
 		rem = dy % dist;
+#endif
 		if (rem < 0) {
 			sign = -1;
 		} else {
@@ -3019,8 +3026,15 @@ void getClosestTileOffScreen(int8_t *outX, int8_t *outY, int8_t *targetX,
 		}
 	} else {
 		acc = dist = abs(dy);
+#ifdef DW1_NATIVE
+		/* dist is 0 when both ends are on the same tile; the PS1's div does
+		 * not trap (the loop below then does not run) */
+		quot = dw1_div(dx, dist);
+		rem = dw1_mod(dx, dist);
+#else
 		quot = dx / dist;
 		rem = dx % dist;
+#endif
 		if (rem < 0) {
 			sign = -1;
 		} else {
@@ -3217,8 +3231,15 @@ int32_t isLinearPathBlocked(int8_t x1, int8_t y1, int8_t x2, int8_t y2)
 
 	if (abs(dx) >= abs(dy)) {
 		acc = dist = abs(dx);
+#ifdef DW1_NATIVE
+		/* dist is 0 when both ends are on the same tile; the PS1's div does
+		 * not trap (the loop below then does not run) */
+		quot = dw1_div(dy, dist);
+		rem = dw1_mod(dy, dist);
+#else
 		quot = dy / dist;
 		rem = dy % dist;
+#endif
 		if (rem < 0) {
 			sign = -1;
 		} else {
@@ -3246,8 +3267,15 @@ int32_t isLinearPathBlocked(int8_t x1, int8_t y1, int8_t x2, int8_t y2)
 		}
 	} else {
 		acc = dist = abs(dy);
+#ifdef DW1_NATIVE
+		/* dist is 0 when both ends are on the same tile; the PS1's div does
+		 * not trap (the loop below then does not run) */
+		quot = dw1_div(dx, dist);
+		rem = dw1_mod(dx, dist);
+#else
 		quot = dx / dist;
 		rem = dx % dist;
+#endif
 		if (rem < 0) {
 			sign = -1;
 		} else {

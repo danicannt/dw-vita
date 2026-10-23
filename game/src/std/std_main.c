@@ -2255,9 +2255,20 @@ void STD_setCameraOrbit(void)
 		d = 0x1068;
 	}
 	ang = 0x1000 - _atan(diff.vx, diff.vz);
+#ifdef DW1_NATIVE
+	/* dist is 0 when both fighters stand on the same point; the PS1's div
+	 * does not trap */
+	STDVS_CAMERA.translation.vx = b->vx + (int32_t)diff.vx / 2 + dw1_div(d * diff.vz, dist);
+#else
 	STDVS_CAMERA.translation.vx = b->vx + (int32_t)diff.vx / 2 + (d * diff.vz) / dist;
+#endif
 	STDVS_CAMERA.translation.vy = -0x3e8;
+#ifdef DW1_NATIVE
+	/* dist 0: see above */
+	STDVS_CAMERA.translation.vz = b->vz + diff.vz / 2 - dw1_div(d * diff.vx, dist);
+#else
 	STDVS_CAMERA.translation.vz = b->vz + diff.vz / 2 - (d * diff.vx) / dist;
+#endif
 	STDVS_CAMERA.rotation.vx = _atan(d, -0x2bc) + 0x800;
 	STDVS_CAMERA.rotation.vy = ang + 0x800;
 	STDVS_CAMERA.rotation.vz = 0;
@@ -2551,7 +2562,13 @@ int32_t STD_getFighterDistance(VECTOR *self, VECTOR *other, VECTOR *target)
 
 	toTarget = getDistance(self->vx - target->vx, self->vy - target->vy, self->vz - target->vz);
 	toOther = getDistance(other->vx - self->vx, other->vy - self->vy, other->vz - self->vz);
+#ifdef DW1_NATIVE
+	/* toOther is 0 when both fighters stand on the same point; the PS1's div
+	 * does not trap */
+	return dw1_div(toTarget * 100, toOther);
+#else
 	return (toTarget * 100) / toOther;
+#endif
 }
 
 void STD_setViewpointFromBone(Entity *entity, SVECTOR *offset, SVECTOR *rot, int32_t dist)
@@ -5708,7 +5725,13 @@ void STD_renderPlayerMarker(int16_t id)
 	gte_stszotz(&otz);
 	sxy.vx -= (int16_t)(160 - DRAWING_OFFSET_X);
 	sxy.vy -= (int16_t)(120 - DRAWING_OFFSET_Y);
+#ifdef DW1_NATIVE
+	/* otz is 0 for a fighter behind the camera (the GTE clamps SZ3 to 0);
+	 * the PS1's divu gives 0xFFFFFFFF instead of trapping */
+	offset = dw1_divu(VIEWPORT_DISTANCE * (DIGIMON_DATA[entity->type].radius / 2), otz * 4);
+#else
 	offset = VIEWPORT_DISTANCE * (DIGIMON_DATA[entity->type].radius / 2) / (otz * 4);
+#endif
 	sxy.vx += (int16_t)offset;
 
 	prim = (POLY_FT4 *)GsGetWorkBase();
@@ -5814,7 +5837,13 @@ skipViewpoint:
 					break;
 				}
 				if ((moves[j] != 0xff) && (DIGIMON_DATA[entity->type].moves[moves[j] - 0x2e] == 0x2d)) {
+#ifdef DW1_NATIVE
+					/* level is 0 for the NPC types (Jijimon, Cherrymon, Hagurumon...);
+					 * the PS1's div gives -1 there, so the counter never triggers */
+					if (randomLimit(100) < dw1_div(((DigimonEntity *)entity)->stats.base.speed, DIGIMON_DATA[entity->type].level)) {
+#else
 					if (randomLimit(100) < (((DigimonEntity *)entity)->stats.base.speed / DIGIMON_DATA[entity->type].level)) {
+#endif
 						fighter->queuedAnim = moves[j];
 						fighter->targetId = STD_getFighterSlot(attack.casterId);
 						fighter->moveRange = 1;

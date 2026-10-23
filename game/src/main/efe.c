@@ -575,7 +575,13 @@ void renderParticleFX(int32_t id)
 			flash.color.g = fx->g;
 			flash.color.b = fx->b;
 			flash.colorScale = 0x80;
+#ifdef DW1_NATIVE
+			/* depth is 0 for a point behind the camera (the GTE clamps SZ3 to 0);
+			 * the PS1's div does not trap (divu: 0xFFFFFFFF) */
+			flash.scale = dw1_divu((uint32_t)(fx->spread[3][i] * (VIEWPORT_DISTANCE * 8)), (uint32_t)depth);
+#else
 			flash.scale = (uint32_t)(fx->spread[3][i] * (VIEWPORT_DISTANCE * 8)) / (uint32_t)depth;
+#endif
 			flash.depth = depth >> 4;
 			if ((flash.depth > 0x20) && (flash.depth < 0x1000)) {
 				renderParticleFlash(&flash);

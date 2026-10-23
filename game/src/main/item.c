@@ -2484,7 +2484,13 @@ void renderOverworldItem(WorldItem *item)
 	gte_rtps();
 	gte_stsxy(&screen);
 	gte_stszotz(&otz);
+#ifdef DW1_NATIVE
+	/* otz is 0 for an item behind the camera (the GTE clamps SZ3 to 0);
+	 * the PS1's divu gives 0xFFFFFFFF instead of trapping */
+	width = dw1_divu((uint32_t)(VIEWPORT_DISTANCE << 7), (uint32_t)(int32_t)(otz * 4));
+#else
 	width = (uint32_t)(VIEWPORT_DISTANCE << 7) / (uint32_t)(int32_t)(otz * 4);
+#endif
 	otz = otz >> 2;
 	if ((0 < otz) && (otz < 0x1000)) {
 		prim = (POLY_FT4 *)GsGetWorkBase();

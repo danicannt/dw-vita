@@ -2654,9 +2654,16 @@ void VS_divideVectorByScalar(void)
 
 	k = EFE_POP1(int32_t);
 	v = EFE_POP1(EfeVector *);
+#ifdef DW1_NATIVE
+	/* k comes from the effect script; the PS1's div does not trap */
+	v->vx = dw1_div(v->vx, k);
+	v->vy = dw1_div(v->vy, k);
+	v->vz = dw1_div(v->vz, k);
+#else
 	v->vx /= k;
 	v->vy /= k;
 	v->vz /= k;
+#endif
 }
 
 void VS_multiplyVectorByScalar(void)
@@ -3196,9 +3203,17 @@ void VS_centerTransformOnEntities(void)
 		sum->position.vz = sum->position.vz + m->t[2];
 	}
 
+#ifdef DW1_NATIVE
+	/* count is 0 when no other entity is on the map; the PS1's div does not
+	 * trap and gives -1 (1 for a negative sum) */
+	sum->position.vx = dw1_div(sum->position.vx, count);
+	sum->position.vy = dw1_div(sum->position.vy, count);
+	sum->position.vz = dw1_div(sum->position.vz, count);
+#else
 	sum->position.vx /= count;
 	sum->position.vy /= count;
 	sum->position.vz /= count;
+#endif
 }
 
 void VS_shiftVectorsRight(void)
@@ -3232,9 +3247,17 @@ void VS_divideVectors(void)
 
 	b = EFE_POP1(EfeVector *);
 	a = EFE_POP1(EfeVector *);
+#ifdef DW1_NATIVE
+	/* b comes from the effect script and can have a 0 component; the
+	 * PS1's div does not trap */
+	a->vx = dw1_div(a->vx, b->vx);
+	a->vy = dw1_div(a->vy, b->vy);
+	a->vz = dw1_div(a->vz, b->vz);
+#else
 	a->vx /= b->vx;
 	a->vy /= b->vy;
 	a->vz /= b->vz;
+#endif
 }
 
 void VS_multiplyVectors(void)
@@ -3912,8 +3935,15 @@ void VS_renderProjectedSprite(void)
 	EFE_SPRITE_SCRATCH->otz = RotTransPers(&EFE_SPRITE_SCRATCH->point, &EFE_SPRITE_SCRATCH->sxy, &EFE_SPRITE_SCRATCH->p, &EFE_SPRITE_SCRATCH->flag);
 	if ((EFE_SPRITE_SCRATCH->flag & 0x80000000) == 0) {
 		*(int32_t *)&EFE_SPRITE_SCRATCH->sprite.x = EFE_SPRITE_SCRATCH->sxy;
+#ifdef DW1_NATIVE
+		/* the error flag does not cover SZ3 = 1..3, which gives otz 0;
+		 * the PS1's divu gives 0xFFFFFFFF there */
+		EFE_SPRITE_SCRATCH->sprite.scalex = dw1_divu((uint32_t)(EFE_SPRITE_SCRATCH->sprite.scalex * VIEWPORT_DISTANCE) << 5, (uint32_t)EFE_SPRITE_SCRATCH->otz);
+		EFE_SPRITE_SCRATCH->sprite.scaley = dw1_divu((uint32_t)(EFE_SPRITE_SCRATCH->sprite.scaley * VIEWPORT_DISTANCE) << 5, (uint32_t)EFE_SPRITE_SCRATCH->otz);
+#else
 		EFE_SPRITE_SCRATCH->sprite.scalex = ((uint32_t)(EFE_SPRITE_SCRATCH->sprite.scalex * VIEWPORT_DISTANCE) << 5) / (uint32_t)EFE_SPRITE_SCRATCH->otz;
 		EFE_SPRITE_SCRATCH->sprite.scaley = ((uint32_t)(EFE_SPRITE_SCRATCH->sprite.scaley * VIEWPORT_DISTANCE) << 5) / (uint32_t)EFE_SPRITE_SCRATCH->otz;
+#endif
 		EFE_SPRITE_SCRATCH->otz = (EFE_SPRITE_SCRATCH->otz - 0xa) >> 2;
 		if (EFE_SPRITE_SCRATCH->otz >= 0x20 && EFE_SPRITE_SCRATCH->otz < 0x1000) {
 			GsSortSprite(&EFE_SPRITE_SCRATCH->sprite, ACTIVE_ORDERING_TABLE, (uint16_t)EFE_SPRITE_SCRATCH->otz);
@@ -4792,12 +4822,24 @@ int32_t VS_shiftLeftInt32Variable(int32_t p)
 
 int32_t VS_moduloInt32Variable(int32_t p)
 {
+#ifdef DW1_NATIVE
+	/* the effect script can pass 0 (seen in STIC02); the PS1's div does not
+	 * trap and gives the dividend */
+	*(int32_t *)p = dw1_mod(*(int32_t *)p, EFE_SCRIPT_REGISTER);
+#else
 	*(int32_t *)p %= EFE_SCRIPT_REGISTER;
+#endif
 }
 
 int32_t VS_divideInt32Variable(int32_t p)
 {
+#ifdef DW1_NATIVE
+	/* the effect script can pass 0 (seen in STIC02); the PS1's div does not
+	 * trap and gives -1 (1 for a negative dividend) */
+	*(int32_t *)p = dw1_div(*(int32_t *)p, EFE_SCRIPT_REGISTER);
+#else
 	*(int32_t *)p /= EFE_SCRIPT_REGISTER;
+#endif
 }
 
 int32_t VS_multiplyInt32Variable(int32_t p)
@@ -4832,12 +4874,24 @@ int32_t VS_shiftLeftInt8Variable(int32_t p)
 
 int32_t VS_moduloInt8Variable(int32_t p)
 {
+#ifdef DW1_NATIVE
+	/* the effect script can pass 0 (seen in STIC02); the PS1's div does not
+	 * trap and gives the dividend */
+	*(int8_t *)p = dw1_mod(*(int8_t *)p, EFE_SCRIPT_REGISTER);
+#else
 	*(int8_t *)p %= EFE_SCRIPT_REGISTER;
+#endif
 }
 
 int32_t VS_divideInt8Variable(int32_t p)
 {
+#ifdef DW1_NATIVE
+	/* the effect script can pass 0 (seen in STIC02); the PS1's div does not
+	 * trap and gives -1 (1 for a negative dividend) */
+	*(int8_t *)p = dw1_div(*(int8_t *)p, EFE_SCRIPT_REGISTER);
+#else
 	*(int8_t *)p /= EFE_SCRIPT_REGISTER;
+#endif
 }
 
 int32_t VS_multiplyInt8Variable(int32_t p)
@@ -4872,12 +4926,26 @@ int32_t VS_shiftLeftInt16Variable(int32_t p)
 
 int32_t VS_moduloInt16Variable(int32_t p)
 {
+#ifdef DW1_NATIVE
+	/* the effect script can pass 0 (seen in STIC02); the PS1's div does not
+	 * trap and gives the dividend.
+	 * The original divides by the register truncated to 16 bits */
+	*(int16_t *)p = dw1_mod(*(int16_t *)p, (int16_t)EFE_SCRIPT_REGISTER);
+#else
 	*(int16_t *)p %= EFE_SCRIPT_REGISTER;
+#endif
 }
 
 int32_t VS_divideInt16Variable(int32_t p)
 {
+#ifdef DW1_NATIVE
+	/* the effect script can pass 0 (seen in STIC02); the PS1's div does not
+	 * trap and gives -1 (1 for a negative dividend).
+	 * The original divides by the register truncated to 16 bits */
+	*(int16_t *)p = dw1_div(*(int16_t *)p, (int16_t)EFE_SCRIPT_REGISTER);
+#else
 	*(int16_t *)p /= EFE_SCRIPT_REGISTER;
+#endif
 }
 
 int32_t VS_multiplyInt16Variable(int32_t p)
@@ -5234,7 +5302,13 @@ void VS_renderPoisonBubble(int32_t i)
 	otz = worldPosToScreenPos(&pos, &screen);
 	angle = lerp(0, 0x500, 0, 0x28, frame);
 	d = _sin(angle) * 0x14 / 4096;
+#ifdef DW1_NATIVE
+	/* otz is 0 behind the camera and the range check comes after the
+	 * division; the PS1's div does not trap */
+	screen.vx += (int16_t)dw1_div(d * (int32_t)VIEWPORT_DISTANCE, otz);
+#else
 	screen.vx += (int16_t)(d * (int32_t)VIEWPORT_DISTANCE / otz);
+#endif
 	if ((otz > 0x200) && (otz < 0x10000)) {
 		VS_POISON_BUBBLE_SPRITE.u = VS_POISON_BUBBLE_FRAME_U[(frame >> 1) % 6] + 0x20;
 		renderSprite(&VS_POISON_BUBBLE_SPRITE, screen.vx, screen.vy, otz, 0x4ea4, 0x4ea4);

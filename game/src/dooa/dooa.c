@@ -1196,7 +1196,14 @@ void DOOA_renderRebirth(int32_t instanceId)
 			int32_t range;
 
 			range = customRandom(-170, 1024);
+#ifdef DW1_NATIVE
+			/* range can be 0 (about one call in 1200). The MIPS div does
+			 * not trap and leaves the dividend as the remainder, so on the
+			 * PS1 this gave rand(); on x86 it was SIGFPE */
+			rot.vx = range != 0 ? rand() % range : rand();
+#else
 			rot.vx = rand() % range;
+#endif
 			rot.vy = rand();
 			rot.vz = 0;
 			pos.vx = panel->entity->posData->location.vx;

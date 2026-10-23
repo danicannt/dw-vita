@@ -45,7 +45,8 @@ void dw1_disc_set_path(const char *cue);
  * DW1 was built without zero-division checks and relies on what the R3000
  * gives: quotient -1 (1 for a negative dividend, all ones unsigned) and the
  * dividend as remainder; INT_MIN / -1 stays INT_MIN. x86 traps and ARM returns
- * 0, so sites that divide by zero use these (crash_handler.c logs new ones). */
+ * 0, so sites that divide by zero use these (crash_handler.c logs new ones).
+ * The Vita's libgcc gives INT_MAX / INT_MIN (0 for 0 / 0) and remainder 0. */
 static inline int dw1_div(int a, int b)
 {
     if (b == 0)
@@ -57,6 +58,18 @@ static inline int dw1_div(int a, int b)
 static inline unsigned int dw1_divu(unsigned int a, unsigned int b)
 {
     return b == 0 ? 0xFFFFFFFFu : a / b;
+}
+static inline int dw1_mod(int a, int b)
+{
+    if (b == 0)
+        return a;
+    if (b == -1)
+        return 0;
+    return a % b;
+}
+static inline unsigned int dw1_modu(unsigned int a, unsigned int b)
+{
+    return b == 0 ? a : a % b;
 }
 
 /* ---- crashes ---------------------------------------------------------------

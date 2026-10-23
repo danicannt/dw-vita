@@ -534,7 +534,13 @@ void renderFleeBubble(int32_t instanceId)
 	}
 
 	depth = worldPosToScreenPos(&pos, &screen);
+#ifdef DW1_NATIVE
+	/* depth is 0 for a point behind the camera (the GTE clamps SZ3 to 0);
+	 * the PS1's div does not trap (divu: 0xFFFFFFFF) */
+	sc = dw1_divu((uint32_t)(VIEWPORT_DISTANCE * 144), (uint32_t)depth);
+#else
 	sc = (uint32_t)(VIEWPORT_DISTANCE * 144) / (uint32_t)depth;
+#endif
 	if (FLEE_BUBBLE_DATA[instanceId - 2].frame < 5) {
 		sc = sc * (FLEE_BUBBLE_DATA[instanceId - 2].frame + 1) / 5;
 	} else {
