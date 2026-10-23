@@ -94,6 +94,12 @@ int16_t instanceId;
 	return 1;
 }
 
+#ifdef DW1_NATIVE
+/* the slot tickObjects is running: on the PS1 its loop index stayed in $s1
+ * and handlePraiseScold reads it as an uninitialised local, see there */
+int32_t DW1_TICK_SLOT;
+#endif
+
 void tickObjects(void)
 {
 	int32_t i;
@@ -101,6 +107,9 @@ void tickObjects(void)
 	for (i = 0; i < NUM_WORLD_OBJECTS; ++i) {
 		if ((WORLD_OBJECTS[i].objectId != -1) &&
 		    (WORLD_OBJECTS[i].tick != NULL)) {
+#ifdef DW1_NATIVE
+			DW1_TICK_SLOT = i;
+#endif
 			WORLD_OBJECTS[i].tick(WORLD_OBJECTS[i].instanceId);
 		}
 	}

@@ -667,6 +667,13 @@ int32_t drawString2(uint8_t *str, int16_t x, int16_t y, int32_t flag)
 	uint16_t glyph;
 
 	pos = 0;
+#if VERSION_IS(US) && defined(DW1_NATIVE)
+	/* a full-width space (0x4081) advances by adv without setting it, i.e.
+	 * by the previous glyph's width; at the start of a string that was
+	 * whatever the caller left in $s6 on the PS1 and garbage natively. A
+	 * full glyph width stands in for it. */
+	adv = 0xc;
+#endif
 	for (;;) {
 		ch = *str++;
 		switch (ch) {

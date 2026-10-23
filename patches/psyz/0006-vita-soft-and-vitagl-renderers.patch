@@ -1,5 +1,5 @@
 diff --git a/psyz/CMakeLists.txt b/psyz/CMakeLists.txt
-index f728e40..1d410fd 100644
+index f728e40..0347a48 100644
 --- a/psyz/CMakeLists.txt
 +++ b/psyz/CMakeLists.txt
 @@ -205,10 +205,10 @@ else()
@@ -17,7 +17,7 @@ index f728e40..1d410fd 100644
  endif()
  message(STATUS "Using the ${PSYZ_RENDERER} rendering backend")
  
-@@ -289,6 +289,27 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+@@ -289,6 +289,31 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
          message(FATAL_ERROR "UIKit framework not found for iOS target")
      endif()
      list(APPEND PSYZ_LIBS ${PSYZ_UIKIT_FRAMEWORK})
@@ -36,7 +36,11 @@ index f728e40..1d410fd 100644
 +        # GPU renderer through vitaGL (float-only shaders, see
 +        # gl_float_shaders.h); needs libshacccg.suprx on the console
 +        list(APPEND PSYZ_SOURCES src/platform/sdl3_gl.c)
-+        list(APPEND PSYZ_LIBS vitaGL vitashark SceShaccCgExt taihen_stub mathneon
++        # a vitaGL built with other options (tools/build_vitagl.sh in DW1)
++        # instead of the vdpm one
++        set(PSYZ_VITAGL_LIB "vitaGL" CACHE STRING "vitaGL library to link")
++        message(STATUS "PS Vita: vitaGL from ${PSYZ_VITAGL_LIB}")
++        list(APPEND PSYZ_LIBS ${PSYZ_VITAGL_LIB} vitashark SceShaccCgExt taihen_stub mathneon
 +            SceShaccCg_stub SceKernelDmacMgr_stub SceGxm_stub SceDisplay_stub
 +            SceAppMgr_stub SceCommonDialog_stub SceIme_stub SceSysmodule_stub
 +            SceLibKernel_stub SceRazorCapture_stub_weak stdc++)  # vitaGL has C++ inside
@@ -45,7 +49,7 @@ index f728e40..1d410fd 100644
  elseif(PSP)
      # The pspdev toolchain provides the SDK include/link paths; the GE, the
      # display, the controller and the audio channel are driven directly, so
-@@ -322,12 +343,15 @@ else()
+@@ -322,12 +347,15 @@ else()
      if(PSYZ_RENDERER STREQUAL "sdl3_gl")
          list(APPEND PSYZ_SOURCES src/platform/sdl3_gl.c)
          list(APPEND PSYZ_LIBS -lGL)
@@ -348,7 +352,7 @@ index 1471d5f..67675c8 100644
      SDL_UnlockMutex(mutex);
  }
 diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
-index 71338f8..4b81d4b 100644
+index 71338f8..9d6bfc8 100644
 --- a/psyz/src/platform/sdl3_gl.c
 +++ b/psyz/src/platform/sdl3_gl.c
 @@ -6,11 +6,18 @@
@@ -451,7 +455,7 @@ index 71338f8..4b81d4b 100644
      glLinkProgram(program);
  
      int success = 0;
-@@ -444,6 +506,25 @@ bool InitPlatform() {
+@@ -444,6 +506,27 @@ bool InitPlatform() {
          return false;
      }
  
@@ -463,10 +467,12 @@ index 71338f8..4b81d4b 100644
 +        return false;
 +    }
 +    vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, GL_TRUE, GL_FALSE, GL_TRUE);
-+    if (!vglInitExtended(0, PSYZ_VITA_SCREEN_W, PSYZ_VITA_SCREEN_H,
-+                         8 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE)) {
-+        ERRORF("vglInitExtended failed");
-+        return false;
++    // the result is not success: vitaGL returns GL_TRUE only when it had to
++    // fall back to a smaller resolution (and GL_FALSE on a normal init), so
++    // it is ignored as CTR High Octane does
++    if (vglInitExtended(0, PSYZ_VITA_SCREEN_W, PSYZ_VITA_SCREEN_H,
++                        8 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE)) {
++        WARNF("vitaGL fell back to a smaller resolution");
 +    }
 +    vglWaitVblankStart(GL_TRUE);
 +    glContext = (SDL_GLContext)1; // vitaGL has no context object; mark it up
@@ -477,7 +483,7 @@ index 71338f8..4b81d4b 100644
      ResolveGlProfile();
      SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, glVer_required_major);
      SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, glVer_required_minor);
-@@ -502,6 +583,7 @@ bool InitPlatform() {
+@@ -502,6 +585,7 @@ bool InitPlatform() {
  
      INFOF("%s %d.%d initialized", profile_name, glVer_major, glVer_minor);
      INFOF("renderer: %s", (const char*)glGetString(GL_RENDERER));
@@ -485,7 +491,7 @@ index 71338f8..4b81d4b 100644
      shader_program = Init_SetupShader();
      if (!shader_program) {
          ERRORF("failed to compile shaders: %s", SDL_GetError());
-@@ -538,9 +620,9 @@ bool InitPlatform() {
+@@ -538,9 +622,9 @@ bool InitPlatform() {
          return false;
      }
  
@@ -498,7 +504,7 @@ index 71338f8..4b81d4b 100644
      if (!CreateScaledVramFbo(1)) {
          return false;
      }
-@@ -561,7 +643,12 @@ bool InitPlatform() {
+@@ -561,7 +645,12 @@ bool InitPlatform() {
  }
  
  static bool PlatformBackend_SetDriverVsync(bool enable) {
@@ -511,7 +517,7 @@ index 71338f8..4b81d4b 100644
  }
  
  static void UpdateScissor(void);
-@@ -576,7 +663,7 @@ static void BindDrawFbo(void) {
+@@ -576,7 +665,7 @@ static void BindDrawFbo(void) {
  }
  
  // mirror a native VRAM region into the scaled draw target
@@ -520,7 +526,7 @@ index 71338f8..4b81d4b 100644
      if (!HasSeparateDrawTarget() || w <= 0 || h <= 0) {
          return;
      }
-@@ -590,7 +677,7 @@ static void SyncNativeVramToScaled(int x, int y, int w, int h) {
+@@ -590,7 +679,7 @@ static void SyncNativeVramToScaled(int x, int y, int w, int h) {
      glEnable(GL_SCISSOR_TEST);
  }
  
@@ -529,7 +535,7 @@ index 71338f8..4b81d4b 100644
      if (!HasSeparateDrawTarget()) {
          return;
      }
-@@ -677,7 +764,7 @@ static void ApplyPendingInternalRes(void) {
+@@ -677,7 +766,7 @@ static void ApplyPendingInternalRes(void) {
      }
      Draw_FlushBuffer(); // render pending prims with the old multiplier
      bool need_separate_target = n > 1;
@@ -538,16 +544,18 @@ index 71338f8..4b81d4b 100644
      need_separate_target = true;
  #endif
      if (need_separate_target && !CreateScaledVramFbo(n)) {
-@@ -729,7 +816,7 @@ static bool PrepareRgb24(void) {
+@@ -729,8 +818,8 @@ static bool PrepareRgb24(void) {
      return true;
  }
  
 -static void PlatformBackend_Present(void) {
+-    if (!sdl3_window && !InitPlatform()) {
 +static void PlatformBackend_Present_impl(void) {
-     if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
          return;
      }
-@@ -757,7 +844,12 @@ static void PlatformBackend_Present(void) {
+     ApplyPendingInternalRes();
+@@ -757,7 +846,12 @@ static void PlatformBackend_Present(void) {
      }
  
      WndSize win;
@@ -560,7 +568,7 @@ index 71338f8..4b81d4b 100644
      SDL_Rect dst = FitGameToWindow(game_aspect, win);
  
      glViewport(0, 0, win.w, win.h);
-@@ -793,9 +885,15 @@ static void PlatformBackend_Present(void) {
+@@ -793,9 +887,15 @@ static void PlatformBackend_Present(void) {
      if (overlay_frame_cb) {
          overlay_frame_cb();
      }
@@ -576,7 +584,7 @@ index 71338f8..4b81d4b 100644
  
      BindDrawFbo();
      glBindTexture(GL_TEXTURE_2D, vram_texture);
-@@ -809,7 +907,11 @@ static void QuitPlatform(void) {
+@@ -809,7 +909,11 @@ static void QuitPlatform(void) {
          overlay_destroy_cb();
      }
      if (glContext) {
@@ -588,7 +596,32 @@ index 71338f8..4b81d4b 100644
          glContext = NULL;
      }
      if (sdl3_window) {
-@@ -1384,7 +1486,7 @@ void Draw_SetOffset(int x, int y) {
+@@ -945,7 +1049,7 @@ static void UpdateScissor(void) {
+         return;
+     }
+ 
+-    if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
+         return;
+     }
+     Draw_FlushBuffer();
+@@ -960,7 +1064,7 @@ static void UpdateScissor(void) {
+         (SDL_Rect){draw_area_start.x, draw_area_start.y, width, height};
+ }
+ static void ApplyDisplayPendingChanges() {
+-    if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
+         return;
+     }
+     ApplyPendingInternalRes();
+@@ -1378,17 +1482,17 @@ void Draw_SetOffset(int x, int y) {
+     // drawing area instead of 3 lines up (DW1 draws buffer 0 at y offset -3)
+     draw_offset.x = x;
+     draw_offset.y = y;
+-    if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
+         return;
+     }
      glUniform2f(uniform_draw_offset, (float)x, (float)y);
  }
  
@@ -597,17 +630,136 @@ index 71338f8..4b81d4b 100644
      if (rect->w == 0 || rect->h == 0) {
          return;
      }
-@@ -1405,7 +1507,7 @@ void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
+-    if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
+         return;
+     }
+     MarkRgb24Dirty(rect->x, rect->y, rect->w, rect->h);
+@@ -1405,11 +1509,109 @@ void Draw_ClearImage(PS1_RECT* rect, u_char r, u_char g, u_char b) {
      BindDrawFbo();
      UpdateScissor();
  }
 -void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
++#if defined(__vita__)
++// vitaGL keeps a framebuffer's memory address from when its texture was
++// attached, and glTexSubImage2D on a texture the GPU sampled recently copies
++// it to new memory first (copy-on-write, done by the CPU). The VRAM texture is
++// both, so every LoadImage left vram_fbo drawing into freed memory and the
++// copy missed GPU writes still in flight: stale menus, flicker, crashes.
++// Uploads go into a fresh texture instead, drawn into VRAM by a minimal
++// shader: the VRAM texture is only written by the GPU, in order, and vitaGL
++// frees the upload texture once the GPU is done with it (a shader sampled it,
++// so it defers the free; a blit would not count).
++static const char upload_vertex_body[] = {
++    "attribute vec2 pos;\n" // VRAM pixels
++    "attribute vec2 uv;\n"
++    "varying vec2 vUV;\n"
++    "void main() {\n"
++    "    vUV = uv;\n"
++    "    gl_Position = vec4(pos.x / 512.0 - 1.0, pos.y / 256.0 - 1.0, 0.0, "
++    "1.0);\n"
++    "}\n"};
++static const char upload_fragment_body[] = {
++    "varying vec2 vUV;\n"
++    "uniform sampler2D tex;\n"
++    "void main() {\n"
++    "    gl_FragColor = texture2D(tex, vUV);\n"
++    "}\n"};
++static GLuint upload_program = 0;
++static GLuint upload_texture = 0;
++
++static bool InitUpload(void) {
++    GLuint vs =
++        Init_CompileShaderWith("", upload_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs =
++        Init_CompileShaderWith("", upload_fragment_body, GL_FRAGMENT_SHADER);
++    GLuint program = glCreateProgram();
++    glAttachShader(program, vs);
++    glAttachShader(program, fs);
++    glBindAttribLocation(program, 0, "pos");
++    glBindAttribLocation(program, 1, "uv");
++    glLinkProgram(program);
++    glDeleteShader(vs);
++    glDeleteShader(fs);
++    int success = 0;
++    glGetProgramiv(program, GL_LINK_STATUS, &success);
++    if (!success) {
++        ERRORF("upload shader failed to link");
++        glDeleteProgram(program);
++        return false;
++    }
++    glUseProgram(program);
++    glUniform1i(glGetUniformLocation(program, "tex"), 0);
++    glUseProgram(shader_program);
++    glGenTextures(1, &upload_texture);
++    upload_program = program;
++    return true;
++}
++
++static void UploadToVram(PS1_RECT* rect, const u8* rgba) {
++    if (!upload_program && !InitUpload()) {
++        return;
++    }
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, upload_texture);
++    // new storage every time: the previous one may still be in use
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rect->w, rect->h, 0, GL_RGBA,
++                 GL_UNSIGNED_BYTE, rgba);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++
++    const float x0 = (float)rect->x, y0 = (float)rect->y;
++    const float x1 = x0 + (float)rect->w, y1 = y0 + (float)rect->h;
++    const float quad[16] = {x0, y0, 0.0f, 0.0f, x1, y0, 1.0f, 0.0f,
++                            x0, y1, 0.0f, 1.0f, x1, y1, 1.0f, 1.0f};
++    glBindFramebuffer(GL_FRAMEBUFFER, vram_fbo);
++    glViewport(0, 0, VRAM_W, VRAM_H);
++    glDisable(GL_SCISSOR_TEST);
++    glDisable(GL_BLEND);
++    glUseProgram(upload_program);
++    glBindVertexArray(0);
++    glBindBuffer(GL_ARRAY_BUFFER, 0);
++    glEnableVertexAttribArray(0);
++    glEnableVertexAttribArray(1);
++    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), quad);
++    glVertexAttribPointer(
++        1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), quad + 2);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glDisableVertexAttribArray(0);
++    glDisableVertexAttribArray(1);
++
++    glEnable(GL_BLEND);
++    glUseProgram(shader_program);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++    BindDrawFbo();
++    glEnable(GL_SCISSOR_TEST);
++}
++#endif
++
 +static void Draw_LoadImage_impl(PS1_RECT* rect, u_long* p) {
      if (rect->w == 0 || rect->h == 0) {
          return;
      }
-@@ -1426,7 +1528,7 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
+-    if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
+         return;
+     }
+     size_t count = (size_t)rect->w * rect->h;
+@@ -1419,18 +1621,22 @@ void Draw_LoadImage(PS1_RECT* rect, u_long* p) {
+     }
+     MarkRgb24Dirty(rect->x, rect->y, rect->w, rect->h);
+     ConvertRgb5551ToRgba8888((const u16*)p, buf, count);
++#if defined(__vita__)
++    UploadToVram(rect, buf);
++#else
+     glActiveTexture(GL_TEXTURE0);
+     glBindTexture(GL_TEXTURE_2D, vram_texture);
+     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+     glTexSubImage2D(GL_TEXTURE_2D, 0, rect->x, rect->y, rect->w, rect->h,
                      GL_RGBA, GL_UNSIGNED_BYTE, buf);
++#endif
      SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
  }
 -void Draw_StoreImage(PS1_RECT* rect, u_long* p) {
@@ -615,7 +767,12 @@ index 71338f8..4b81d4b 100644
      if (rect->w == 0 || rect->h == 0) {
          return;
      }
-@@ -1476,7 +1578,7 @@ static bool EnsureScratchFbo(void) {
+-    if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
+         return;
+     }
+     size_t count = (size_t)rect->w * rect->h;
+@@ -1476,11 +1682,11 @@ static bool EnsureScratchFbo(void) {
      }
      return ok;
  }
@@ -624,7 +781,12 @@ index 71338f8..4b81d4b 100644
      if (rect->x == x && rect->y == y) {
          return;
      }
-@@ -1578,7 +1680,7 @@ static void DrawIndices(int start, int end) {
+-    if (!sdl3_window && !InitPlatform()) {
++    if (!InitPlatform()) {
+         return;
+     }
+     Draw_FlushBuffer(); // flush primitives before operating with the VRAM
+@@ -1578,7 +1784,7 @@ static void DrawIndices(int start, int end) {
                     (const GLvoid*)((uintptr_t)start * sizeof(unsigned short)));
  }
  
@@ -633,7 +795,7 @@ index 71338f8..4b81d4b 100644
      if (n_vertices == 0) {
          return;
      }
-@@ -1588,6 +1690,33 @@ void Draw_FlushBuffer(void) {
+@@ -1588,6 +1794,36 @@ void Draw_FlushBuffer(void) {
  
      glUseProgram(shader_program);
      glBindVertexArray(VAO);
@@ -646,8 +808,11 @@ index 71338f8..4b81d4b 100644
 +    {
 +        size_t vsize = sizeof(Vertex) * (size_t)n_vertices;
 +        size_t isize = sizeof(*index_buf) * (size_t)n_indices;
-+        void* vmem = vglAllocFromScratch(vsize);
-+        void* imem = vglAllocFromScratch(isize);
++        // the scratch pool hands out blocks back to back without aligning
++        // them: an odd count of 16-bit indices left the next block (vitaGL's
++        // own, for a blit) at 2 mod 4 and its float stores faulted
++        void* vmem = vglAllocFromScratch((vsize + 15) & ~(size_t)15);
++        void* imem = vglAllocFromScratch((isize + 15) & ~(size_t)15);
 +        if (vmem && imem) {
 +            memcpy(vmem, vertex_buf, vsize);
 +            memcpy(imem, index_buf, isize);
@@ -667,7 +832,7 @@ index 71338f8..4b81d4b 100644
      glBindBuffer(GL_ARRAY_BUFFER, VBO);
      glBufferSubData(
          GL_ARRAY_BUFFER, 0, (GLsizeiptr)(sizeof(Vertex) * (size_t)n_vertices),
-@@ -1596,6 +1725,7 @@ void Draw_FlushBuffer(void) {
+@@ -1596,6 +1832,7 @@ void Draw_FlushBuffer(void) {
      glBufferSubData(
          GL_ELEMENT_ARRAY_BUFFER, 0,
          (GLsizeiptr)(sizeof(*index_buf) * (size_t)n_indices), index_buf);
@@ -675,7 +840,7 @@ index 71338f8..4b81d4b 100644
      glBindVertexArray(VAO);
      {
          const float grid_scale_x = GetDrawGridXScale();
-@@ -1645,3 +1775,85 @@ void Draw_FlushBuffer(void) {
+@@ -1645,3 +1882,85 @@ void Draw_FlushBuffer(void) {
      }
      Draw_ResetBuffer();
  }

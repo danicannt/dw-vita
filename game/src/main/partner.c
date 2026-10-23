@@ -397,7 +397,10 @@ void partnerTickPraiseScold(int32_t partnerState)
 		break;
 	case 2:
 		if (TAMER_ENTITY.entity.anim.animId == 0) {
-#if !VERSION_IS(US)
+#if !VERSION_IS(US) || defined(DW1_NATIVE)
+			/* the US build passes nothing, but on the PS1 $a0 still held
+			 * partnerState here (4 scold, 15 praise); natively the missing
+			 * argument is garbage and a praise could count as a scold */
 			handlePraiseScold(partnerState);
 #else
 			handlePraiseScold();

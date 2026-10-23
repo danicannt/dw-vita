@@ -1126,6 +1126,17 @@ void handlePraiseScold(state)
 		if (ITEM_SCOLD_FLAG == 1) {
 			disciplineDelta = 8;
 			ITEM_SCOLD_FLAG = 2;
+#ifdef DW1_NATIVE
+			/* happinessDelta is never set on this path (a deserved
+			 * scold). On the PS1 it lived in $s1, which still held the
+			 * tickObjects loop index of the partner's slot, so happiness
+			 * grew by that (a small number); natively GCC folded the
+			 * undefined value into -10, the undeserved scold's. */
+			{
+				extern int32_t DW1_TICK_SLOT;
+				happinessDelta = (int16_t)DW1_TICK_SLOT;
+			}
+#endif
 		} else {
 			disciplineDelta = 2;
 			happinessDelta = -10;

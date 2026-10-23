@@ -14,9 +14,79 @@ bajo `#ifdef DW1_NATIVE`.
 | Modelo del personaje repetido por la pantalla en el lago al moverse la cámara | Probablemente arreglado, **sin confirmar** | Lo más probable es el desbordamiento de `MAP_CLUTS`, que pisaba `MAP_TILE_X`, el que mueve el anillo de tiles del fondo. El recorrido `walk` por Dragon Eye Lake (mapa 6) ya no lo muestra |
 | Filtro "pixel art" (`DW1_FILTER=pixel[:N]`) | **Roto, aparcado para el final** | Probado en ventana (build `build/linux32-gl`): parpadea, mezcla dos imágenes y el escenario sale casi negro. Probablemente muestrea el buffer que se está dibujando en vez del que se presenta, o la textura equivocada. Solo existe en el renderer `sdl3_gl`; el de por defecto (`sdl3_gpu`) lo ignora |
 | Batería de eventos: 8 crashes y 7 "HANG" restantes | **A repetir** | Los 8 crashes (DOOA, `reincarnatePartner`, `EVL_applyEvolution`) siguen a un "map N still busy, changing anyway": la batería cambió de mapa en mitad de una evolución o un renacimiento. Una muerte y renacimiento forzados (`para vida 0`) funcionan. Ahora la batería congela edad y vida del compañero. Los HANG de TEND01/02 eran la película del final; `smoke.py` ya cuenta sus fotogramas como progreso. Falta repetir los mapas 19 35 47 75 78 101 109 139 153 213 236 237 254 |
-| Funciones sin `return` en algún camino (unas 60, `-Wreturn-type`) | Auditoría pendiente | En x86 devuelven basura distinta que en MIPS. Revisadas: las operaciones de la VM de efectos (`BTL_/STD_*Variable`) no usan el valor; `_sin` y `BTL_calculateElementBonus` cubren todos los casos reales; `getEntityFromScriptId` arreglada. Quedan las de `file.c`, `sound*.c`, `script_*`, `kar.c`, `fish.c`, `dooa.c` |
 | Mapas "busy" en las baterías (el evento no termina solo pulsando X) | Sin investigar | YAKA12/13/24/25, FRZL17, OMOC01, GOMI02, FACT11B, MGEN14-16, MIHA05/06… Pueden ser eventos que esperan otra entrada |
 | Evolución al objetivo 62 (wEAG) | Fuera de alcance | No tiene modelo en el disco; tampoco se puede alcanzar en PS1 |
+
+## Auditoría del código nativo (23-10-2026)
+
+Repaso de todo el juego buscando lo que en PS1 "funcionaba" por lo que
+quedaba en los registros y en nativo es basura. Herramientas: los avisos
+de GCC que el build normal apaga (`-Wmaybe-uninitialized` a -O1/-O2/-O3/-Og,
+`-Wreturn-type`, `-Waggressive-loop-optimizations`), un comprobador de
+número de argumentos (prototipos reales con `-aux-info` contra las llamadas
+en GIMPLE) y, para cada caso, el código MIPS original sacado del disco con
+los mapas de símbolos del decomp. Resultado: 24 llamadas con argumentos de
+menos o de más, 112 avisos de `return`, 74 de variables sin valor y 2 bucles
+fuera de rango; casi todos son imposibles en la práctica, estos eran reales:
+
+### Felicitar / reñir
+- **Llamada sin argumento:** en la versión US `handlePraiseScold()` se llama
+  sin `state`, que decide entre felicitar (15) y reñir (4). En PS1 `$a0`
+  aún tenía `partnerState`; en nativo era basura, así que una felicitación
+  podía contar como riña o al revés (`partner.c`).
+- **Riña merecida:** `happinessDelta` no se asignaba. En PS1 estaba en `$s1`,
+  que tenía el índice del bucle de `tickObjects` (el hueco del compañero, un
+  número pequeño que se sumaba a la felicidad); en nativo GCC lo convertía
+  en −10, como una riña injusta. Ahora se suma ese índice
+  (`DW1_TICK_SLOT`, `world_object.c`).
+
+### Efectos de combate
+- `BTL_/STD_/VS_startEFE` no devolvía nada en el camino normal. En PS1
+  `runEFESlotScript` acaba con un salto (no una llamada) a `runEFEScript`,
+  así que devolvía su resultado, que se guarda en `efeSubEffect` y luego
+  recibe `stopEFESubEffect`. En nativo era basura: probablemente el origen
+  del crash de `BTL_stopEFESubEffect` con `EFE_DATA_PTR` NULL.
+- `BTL_/STD_/VS_startQueuedMove`: al terminar la carga de un ataque final,
+  `tech` se leía sin valor (`MOVE_DATA[tech]`, lectura fuera de rango en
+  nativo). En PS1 era `$s3`, el 4.º argumento del que llama (índice del
+  luchador o el ataque); ahora se le pasa ese valor.
+- `BTL_initializeBuffTrails` escribía 8 elementos en un array de 1: en PS1
+  sin efecto visible (el propio decomp lo documenta), en nativo pisaba las
+  variables de después. Ahora escribe solo el suyo.
+
+### Menús y texto
+- `renderString` con 8 de 9 argumentos (14 llamadas: cartas y tabla de
+  evoluciones): faltaba `shadow`. En PS1 esa posición de la pila siempre
+  tenía algo distinto de cero, así que el texto llevaba sombra.
+- `flipTextboxPage` no devolvía nada al cambiar de página; en PS1 `$v0`
+  tenía siempre un puntero (distinto de cero): "ocupado", el menú esperaba
+  un fotograma. Ahora devuelve 1.
+- `drawString2`: un espacio de ancho completo avanza `adv`, el ancho del
+  carácter anterior; al principio del texto no tenía valor. Empieza en 12.
+- Tabla de evoluciones: tres bucles recorren 62 casillas de un array de 61.
+  La 62 (en PS1, datos del array siguiente: fuera de pantalla y con una
+  paleta inválida) se salta, y la búsqueda del cursor sigue acabando en 62
+  si no hay coincidencia.
+
+### Otros
+- `VS__tickVSInput` (versus) llamaba a `VS___tickVSInput()` sin el jugador;
+  en PS1 era el `instanceId` del tick (0 o 1).
+- `setActiveAnim(0xc)` con 1 de 2 argumentos (scripts que animan un NPC):
+  en PS1 el segundo era distinto de cero y pausa la IA del NPC con script
+  12; ahora se pasa el número de animación.
+- Curling (`KAR_setOpponentShot`): sin piedra libre escribía en un puntero
+  sin asignar (en PS1, el `$s2` del que llama); ahora se salta el tiro.
+
+Baterías después de la auditoría: battles 0-60, 60/60 limpios; events 0-80,
+los mismos crashes de renacimiento que antes (OGRE02, GIAS06A) y GIAS09 pasa
+de crash a HANG.
+
+Descartados tras mirarlos (todos los caminos devuelven o asignan, o solo
+fallarían con un script mal formado): `_sin`, `getCardAmount`,
+`calculateElementBonus`, `getEntityIndex`, `getItemOptionColor`, las
+operaciones `*Variable` de la VM de efectos, `selectRandomTargetEntity`,
+`getHighest/LowestScoredMove`, `EVL_tickEvoSequence`, `matrixToEuler`,
+`partnerTickCollision`, `handleRestore`, `scriptCompareValue`, `playBGM`…
 
 ## Arreglados en esta tanda
 
@@ -145,6 +215,14 @@ bajo `#ifdef DW1_NATIVE`.
   `DW1_DUMP_DIR`. Es la batería que encontró los crashes de TUNN04, ROOM20 e
   ICSA08.
 - Baterías existentes: `DW1_SMOKE=maps|battles|evos` con `tools/smoke.py`.
+- **`tools/audit/`** (la auditoría de arriba):
+  - `isoextract.py IMAGEN.bin DESTINO`: saca los ficheros del disco
+    (`SLUS_010.32`, `*_REL.BIN`).
+  - `psxdis.py external/dw_decomp DESTINO función...`: desensambla la función
+    original (necesita `pip install capstone`). Sirve para saber qué valor
+    tenía en PS1 una variable sin asignar o un argumento que falta.
+  - `arity.py`: compara el número de argumentos de cada llamada con la
+    definición, a partir de `-aux-info` y `-fdump-tree-gimple` de cada unidad.
 
 ## Resultado de las baterías (19-10-2026)
 

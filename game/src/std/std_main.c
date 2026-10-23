@@ -102,6 +102,12 @@ void collisionGrace(Entity *a, Entity *entity, int32_t c, int32_t d);
 int32_t STD_handlePartnerMoveCommand(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter);
 int32_t STD_tickMeleeAttack(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int16_t arg3);
 void STD_startQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter);
+#ifdef DW1_NATIVE
+/* STD_startQueuedMove reads tech uninitialised when a finisher's charge-up ends;
+ * on the PS1 that was $s3, the caller's own $s3: callers pass it */
+void STD_startQueuedMove_s3(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t callerS3);
+#define STD_startQueuedMove(d, t, f) STD_startQueuedMove_s3(d, t, f, dw1_s3)
+#endif
 int16_t STD_getMostEffectiveMove(int32_t arg0, int16_t *flags);
 void addEntityText(Entity *entity, long slot, int32_t color, int32_t value, uint8_t flag);
 void setupModelMatrix(PositionData *posData);
@@ -4808,6 +4814,9 @@ void STD_tickStunState(Entity *entity)
 
 void STD_tickConfusedState(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t arg3)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = arg3; /* its $s3 on the PS1, see STD_startQueuedMove */
+#endif
 	if (NO_AI_FLAG != 0) {
 		handleBattleIdle(digimon, &digimon->stats, fighter->flags);
 		return;
@@ -4958,6 +4967,9 @@ void STD_tickCooldownState(DigimonEntity *digimon, DigimonEntity *target, Fighte
 
 void STD_tickQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t arg3)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = arg3; /* its $s3 on the PS1, see STD_startQueuedMove */
+#endif
 	if ((NO_AI_FLAG != 0) && (FINISHING_ENTITY != &digimon->entity)) {
 		handleBattleIdle(digimon, &digimon->stats, fighter->flags);
 		return;
@@ -5104,6 +5116,9 @@ check:
 void STD_tickDigimonAttackRanged(DigimonEntity *entity, DigimonEntity *other,
                                  FighterData *data, int16_t move)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = move; /* its $s3 on the PS1, see STD_startQueuedMove */
+#endif
 	uint32_t distance;
 	uint32_t total;
 
@@ -5710,6 +5725,9 @@ void STD_renderPlayerMarker(int16_t id)
 
 void STD_tickAttackHits(void)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = 0; /* its $s3 on the PS1, see STD_startQueuedMove */
+#endif
 	long j;
 	FighterData *fighter;
 	Entity *entity;
@@ -6596,9 +6614,20 @@ void STD_applyChargeRequirement(DigimonEntity *digimon, FighterData *fighter, in
 	}
 }
 
+#ifdef DW1_NATIVE
+void STD_startQueuedMove_s3(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t callerS3)
+#else
 void STD_startQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter)
+#endif
 {
 	int16_t tech;
+
+#ifdef DW1_NATIVE
+	/* read below without being set when a finisher's charge-up
+	 * ends (NO_AI_FLAG set, timer at 0): the PS1 used $s3, which
+	 * held the caller's 4th argument (fighter index or move) */
+	tech = (int16_t)callerS3;
+#endif
 
 	if (NO_AI_FLAG != 0) {
 		if (FINISHING_ENTITY != &digimon->entity) {
@@ -6656,6 +6685,14 @@ void STD_startQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterD
 	}
 	fighter->flatAttackTimer = 0x1e;
 }
+
+#ifdef DW1_NATIVE
+/* the function tables still list it under its own name */
+void (STD_startQueuedMove)(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter)
+{
+	STD_startQueuedMove_s3(digimon, target, fighter, 0);
+}
+#endif
 
 int32_t STD_selectMoveTarget(Entity *entity, FighterData *fighter)
 {

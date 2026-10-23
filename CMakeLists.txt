@@ -111,6 +111,16 @@ foreach(unit ${DW1_OVERLAY_UNITS})
         "    }\n")
 endforeach()
 string(APPEND DW1_OVERLAY_LD "}\nINSERT AFTER .data;\n")
+if(VITA)
+    # vita-elf-create appends its module data (3-5 KB) right after the code
+    # segment, in the gap before the data one; that gap was only what page
+    # alignment happened to leave. Moving the location counter between the
+    # two leaves 16 KB that belong to neither segment.
+    string(APPEND DW1_OVERLAY_LD
+        "SECTIONS\n{\n"
+        "    . = . + 0x4000;\n"
+        "}\nINSERT AFTER .eh_frame;\n")
+endif()
 file(WRITE ${DW1_GEN_DIR}/overlays.ld "${DW1_OVERLAY_LD}")
 
 # --- port layer -------------------------------------------------------------

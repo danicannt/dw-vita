@@ -70,7 +70,11 @@ int32_t worldPosToScreenPos(SVECTOR *pos, DVECTOR *out);
 void BTL_renderConfusionEffect(int32_t i);
 int32_t getOriginalType(int32_t type);
 void BTL_loadNextEFEFile(EfeLoad *arg);
+#ifdef DW1_NATIVE
+int32_t BTL_runEFESlotScript(int32_t idx);
+#else
 void BTL_runEFESlotScript(int32_t i);
+#endif
 void getRViewCopy(GsRVIEW2 *view);
 void getViewportDistanceCopy(int32_t *out);
 int32_t BTL_addPoisonBubble(Entity *entity);
@@ -1636,7 +1640,15 @@ void BTL_unloadEFESlot(int32_t idx)
 	EFE_DATA_ITERATOR->data = 0;
 }
 
+#ifdef DW1_NATIVE
+/* void in the decomp, but on the PS1 it ends with a jump (not a call)
+ * into BTL_runEFEScript, so its result is what BTL_startEFE returns
+ * and stores as efeSubEffect; natively that value was garbage and
+ * BTL_stopEFESubEffect later got a wrong sub-effect */
+int32_t BTL_runEFESlotScript(int32_t idx)
+#else
 void BTL_runEFESlotScript(int32_t idx)
+#endif
 {
 	EFE_CURRENT_DATA_SEGMENT = NULL;
 
@@ -1644,7 +1656,11 @@ void BTL_runEFESlotScript(int32_t idx)
 	EFE_SCRIPT_HEAD = EFE_DATA_ITERATOR->data;
 	EFE_SCRIPT_CONTEXT = EFE_DATA_ITERATOR->subEffects;
 	EFE_ACTIVE_SECTION = -1;
+#ifdef DW1_NATIVE
+	return BTL_runEFEScript((int32_t)EFE_DATA_PTR[idx].startScript);
+#else
 	BTL_runEFEScript((int32_t)EFE_DATA_PTR[idx].startScript);
+#endif
 }
 
 char *BTL_getEFETextureSection(char *p)
@@ -2198,7 +2214,11 @@ int32_t BTL_startEFE(int32_t i)
 	}
 
 	UNUSED_EFE_ARRAY[i] = -1;
+#ifdef DW1_NATIVE
+	return BTL_runEFESlotScript(i); /* see there */
+#else
 	BTL_runEFESlotScript(i);
+#endif
 }
 
 void BTL_stopEFESubEffect(int32_t a, int32_t b)
@@ -6380,7 +6400,14 @@ void BTL_initializeBuffTrails(void)
 	 * past the overlay image where nothing is allocated, so there is no
 	 * observable effect.
 	 */
+#ifdef DW1_NATIVE
+	/* natively the extra writes would land on whatever globals follow;
+	 * with no observable effect on the PS1 (see above), write only the
+	 * one element */
+	for (i = 0; i < 1; i++) {
+#else
 	for (i = 0; i < 8; i++) {
+#endif
 		BTL_BUFF_TRAILS[i].frame = -1;
 	}
 

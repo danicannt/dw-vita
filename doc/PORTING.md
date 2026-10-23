@@ -161,6 +161,24 @@ batch into fresh `vglAllocFromScratch` memory instead of rewriting one VBO,
 as CTR High Octane does. `PSYZ_GL_PERF` / the Vita log print per-call timings.
 All of this is `patches/psyz/0006-vita-soft-and-vitagl-renderers.patch`.
 
+Faster vitaGL: `tools/build_vitagl.sh` builds it from source with the options
+CTR High Octane and Lighthouse (Banjo-Kazooie) use, `NO_DEBUG=1` (no GL error
+checks) and `HAVE_SHADER_CACHE=1` (compiled shaders kept in
+`ux0:data/shader_cache/DGWD00001`, so only the first launch compiles them);
+configure with `-DPSYZ_VITAGL_LIB=$PWD/build/vitagl/libvitaGL.a`. Without it
+the vdpm library is linked.
+
+vitaGL pitfalls met so far, all handled in `sdl3_gl.c`:
+- `vglInitExtended` returns `GL_FALSE` on a normal init (`GL_TRUE` only on a
+  resolution fallback).
+- `vglAllocFromScratch` hands out unaligned blocks; sizes are rounded to 16.
+- `glTexSubImage2D` on a texture the GPU sampled recently moves it to a CPU
+  copy, but a framebuffer keeps the old address: VRAM uploads go through a
+  fresh texture drawn by a shader instead (`UploadToVram`).
+- `vita-elf-create` needs 3-5 KB of free address space right after the code
+  segment; the linker script moves the location counter 16 KB between the
+  code and data segments (padding inside the code segment does not help).
+
 The Linux builds: `BUILD=build/linux32 tools/configure_linux32.sh
 -DPSYZ_RENDERER=sdl3_gpu` (or `sdl3_gl`, `sdl3_soft`). Without the libGL.so
 dev symlink, link the GL one through a shim: `mkdir build/linux32-gl/glshim &&

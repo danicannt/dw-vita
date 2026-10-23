@@ -46,7 +46,11 @@ int32_t scriptTickMainMenu(void);
 int32_t isTrainingComplete(void);
 void setCameraFollowPlayer(void);
 void setFoodTimer(int32_t type);
+#ifdef DW1_NATIVE
+void setActiveAnim(uint8_t scriptId, int8_t animId);
+#else
 void setActiveAnim(int32_t state);
+#endif
 int32_t hasMove(int32_t moveId);
 void learnMove(int32_t moveId);
 void unloadDigimonModel(int32_t digimonType);
@@ -894,7 +898,16 @@ void scriptSetEntityWalking(uint8_t actorId, int32_t animationId)
 		partnerSetState(0xc);
 	} else {
 		scriptNPCStartAnimation(actorId, (animationId + 1) << 1);
+#ifdef DW1_NATIVE
+		/* setActiveAnim takes (scriptId, animId) but gets only 0xc. On the
+		 * PS1 $a1 still held what scriptNPCStartAnimation left there: the
+		 * animation number, or the low byte of a pointer when it started
+		 * one, non-zero either way, which pauses the AI of the NPC with
+		 * script 12. Natively the second argument was garbage. */
+		setActiveAnim(0xc, (animationId + 1) << 1);
+#else
 		setActiveAnim(0xc);
+#endif
 	}
 }
 
@@ -908,7 +921,11 @@ void scriptStartAnimation(uint8_t actorId, int32_t animationId)
 		partnerSetState(0xc);
 	} else {
 		scriptNPCStartAnimation(actorId, animationId);
+#ifdef DW1_NATIVE
+		setActiveAnim(0xc, animationId); /* see above */
+#else
 		setActiveAnim(0xc);
+#endif
 	}
 }
 

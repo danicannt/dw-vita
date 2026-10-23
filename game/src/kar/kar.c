@@ -2615,6 +2615,13 @@ void KAR_setOpponentShot(int8_t row, int32_t val, int16_t b, int16_t c)
 			break;
 		}
 	}
+#ifdef DW1_NATIVE
+	/* no free stone of any of the row's types: stone was never set and the
+	 * PS1 wrote through a pointer its caller left in $s2; skip the shot */
+	if (i == 4) {
+		return;
+	}
+#endif
 
 	stone->angle = val;
 	power = KAR_computeThrowPower(stone->weight, b, c);

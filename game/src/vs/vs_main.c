@@ -42,6 +42,13 @@ extern char *MOVE_NAMES[];
 extern int32_t VS_CAMERA_STATE;
 extern DigimonEntity *BATTLE_TARGETED_DIGIMON;
 extern DigimonEntity *BATTLE_ATTACKING_DIGIMON;
+#ifdef DW1_NATIVE
+/* VS_startFighterMove reads tech uninitialised when a finisher's charge-up ends;
+ * on the PS1 that was $s3, the caller's own $s3: callers pass it */
+void VS_startFighterMove_s3(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t callerS3);
+#define VS_startFighterMove(d, t, f) VS_startFighterMove_s3(d, t, f, dw1_s3)
+#endif
+
 void renderString(int32_t a, int32_t b, int32_t c, int32_t d, int32_t e,
                   int32_t f, int32_t g, int32_t h, int32_t i);
 void createParticleFX();
@@ -561,6 +568,9 @@ void VS_startAttackAnimation(Entity *entity, AttackObject *attack, uint8_t anim)
 
 void VS_resolveAttack(void)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = 0; /* its $s3 on the PS1, see VS_startFighterMove */
+#endif
 	int32_t j;
 	FighterData *fighter;
 	Entity *entity;
@@ -794,9 +804,20 @@ void VS_applyChargeRequirement(DigimonEntity *digimon, FighterData *fighter, int
 	}
 }
 
+#ifdef DW1_NATIVE
+void VS_startFighterMove_s3(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t callerS3)
+#else
 void VS_startFighterMove(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter)
+#endif
 {
 	int16_t tech;
+
+#ifdef DW1_NATIVE
+	/* read below without being set when a finisher's charge-up
+	 * ends (NO_AI_FLAG set, timer at 0): the PS1 used $s3, which
+	 * held the caller's 4th argument (fighter index or move) */
+	tech = (int16_t)callerS3;
+#endif
 
 	if (NO_AI_FLAG != 0) {
 		if (FINISHING_ENTITY != &digimon->entity) {
@@ -852,6 +873,14 @@ void VS_startFighterMove(DigimonEntity *digimon, DigimonEntity *target, FighterD
 	}
 	fighter->flatAttackTimer = 0x1e;
 }
+
+#ifdef DW1_NATIVE
+/* the function tables still list it under its own name */
+void (VS_startFighterMove)(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter)
+{
+	VS_startFighterMove_s3(digimon, target, fighter, 0);
+}
+#endif
 
 int32_t VS_selectMoveTarget(Entity *entity, FighterData *fighter)
 {

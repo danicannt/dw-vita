@@ -180,6 +180,16 @@ void renderMedalView(void);
 void renderEvoChartView(void);
 void renderPlayerInfoView(void);
 void renderString();
+#ifdef DW1_NATIVE
+/* Fourteen calls below pass 8 of renderString's 9 arguments, leaving out
+ * shadow. On the PS1 the 9th argument is read from the caller's stack, where
+ * those slots always held something non-zero (the saved $ra in
+ * renderCardCount, 0x87 or 4 left by the previous calls in
+ * renderEvoChartDetail), so the text had its shadow; natively it was random. */
+#define DW1_PS1_SHADOW , 1
+#else
+#define DW1_PS1_SHADOW
+#endif
 void renderMenuTab(int16_t x, int8_t w, int8_t layer);
 void setCameraFollowPlayer(void);
 void handleGameMenuSelection(int32_t selection);
@@ -1979,6 +1989,14 @@ void tickPlayerMenu(void)
 				}
 				CHART_SELECTED_DIGIMON = -1;
 				for (i = 0; i < 0x3e; i++) {
+#ifdef DW1_NATIVE
+					/* entry 61 is past EVO_CHART_BOXES; on the PS1 it was
+					 * (-146, -67), which never matches, so no match still
+					 * ends at i == 62 */
+					if (i >= (int32_t)(sizeof(EVO_CHART_BOXES) / sizeof(EVO_CHART_BOXES[0]))) {
+						continue;
+					}
+#endif
 					if (((selectorX + 2) ==
 					     EVO_CHART_BOXES[i].posX) &&
 					    ((CHART_SELECTED_ROW * 0x13 + 0x2b) ==
@@ -2397,7 +2415,7 @@ void renderCardCount(void)
 	renderNumber(0, 0x63, 0x4b, 1, getCardAmount(SELECTED_CARD), 3);
 #else
 	renderNumber(0, 0x59, 0x4b, 1, getCardAmount(SELECTED_CARD), 3);
-	renderString(0, 0x6b, 0x4c, 0xc, 0xc, 0xd8, 0xc, 0);
+	renderString(0, 0x6b, 0x4c, 0xc, 0xc, 0xd8, 0xc, 0 DW1_PS1_SHADOW);
 #endif
 }
 
@@ -3394,6 +3412,14 @@ void renderEvoChartView(void)
 		/* fall through */
 	case 1:
 		for (i = 0; i < 0x3e; i++) {
+#ifdef DW1_NATIVE
+			/* EVO_CHART_BOXES has 61 entries: i == 61 read the next array
+			 * on the PS1, a box at x -306 (off screen) with clut index 189;
+			 * natively it read whatever lies there, so skip it */
+			if (i >= (int32_t)(sizeof(EVO_CHART_BOXES) / sizeof(EVO_CHART_BOXES[0]))) {
+				continue;
+			}
+#endif
 			if (hasDigimonRaised((i + 1) & 0xffff)) {
 				shift = 0;
 				if ((i + 1 == CHART_SELECTED_DIGIMON) && (1 < MENU_STATE) &&
@@ -3411,6 +3437,12 @@ void renderEvoChartView(void)
 			}
 		}
 		for (i = 0; i < 0x3e; i++) {
+#ifdef DW1_NATIVE
+			/* entry 61: off screen on the PS1 (x -147), see above */
+			if (i >= (int32_t)(sizeof(EVO_CHART_BOXES) / sizeof(EVO_CHART_BOXES[0]))) {
+				continue;
+			}
+#endif
 			renderBorderBox((EVO_CHART_BOXES[i].posX - 1),
 			                (EVO_CHART_BOXES[i].posY - 1), 0x12, 0x12,
 			                0xbebebe, 0x3c3c3c, 0x87, 0x87, 0x87, 5);
@@ -3618,43 +3650,43 @@ void renderEvoChartDetail(void)
 	}
 
 #if VERSION_IS(EU)
-	renderString(3, -0x19, -0x4f, 0x30, 0xc, 0, 0x18, 4);
+	renderString(3, -0x19, -0x4f, 0x30, 0xc, 0, 0x18, 4 DW1_PS1_SHADOW);
 	if (DIGIMON_DATA[CHART_SELECTED_DIGIMON].level < 4) {
 		renderString(0, -0x5c, 0x3a, 0x30, 0xc,
-		             ((DIGIMON_DATA[CHART_SELECTED_DIGIMON].level - 1) * 48) + 0x30, 0x18, 4);
+		             ((DIGIMON_DATA[CHART_SELECTED_DIGIMON].level - 1) * 48) + 0x30, 0x18, 4 DW1_PS1_SHADOW);
 	} else {
 		renderString(0, -0x5c, 0x3a, 0x30, 0xc, (DIGIMON_DATA[CHART_SELECTED_DIGIMON].level - 4) * 48,
-		             0x48, 4);
+		             0x48, 4 DW1_PS1_SHADOW);
 	}
 #elif !VERSION_IS(US)
-	renderString(3, -0x19, -0x4f, 0x30, 0xc, 0, 0x18, 4);
+	renderString(3, -0x19, -0x4f, 0x30, 0xc, 0, 0x18, 4 DW1_PS1_SHADOW);
 	renderString(0, -0x56, 0x3a, 0x24, 0xc,
 	             ((DIGIMON_DATA[CHART_SELECTED_DIGIMON].level - 1) * 36) + 0x30, 0x18,
-	             4);
+	             4 DW1_PS1_SHADOW);
 #else
-	renderString(3, -0x14, -0x4f, 0x24, 0xc, 0, 0x18, 4);
+	renderString(3, -0x14, -0x4f, 0x24, 0xc, 0, 0x18, 4 DW1_PS1_SHADOW);
 	switch (DIGIMON_DATA[CHART_SELECTED_DIGIMON].level) {
 	case 1:
-		renderString(0, -0x5b, 0x3a, 0x2e, 0xc, 0x24, 0x18, 4);
+		renderString(0, -0x5b, 0x3a, 0x2e, 0xc, 0x24, 0x18, 4 DW1_PS1_SHADOW);
 		break;
 	case 2:
-		renderString(0, -0x63, 0x3a, 0x3e, 0xc, 0x52, 0x18, 4);
+		renderString(0, -0x63, 0x3a, 0x3e, 0xc, 0x52, 0x18, 4 DW1_PS1_SHADOW);
 		break;
 	case 3:
-		renderString(0, -0x5b, 0x3a, 0x2f, 0xc, 0, 0x24, 4);
+		renderString(0, -0x5b, 0x3a, 0x2f, 0xc, 0, 0x24, 4 DW1_PS1_SHADOW);
 		break;
 	case 4:
-		renderString(0, -0x64, 0x3a, 0x41, 0xc, 0x2f, 0x24, 4);
+		renderString(0, -0x64, 0x3a, 0x41, 0xc, 0x2f, 0x24, 4 DW1_PS1_SHADOW);
 		break;
 	case 5:
-		renderString(0, -0x64, 0x3a, 0x41, 0xc, 0, 0x3c, 4);
+		renderString(0, -0x64, 0x3a, 0x41, 0xc, 0, 0x3c, 4 DW1_PS1_SHADOW);
 	}
 #endif
 	len = strlen(DIGIMON_NAME(CHART_SELECTED_DIGIMON)) / 2;
 #if VERSION_IS(EU)
-	renderString(0, -0x80, 0x4d, 0xa0, 0xc, 0, 0x30, 4);
+	renderString(0, -0x80, 0x4d, 0xa0, 0xc, 0, 0x30, 4 DW1_PS1_SHADOW);
 #else
-	renderString(0, -0x5c - ((len - 4) * 6), 0x4d, 0x78, 0xc, 0, 0x30, 4);
+	renderString(0, -0x5c - ((len - 4) * 6), 0x4d, 0x78, 0xc, 0, 0x30, 4 DW1_PS1_SHADOW);
 #endif
 	for (i = 0; i < 6; i++) {
 		renderInsetBox(MAIN_D_80124B48[i].posX, MAIN_D_80124B48[i].posY,

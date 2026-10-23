@@ -45,6 +45,13 @@ extern int16_t VS_CURRENT_BATTLE;
 extern int32_t COMBAT_AREA_Y;
 extern int32_t COMBAT_AREA_X;
 
+#ifdef DW1_NATIVE
+/* VS_startFighterMove reads tech uninitialised when a finisher's charge-up ends;
+ * on the PS1 that was $s3, the caller's own $s3: callers pass it */
+void VS_startFighterMove_s3(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t callerS3);
+#define VS_startFighterMove(d, t, f) VS_startFighterMove_s3(d, t, f, dw1_s3)
+#endif
+
 void renderString(int32_t a, int32_t b, int32_t c, int32_t d, int32_t e,
                   int32_t f, int32_t g, int32_t h, int32_t i);
 void setUVDataPolyFT4(POLY_FT4 *prim, int32_t uvX, int32_t uvY,
@@ -126,7 +133,11 @@ void VS__renderTimeoutText(void);
 void VS__renderTimeoutWindow(int32_t id);
 void VS__renderPlayerMarker(int32_t id);
 void VS___tickVSInput();
+#ifdef DW1_NATIVE
+void VS__tickVSInput(int32_t instanceId);
+#else
 void VS__tickVSInput(void);
+#endif
 void VS__tickDigimonP1(int32_t instanceId);
 void VS__tickDigimonP2(int32_t instanceId);
 
@@ -1631,6 +1642,9 @@ void VS__tickDigimonStun(Entity *entity)
 void VS__tickDigimonConfusion(DigimonEntity *entity, DigimonEntity *other,
                               FighterData *data, int32_t fighterId)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = fighterId; /* its $s3 on the PS1, see VS_startFighterMove */
+#endif
 	if (NO_AI_FLAG != 0) {
 		handleBattleIdle(entity, &entity->stats, data->flags);
 		return;
@@ -1788,6 +1802,9 @@ void VS__tickDigimonOnCooldown(DigimonEntity *entity, DigimonEntity *other,
 void VS__tickDigimonOther(DigimonEntity *entity, DigimonEntity *other,
                           FighterData *data, int32_t fighterId)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = fighterId; /* its $s3 on the PS1, see VS_startFighterMove */
+#endif
 	if (NO_AI_FLAG != 0 && FINISHING_ENTITY != &entity->entity) {
 		handleBattleIdle(entity, &entity->stats, data->flags);
 		return;
@@ -1946,6 +1963,9 @@ check:
 void VS__tickDigimonAttackRanged(DigimonEntity *entity, DigimonEntity *other,
                                  FighterData *data, int16_t move)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = move; /* its $s3 on the PS1, see VS_startFighterMove */
+#endif
 	uint32_t distance;
 	uint32_t total;
 
@@ -2589,12 +2609,25 @@ void VS__renderPlayerMarker(id)
 }
 
 #if VERSION_IS(US)
+#ifdef DW1_NATIVE
+/* The US build calls VS___tickVSInput() without the player; on the PS1 $a0
+ * still held this tick's instanceId (0 or 1, one object per player, see
+ * vs_scene.c), which is what the other versions pass explicitly. Natively
+ * the argument would be garbage. */
+void VS__tickVSInput(int32_t instanceId)
+{
+	if (GAME_STATE == 4) {
+		VS___tickVSInput(instanceId);
+	}
+}
+#else
 void VS__tickVSInput(void)
 {
 	if (GAME_STATE == 4) {
 		VS___tickVSInput();
 	}
 }
+#endif
 
 void VS___tickVSInput(int32_t player)
 {

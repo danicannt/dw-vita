@@ -2558,6 +2558,12 @@ int32_t flipTextboxPage(uint8_t a)
 	entry->backPage ^= 1;
 	entry->flipCount++;
 	entry->pageReady = 0;
+#ifdef DW1_NATIVE
+	/* no return on the PS1 either: $v0 kept the caller's value, which at
+	 * every call site was non-zero (a box or tick function pointer), so a
+	 * flip reported "busy" and the menu waited a frame */
+	return 1;
+#endif
 }
 
 void calculateItemMenuStrings(ItemMenuBox *box, uint8_t row, int32_t isLast)

@@ -49,7 +49,11 @@ void VS_clearEFESoundChannels(void);
 void VS_stopEFESounds(void);
 void VS_loadNextEFEFile(EfeLoad *arg);
 void VS_unloadEFESlot(int32_t idx);
+#ifdef DW1_NATIVE
+int32_t VS_runEFESlotScript(int32_t idx);
+#else
 void VS_runEFESlotScript(int32_t idx);
+#endif
 int32_t VS_setupLoadedEFEFile(EfeLoad *load);
 void updateTMDTextureData(char *tmd, int32_t clutX, int32_t x, int32_t y, int32_t tpage);
 void VS_handleEFEFileLoaded(EfeLoad *load);
@@ -1374,7 +1378,15 @@ void VS_unloadEFESlot(int32_t idx)
 	EFE_DATA_ITERATOR->data = 0;
 }
 
+#ifdef DW1_NATIVE
+/* void in the decomp, but on the PS1 it ends with a jump (not a call)
+ * into VS_runEFEScript, so its result is what VS_startEFE returns
+ * and stores as efeSubEffect; natively that value was garbage and
+ * VS_stopEFESubEffect later got a wrong sub-effect */
+int32_t VS_runEFESlotScript(int32_t idx)
+#else
 void VS_runEFESlotScript(int32_t idx)
+#endif
 {
 	EFE_CURRENT_DATA_SEGMENT = NULL;
 
@@ -1382,7 +1394,11 @@ void VS_runEFESlotScript(int32_t idx)
 	EFE_SCRIPT_HEAD = EFE_DATA_ITERATOR->data;
 	EFE_SCRIPT_CONTEXT = EFE_DATA_ITERATOR->subEffects;
 	EFE_ACTIVE_SECTION = -1;
+#ifdef DW1_NATIVE
+	return VS_runEFEScript((int32_t)EFE_DATA_PTR[idx].startScript);
+#else
 	VS_runEFEScript((int32_t)EFE_DATA_PTR[idx].startScript);
+#endif
 }
 
 char *VS_getEFETextureSection(char *p)
@@ -1944,7 +1960,11 @@ int32_t VS_startEFE(int32_t i)
 	}
 
 	UNUSED_EFE_ARRAY[i] = -1;
+#ifdef DW1_NATIVE
+	return VS_runEFESlotScript(i); /* see there */
+#else
 	VS_runEFESlotScript(i);
+#endif
 }
 
 void VS_stopEFESubEffect(int32_t a, int32_t b)

@@ -112,6 +112,12 @@ int32_t BTL_handlePartnerMoveCommand(DigimonEntity *digimon, DigimonEntity *targ
 void BTL_tickRangedAttack(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int16_t move);
 int32_t BTL_tickMeleeAttack(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int16_t arg3);
 void BTL_startQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter);
+#ifdef DW1_NATIVE
+/* BTL_startQueuedMove reads tech uninitialised when a finisher's charge-up ends;
+ * on the PS1 that was $s3, the caller's own $s3: callers pass it */
+void BTL_startQueuedMove_s3(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t callerS3);
+#define BTL_startQueuedMove(d, t, f) BTL_startQueuedMove_s3(d, t, f, dw1_s3)
+#endif
 void setPartnerWaypoint(int16_t index, int8_t x, int8_t y);
 void initializePartnerWaypoint(void);
 void BTL_removeFinisherAura(int32_t arg0);
@@ -1026,6 +1032,9 @@ void BTL_tickStunState(Entity *entity)
 
 void BTL_tickConfusedState(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t arg3)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = arg3; /* its $s3 on the PS1, see BTL_startQueuedMove */
+#endif
 	if (NO_AI_FLAG != 0) {
 		handleBattleIdle(digimon, &digimon->stats, fighter->flags);
 		return;
@@ -1179,6 +1188,9 @@ void BTL_tickCooldownState(DigimonEntity *digimon, DigimonEntity *target, Fighte
 
 void BTL_tickQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t arg3)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = arg3; /* its $s3 on the PS1, see BTL_startQueuedMove */
+#endif
 	if ((NO_AI_FLAG != 0) && (FINISHING_ENTITY != &digimon->entity)) {
 		handleBattleIdle(digimon, &digimon->stats, fighter->flags);
 		return;
@@ -1331,6 +1343,9 @@ check:
 
 void BTL_tickRangedAttack(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int16_t move)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = move; /* its $s3 on the PS1, see BTL_startQueuedMove */
+#endif
 	uint32_t dist;
 	uint32_t total;
 
@@ -2083,6 +2098,9 @@ void BTL_startHitAnimation(Entity *entity, AttackObject *attack, uint8_t animId)
 
 void BTL_tickAttackHits(void)
 {
+#ifdef DW1_NATIVE
+	int32_t dw1_s3 = 0; /* its $s3 on the PS1, see BTL_startQueuedMove */
+#endif
 	long j;
 	long i;
 	int32_t dmg;
@@ -2418,9 +2436,20 @@ void BTL_applyChargeRequirement(DigimonEntity *digimon, FighterData *fighter, in
 	}
 }
 
+#ifdef DW1_NATIVE
+void BTL_startQueuedMove_s3(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter, int32_t callerS3)
+#else
 void BTL_startQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter)
+#endif
 {
 	int16_t tech;
+
+#ifdef DW1_NATIVE
+	/* read below without being set when a finisher's charge-up
+	 * ends (NO_AI_FLAG set, timer at 0): the PS1 used $s3, which
+	 * held the caller's 4th argument (fighter index or move) */
+	tech = (int16_t)callerS3;
+#endif
 
 	if (NO_AI_FLAG != 0) {
 		if (FINISHING_ENTITY != &digimon->entity) {
@@ -2478,6 +2507,14 @@ void BTL_startQueuedMove(DigimonEntity *digimon, DigimonEntity *target, FighterD
 		fighter->flatAttackTimer = 0x1e;
 	}
 }
+
+#ifdef DW1_NATIVE
+/* the function tables still list it under its own name */
+void (BTL_startQueuedMove)(DigimonEntity *digimon, DigimonEntity *target, FighterData *fighter)
+{
+	BTL_startQueuedMove_s3(digimon, target, fighter, 0);
+}
+#endif
 
 int32_t BTL_isMoveOnCooldown(Entity *entity, FighterData *fighter)
 {
