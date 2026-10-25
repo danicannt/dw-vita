@@ -1,0 +1,2526 @@
+diff --git a/psyz/CMakeLists.txt b/psyz/CMakeLists.txt
+index 0347a48..84a55d6 100644
+--- a/psyz/CMakeLists.txt
++++ b/psyz/CMakeLists.txt
+@@ -188,6 +188,7 @@ set(PSYZ_SOURCES
+     ../decomp/src/libsnd/vs_vtc.c
+     ../decomp/src/libc2/rand.c
+     src/psyz/libsnd.c
++    src/psyz/libsnd_seq.c
+     src/psyz/libsn.c
+     src/psyz/libpress.c
+     ../decomp/src/libpress/libpress.c
+@@ -311,7 +312,9 @@ elseif(VITA)
+         list(APPEND PSYZ_LIBS ${PSYZ_VITAGL_LIB} vitashark SceShaccCgExt taihen_stub mathneon
+             SceShaccCg_stub SceKernelDmacMgr_stub SceGxm_stub SceDisplay_stub
+             SceAppMgr_stub SceCommonDialog_stub SceIme_stub SceSysmodule_stub
+-            SceLibKernel_stub SceRazorCapture_stub_weak stdc++)  # vitaGL has C++ inside
++            SceLibKernel_stub SceRazorCapture_stub_weak
++            SceAvPlayer_stub SceAudio_stub  # Psyz_VideoPlayMovie
++            stdc++)  # vitaGL has C++ inside
+         message(STATUS "PS Vita: vitaGL renderer")
+     endif()
+ elseif(PSP)
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+index 6afb9e1..df3f271 100644
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -210,11 +210,80 @@ unsigned Psyz_VideoGetInternalResolution(void);
+  */
+ int Psyz_VideoSetPixelFilter(unsigned block);
+ 
++/**
++ * @brief Widescreen: draw the display buffers into wider canvases
++ *
++ * Drawing into a display buffer goes to a canvas `extra` game pixels wider on
++ * each side, rendered at `scale` canvas pixels per game pixel, and the
++ * present shows the whole canvas. The game must draw past the 4:3 edges
++ * itself (wider camera, backgrounds, culling). Only the sdl3_gl renderer
++ * implements it, and only at internal resolution 1; others return -1.
++ *
++ * @param extra game pixels added on each side, 0 to disable
++ * @param scale canvas pixels per game pixel (1 to 8)
++ * @return 0 on success, -1 if unsupported or out of range
++ */
++int Psyz_VideoSetWidescreen(unsigned extra, unsigned scale);
++
++/**
++ * @brief Get the widescreen margin in game pixels (0 when off)
++ */
++unsigned Psyz_VideoGetWidescreen(void);
++
++/**
++ * @brief Register (or with rgba NULL, free) an indexed image in `slot`
++ *
++ * Each pixel is 4 bytes: R the index into a 256-colour CLUT of the VRAM,
++ * A 0 for a pixel with no image (drawn black). Only sdl3_gl; others -1.
++ */
++int Psyz_VideoSetIndexedImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba);
++
++/**
++ * @brief Draw the whole indexed image of `slot` over the rectangle x,y,w,h
++ * (primitive coordinates: the draw offset is added), colours from `clut`
++ * (CLUT word as in a primitive). Opaque; CLUT colour 0 is transparent.
++ * Call it from a GP0 command handler to keep the ordering-table order.
++ */
++int Psyz_VideoDrawIndexedImage(
++    unsigned slot, int x, int y, int w, int h, unsigned clut);
++
++/**
++ * @brief Play a video file (MP4) full screen with its audio, keeping its
++ * aspect ratio, until it ends or `skip` (polled every frame, may be NULL)
++ * returns non-zero. The Vita decodes it with sceAvPlayer, other platforms
++ * through an ffmpeg pipe. Only sdl3_gl.
++ *
++ * @return 1 when it played to the end, 0 when skipped, -1 if it cannot be
++ * played (no file, no decoder)
++ */
++int Psyz_VideoPlayMovie(const char* path, int (*skip)(void));
++
+ /**
+  * @brief Get the current pixel filter block size (0 when off)
+  */
+ unsigned Psyz_VideoGetPixelFilter(void);
+ 
++/**
++ * @brief PGXP: draw 3D polygons with the exact screen positions and depth
++ * that the GTE computed (default: off)
++ *
++ * Removes the PS1's wobbling vertices (whole-pixel coordinates) and warping
++ * textures (affine mapping) on polygons whose vertices all came from
++ * RTPS/RTPT this frame or the last one. 2D primitives are unchanged. The
++ * wobble only shows at internal resolution or widescreen scale above 1.
++ * Only the sdl3_gl renderer implements it; others return -1.
++ *
++ * @param on non-zero to enable
++ * @return 0 on success, -1 if unsupported
++ */
++int Psyz_VideoSetPgxp(int on);
++
++/**
++ * @brief Whether PGXP is on (Psyz_VideoSetPgxp)
++ */
++int Psyz_VideoGetPgxp(void);
++
+ /**
+  * @brief Synchronize with vertical blank
+  *
+diff --git a/psyz/src/internal.h b/psyz/src/internal.h
+index 1de31c1..b09682a 100644
+--- a/psyz/src/internal.h
++++ b/psyz/src/internal.h
+@@ -44,4 +44,19 @@ void Psyz_KernelPoll(void);
+ // Latch completion of a native DMA transfer through the kernel IRQ dispatcher.
+ void Psyz_KernelDmaComplete(int channel);
+ 
++// PGXP (libgte.c): while enabled, every RTPS/RTPT also records the vertex's
++// screen x,y in floating point and its view depth, keyed by the integer
++// screen position the GTE returned. A renderer looks a primitive's vertices
++// up to draw 3D polygons without integer snapping and with perspective-
++// correct texturing. Entries live for the frame that made them and the next
++// one (Psyz_PgxpNextFrame at each present).
++void Psyz_PgxpSetEnabled(int on);
++int Psyz_PgxpIsEnabled(void);
++void Psyz_PgxpNextFrame(void);
++// the n (up to PGXP_MAX_POLY) integer vertices of a polygon; fills out with
++// {x, y, w, 1} and returns 1 when the GTE projected all of them
++#define PGXP_MAX_POLY 4
++int Psyz_PgxpLookupPolygon(int n, const short* sx, const short* sy,
++                           float (*out)[4]);
++
+ #endif
+diff --git a/psyz/src/platform/gl_float_shaders.h b/psyz/src/platform/gl_float_shaders.h
+index 4426308..551f96e 100644
+--- a/psyz/src/platform/gl_float_shaders.h
++++ b/psyz/src/platform/gl_float_shaders.h
+@@ -35,8 +35,10 @@ static const char float_vertex_shader_body[] = {
+     "ATTR vec4 tex;\n"   // u, v, clut, tpage word (with the TPAGE_* flags)
+     "ATTR vec4 color;\n" // normalized RGBA8
+     "ATTR vec4 twin;\n"  // texture window: and.x, and.y, or.x, or.y
++    "ATTR vec4 prec;\n"  // PGXP x, y, w, on (1.0)
+     "uniform vec2 drawOffset;\n"
+     "uniform vec2 halfPixel;\n"
++    "uniform vec2 vramOrigin;\n" // VRAM point at the target's corner
+     "VARY vec4 vColor;\n"
+     "VARY vec2 vUV;\n"
+     // x mode (0 untextured, 1 16-bit, 2 indexed), y texels per VRAM pixel,
+@@ -51,9 +53,12 @@ static const char float_vertex_shader_body[] = {
+     "void main() {\n"
+     "    float word = tex.w;\n"
+     "    vec2 shift = bit(word, 8192.0) > 0.5 ? halfPixel : vec2(0.0);\n"
+-    "    float x = ((pos.x + drawOffset.x + shift.x) / (1024.0 / 2.0)) - 1.0;\n"
+-    "    float y = ((pos.y + drawOffset.y + shift.y) / (512.0 / 2.0)) - 1.0;\n"
+-    "    gl_Position = vec4(x, y, 0.0, 1.0);\n"
++    // PGXP vertices: exact position, and w for perspective-correct UVs
++    "    vec2 p = prec.w > 0.5 ? prec.xy : pos;\n"
++    "    float w = prec.w > 0.5 ? prec.z : 1.0;\n"
++    "    float x = ((p.x + drawOffset.x + shift.x - vramOrigin.x) / (1024.0 / 2.0)) - 1.0;\n"
++    "    float y = ((p.y + drawOffset.y + shift.y - vramOrigin.y) / (512.0 / 2.0)) - 1.0;\n"
++    "    gl_Position = vec4(x * w, y * w, 0.0, w);\n"
+     "    vColor = color;\n"
+     "    float tpage = mod(word, 512.0);\n"
+     "    vUV = tex.xy + shift - halfPixel;\n"
+@@ -146,10 +151,18 @@ static const char float_fragment_shader_body[] = {
+     "                   + floor(c.b * 31.0 + 0.5) * 1024.0\n"
+     "                   + floor(c.a + 0.5) * 32768.0;\n"
+     "        float sub = mod(t.x, perPixel);\n"
+-    "        float index = mod(floor(word / pow(size, sub)), size);\n"
++    // exact powers: pow() is exp2(log2()) on the SGX and can land just
++    // under 16, 256...
++    "        float div = sub < 0.5 ? 1.0 : sub < 1.5 ? size\n"
++    "                  : sub < 2.5 ? size * size : size * size * size;\n"
++    "        float index = mod(floor(word / div), size);\n"
+     "        texColor = fetch(vPage.zw + vec2(index, 0.0));\n"
+     "    }\n"
+-    "    if (texColor == vec4(0.0)) {\n"
++    // component by component: vitaGL turns GLSL into Cg, where vector ==
++    // is per component and if() then takes any of them, so every texel
++    // with alpha (STP) 0, nearly all of a PS1 palette, was dropped
++    "    if (texColor.r == 0.0 && texColor.g == 0.0 && texColor.b == 0.0 &&\n"
++    "        texColor.a == 0.0) {\n"
+     "        FragColor = vec4(0.0);\n"
+     "        return;\n"
+     "    }\n"
+diff --git a/psyz/src/platform/sdl3_audio.c b/psyz/src/platform/sdl3_audio.c
+index 67675c8..54f9cc8 100644
+--- a/psyz/src/platform/sdl3_audio.c
++++ b/psyz/src/platform/sdl3_audio.c
+@@ -50,8 +50,11 @@ static void SDLCALL audio_callback(void* userdata, SDL_AudioStream* stream,
+         spu_time += SDL_GetPerformanceCounter() - t0;
+         if (spu_frames >= 44100 * 5) {
+             double ms = spu_time * 1000.0 / (double)SDL_GetPerformanceFrequency();
+-            INFOF("perf: SPU %.1f%% of one core (%.1f ms per 5 s of audio)",
+-                  ms / 50.0, ms);
++            extern unsigned psyz_spu_key_ons;
++            INFOF("perf: SPU %.1f%% of one core (%.1f ms per 5 s of audio), "
++                  "%u notes",
++                  ms / 50.0, ms, psyz_spu_key_ons);
++            psyz_spu_key_ons = 0;
+             spu_time = spu_frames = 0;
+         }
+     }
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index 9d6bfc8..c474edc 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -58,8 +58,10 @@ static const char vertex_shader_body[] = {
+     "layout(location = 1) in vec4 tex;\n"
+     "layout(location = 2) in vec4 color;\n"
+     "layout(location = 3) in vec4 twin;\n"
++    "layout(location = 4) in vec4 prec;\n" // PGXP x, y, w, on
+     "uniform vec2 resolution;\n"
+     "uniform vec2 drawOffset, halfPixel;\n"
++    "uniform vec2 vramOrigin;\n" // VRAM point at the target's corner
+     "out vec4 vertexColor;\n"
+     "out vec2 rawUV;\n"
+     "flat out uint tpage;\n"
+@@ -78,9 +80,12 @@ static const char vertex_shader_body[] = {
+     // polygons move their PS1 integer coords onto the pixel centres, while
+     // 1:1 sprites keep their position and step their UVs back instead
+     "    vec2 shift = (uint(tex.w) & 0x2000u) != 0u ? halfPixel : vec2(0.0);\n"
+-    "    float x = ((pos.x + drawOffset.x + shift.x) / (1024.0 / 2.0)) - 1.0;\n"
+-    "    float y = ((pos.y + drawOffset.y + shift.y) / (512.0 / 2.0)) - 1.0;\n"
+-    "    gl_Position = vec4(x, y, 0.0, 1.0);\n"
++    // PGXP vertices: exact position, and w for perspective-correct UVs
++    "    vec2 p = prec.w > 0.5 ? prec.xy : pos;\n"
++    "    float w = prec.w > 0.5 ? prec.z : 1.0;\n"
++    "    float x = ((p.x + drawOffset.x + shift.x - vramOrigin.x) / (1024.0 / 2.0)) - 1.0;\n"
++    "    float y = ((p.y + drawOffset.y + shift.y - vramOrigin.y) / (512.0 / 2.0)) - 1.0;\n"
++    "    gl_Position = vec4(x * w, y * w, 0.0, w);\n"
+     // gouraud colors
+     "    vertexColor = color;\n"
+     // select the right texture coords based on the tpage
+@@ -240,6 +245,7 @@ static GLint uniform_resolution = 0;
+ static GLint uniform_tex_vram = 0;
+ static GLint uniform_draw_offset = 0;
+ static GLint uniform_half_pixel = 0;
++static GLint uniform_vram_origin = -1;
+ static GLuint vram_texture;
+ static GLuint vram_fbo = 0;
+ static GLuint scratch_texture = 0;
+@@ -353,6 +359,7 @@ static GLuint Init_SetupShader() {
+     glBindAttribLocation(program, 1, "tex");
+     glBindAttribLocation(program, 2, "color");
+     glBindAttribLocation(program, 3, "twin");
++    glBindAttribLocation(program, 4, "prec");
+     glLinkProgram(program);
+ 
+     int success = 0;
+@@ -596,6 +603,8 @@ bool InitPlatform() {
+     uniform_tex_vram = glGetUniformLocation(shader_program, "texVram");
+     uniform_draw_offset = glGetUniformLocation(shader_program, "drawOffset");
+     uniform_half_pixel = glGetUniformLocation(shader_program, "halfPixel");
++    uniform_vram_origin = glGetUniformLocation(shader_program, "vramOrigin");
++    glUniform2f(uniform_vram_origin, 0, 0);
+ 
+     glUniform1i(uniform_tex_vram, 0);
+     glUniform2f(uniform_draw_offset, 0, 0);
+@@ -622,9 +631,12 @@ bool InitPlatform() {
+         return false;
+     }
+ 
+-#if defined(__EMSCRIPTEN__) || defined(__vita__)
+-    // webgl (and sceGxm) won't let us read a texture we are drawing to. keep
+-    // a separate target
++#if defined(__EMSCRIPTEN__)
++    // webgl won't let us read a texture we are drawing to. keep a separate
++    // target. The Vita (sceGxm) can: a scene reads the texture as the
++    // previous scenes left it. Its separate target was kept in sync with
++    // vitaGL blits that never reached the sampled copy (palettes, drawn
++    // frames), so every paletted texture came out black
+     if (!CreateScaledVramFbo(1)) {
+         return false;
+     }
+@@ -655,13 +667,24 @@ static bool PlatformBackend_SetDriverVsync(bool enable) {
+ 
+ static void UpdateScissor(void);
+ 
++static int active_canvas;
++static GLuint ActiveCanvasFbo(void);
++static void SetActiveCanvasViewport(void);
++
+ static GLuint GetDrawFbo(void) {
++    if (active_canvas >= 0) {
++        return ActiveCanvasFbo();
++    }
+     return HasSeparateDrawTarget() ? scaled_vram_fbo : vram_fbo;
+ }
+ 
+ static void BindDrawFbo(void) {
+     glBindFramebuffer(GL_FRAMEBUFFER, GetDrawFbo());
+-    glViewport(0, 0, VRAM_W * internal_res, VRAM_H * internal_res);
++    if (active_canvas >= 0) {
++        SetActiveCanvasViewport();
++    } else {
++        glViewport(0, 0, VRAM_W * internal_res, VRAM_H * internal_res);
++    }
+ }
+ 
+ // mirror a native VRAM region into the scaled draw target
+@@ -766,7 +789,7 @@ static void ApplyPendingInternalRes(void) {
+     }
+     Draw_FlushBuffer(); // render pending prims with the old multiplier
+     bool need_separate_target = n > 1;
+-#if defined(__EMSCRIPTEN__) || defined(__vita__)
++#if defined(__EMSCRIPTEN__)
+     need_separate_target = true;
+ #endif
+     if (need_separate_target && !CreateScaledVramFbo(n)) {
+@@ -818,6 +841,892 @@ static bool PrepareRgb24(void) {
+     return true;
+ }
+ 
++
++// ---- widescreen canvases --------------------------------------------------
++// With Psyz_VideoSetWidescreen(extra, scale), drawing into a display buffer
++// (a drawing area the size of the display, at an origin the display has
++// shown) goes to a canvas of its own: `extra` game pixels wider on each side,
++// at `scale` canvas pixels per game pixel. Only the viewport moves, the
++// shaders keep their VRAM coordinates, so what lands past the 4:3 edges no
++// longer overdraws the VRAM next to the buffer (texture pages), and the
++// present shows the whole canvas. VRAM reads of a display buffer
++// (StoreImage, MoveImage, textures sampled from it) copy the canvas centre
++// back first; VRAM writes into it (LoadImage, MoveImage, ClearImage) are
++// mirrored into the canvas.
++static unsigned char* AllocRgb888FromFbo(GLuint fbo, int x, int y, int w,
++                                         int h);
++#define MAX_CANVAS 2
++typedef struct {
++    GLuint tex, fbo;
++    int x, y;   // display buffer origin in VRAM
++    int gw, gh; // display buffer size in game pixels
++    int pw, ph; // canvas size in pixels
++    bool dirty; // drawn since its centre was last copied back to VRAM
++} Canvas;
++static Canvas canvas[MAX_CANVAS];
++static int n_canvas = 0;
++static int active_canvas = -1;
++static unsigned wide_extra = 0, wide_scale = 1;
++static GLposi shown_origin[MAX_CANVAS];
++static int n_shown = 0;
++static GLuint canvas_upload_tex = 0;
++
++static GLuint quad_program = 0, quad_vao = 0, quad_vbo = 0;
++static const char quad_vertex_body[] = {"ATTR vec2 pos;\n"
++                                        "ATTR vec2 uv;\n"
++                                        "VARY vec2 vUV;\n"
++                                        "void main() {\n"
++                                        "    vUV = uv;\n"
++                                        "    gl_Position = vec4(pos, 0.0, 1.0);\n"
++                                        "}\n"};
++static const char quad_fragment_body[] = {"VARY vec2 vUV;\n"
++                                          "uniform sampler2D tex;\n"
++                                          "void main() {\n"
++                                          "    FragColor = TEX2D(tex, vUV);\n"
++                                          "}\n"};
++
++static bool InitQuad(void) {
++    if (quad_program) {
++        return true;
++    }
++#if defined(__vita__)
++    GLuint vs = Init_CompileShaderWith(
++        float_prologue_vs_vita, quad_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs = Init_CompileShaderWith(
++        float_prologue_fs_vita, quad_fragment_body, GL_FRAGMENT_SHADER);
++#else
++    GLuint vs = Init_CompileShaderWith(
++        float_prologue_vs_core, quad_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs = Init_CompileShaderWith(
++        float_prologue_fs_core, quad_fragment_body, GL_FRAGMENT_SHADER);
++#endif
++    GLuint program = glCreateProgram();
++    glAttachShader(program, vs);
++    glAttachShader(program, fs);
++    glBindAttribLocation(program, 0, "pos");
++    glBindAttribLocation(program, 1, "uv");
++    glLinkProgram(program);
++    glDeleteShader(vs);
++    glDeleteShader(fs);
++    int success = 0;
++    glGetProgramiv(program, GL_LINK_STATUS, &success);
++    if (!success) {
++        ERRORF("quad shader failed to link");
++        glDeleteProgram(program);
++        return false;
++    }
++    glUseProgram(program);
++    glUniform1i(glGetUniformLocation(program, "tex"), 0);
++    glUseProgram(shader_program);
++#if !defined(__vita__)
++    // core profiles need a buffer: no client-side vertex arrays
++    glGenVertexArrays(1, &quad_vao);
++    glGenBuffers(1, &quad_vbo);
++    glBindVertexArray(quad_vao);
++    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
++    glBufferData(GL_ARRAY_BUFFER, 16 * sizeof(float), NULL, GL_STREAM_DRAW);
++    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
++    glVertexAttribPointer(
++        1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
++    glEnableVertexAttribArray(0);
++    glEnableVertexAttribArray(1);
++    glBindVertexArray(0);
++#endif
++    quad_program = program;
++    return true;
++}
++
++// textured quad over the current viewport: (x0,y0)-(x1,y1) in clip space,
++// (u0,v0) at (x0,y0) and (u1,v1) at (x1,y1); no blending, scissor untouched
++static void DrawTexQuad(GLuint tex, float x0, float y0, float x1, float y1,
++                        float u0, float v0, float u1, float v1) {
++    if (!InitQuad()) {
++        return;
++    }
++    const float q[16] = {x0, y0, u0, v0, x1, y0, u1, v0,
++                         x0, y1, u0, v1, x1, y1, u1, v1};
++    glDisable(GL_BLEND);
++    glUseProgram(quad_program);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, tex);
++#if defined(__vita__)
++    glBindVertexArray(0);
++    glBindBuffer(GL_ARRAY_BUFFER, 0);
++    glEnableVertexAttribArray(0);
++    glEnableVertexAttribArray(1);
++    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), q);
++    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), q + 2);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glDisableVertexAttribArray(0);
++    glDisableVertexAttribArray(1);
++#else
++    glBindVertexArray(quad_vao);
++    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
++    glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glBindVertexArray(0);
++#endif
++    glEnable(GL_BLEND);
++    glUseProgram(shader_program);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++}
++
++static void DeleteCanvas(Canvas* c) {
++    glDeleteFramebuffers(1, &c->fbo);
++    glDeleteTextures(1, &c->tex);
++    c->fbo = c->tex = 0;
++}
++
++static bool CreateCanvas(Canvas* c, int x, int y, int gw, int gh) {
++    c->x = x;
++    c->y = y;
++    c->gw = gw;
++    c->gh = gh;
++    c->pw = (gw + 2 * (int)wide_extra) * (int)wide_scale;
++    c->ph = gh * (int)wide_scale;
++    c->dirty = false;
++    glGenTextures(1, &c->tex);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, c->tex);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, c->pw, c->ph, 0, GL_RGBA,
++                 GL_UNSIGNED_BYTE, NULL);
++    glGenFramebuffers(1, &c->fbo);
++    glBindFramebuffer(GL_FRAMEBUFFER, c->fbo);
++    glFramebufferTexture2D(
++        GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, c->tex, 0);
++    bool ok =
++        glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
++    if (ok) {
++        glDisable(GL_SCISSOR_TEST);
++        glClearColor(0, 0, 0, 0);
++        glClear(GL_COLOR_BUFFER_BIT);
++        glEnable(GL_SCISSOR_TEST);
++    }
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++    if (!ok) {
++        ERRORF("widescreen canvas creation failed (%dx%d)", c->pw, c->ph);
++        DeleteCanvas(c);
++    }
++    return ok;
++}
++
++static void DeleteAllCanvases(void) {
++    for (int i = 0; i < n_canvas; i++) {
++        DeleteCanvas(&canvas[i]);
++    }
++    n_canvas = 0;
++    active_canvas = -1;
++}
++
++static bool CanvasOverlaps(const Canvas* c, int x, int y, int w, int h) {
++    return x < c->x + c->gw && x + w > c->x && y < c->y + c->gh &&
++           y + h > c->y;
++}
++
++// the canvas for the current drawing area, or -1 to draw into VRAM
++static int FindCanvas(int x, int y, int w, int h) {
++    if (!wide_extra || internal_res != 1 || w != display_size.x ||
++        h != display_size.y) {
++        return -1;
++    }
++    bool shown = false;
++    for (int i = 0; i < n_shown; i++) {
++        if (shown_origin[i].x == x && shown_origin[i].y == y) {
++            shown = true;
++        }
++    }
++    if (!shown) {
++        return -1;
++    }
++    for (int i = 0; i < n_canvas; i++) {
++        if (canvas[i].x == x && canvas[i].y == y) {
++            if (canvas[i].gw == w && canvas[i].gh == h) {
++                return i;
++            }
++            // the display mode changed size: start over
++            DeleteCanvas(&canvas[i]);
++            return CreateCanvas(&canvas[i], x, y, w, h) ? i : -1;
++        }
++    }
++    if (n_canvas == MAX_CANVAS ||
++        !CreateCanvas(&canvas[n_canvas], x, y, w, h)) {
++        return -1;
++    }
++    return n_canvas++;
++}
++
++// the canvas's VRAM origin: its pixel 0 shows VRAM x = buffer x - extra
++// (left of VRAM x 0 for a buffer at the left edge, which the clip volume
++// would cut if the viewport moved instead), its row 0 the buffer's top row
++static void CanvasOrigin(const Canvas* c, float* x, float* y) {
++    *x = (float)(c->x - (int)wide_extra);
++    *y = (float)c->y;
++}
++
++// viewport for the main shader with vramOrigin = CanvasOrigin
++static void SetCanvasViewport(const Canvas* c) {
++    (void)c;
++    const int s = (int)wide_scale;
++    glViewport(0, 0, VRAM_W * s, VRAM_H * s);
++}
++
++// the canvas pixels a VRAM rectangle covers; one spanning the whole buffer
++// width takes the margins too
++static SDL_Rect CanvasRect(const Canvas* c, int x, int y, int w, int h) {
++    const int s = (int)wide_scale;
++    SDL_Rect r;
++    if (x <= c->x && x + w >= c->x + c->gw) {
++        r.x = 0;
++        r.w = c->pw;
++    } else {
++        r.x = (x - c->x + (int)wide_extra) * s;
++        r.w = w * s;
++    }
++    int y0 = CLAMP(y, c->y, c->y + c->gh);
++    int y1 = CLAMP(y + h, c->y, c->y + c->gh);
++    r.y = (y0 - c->y) * s;
++    r.h = (y1 - y0) * s;
++    return r;
++}
++
++static void ApplyScissor(void);
++
++// copy the canvas centre (the 4:3 part) back into its VRAM display buffer
++static void SyncCanvasToVram(Canvas* c) {
++    glDisable(GL_SCISSOR_TEST);
++    glBindFramebuffer(GL_FRAMEBUFFER, vram_fbo);
++    glViewport(c->x, c->y, c->gw, c->gh);
++    const float tw = (float)(c->gw + 2 * (int)wide_extra);
++    DrawTexQuad(c->tex, -1.0f, -1.0f, 1.0f, 1.0f, (float)wide_extra / tw, 0.0f,
++                (float)(wide_extra + c->gw) / tw, 1.0f);
++    c->dirty = false;
++    BindDrawFbo();
++    ApplyScissor();
++}
++
++static void SyncCanvasesOverlapping(int x, int y, int w, int h) {
++    for (int i = 0; i < n_canvas; i++) {
++        if (canvas[i].dirty && CanvasOverlaps(&canvas[i], x, y, w, h)) {
++            SyncCanvasToVram(&canvas[i]);
++        }
++    }
++}
++
++// before a flush: textures or palettes read from a display buffer that only
++// the canvas has up to date
++static void SyncCanvasesSampled(void) {
++    bool any = false;
++    for (int i = 0; i < n_canvas; i++) {
++        any |= canvas[i].dirty;
++    }
++    if (!any) {
++        return;
++    }
++    for (int v = 0; v < n_vertices; v++) {
++        const Vertex* vx = &vertex_buf[v];
++        if (vx->t & TPAGE_NOTEXTURE) {
++            continue;
++        }
++        int depth = (vx->t >> 7) & 3;
++        int px = (vx->t & 15) * 64, py = ((vx->t >> 4) & 1) * 256;
++        int pw = depth == 0 ? 64 : depth == 1 ? 128 : 256;
++        int cx = (vx->c & 63) * 16, cy = vx->c >> 6;
++        for (int i = 0; i < n_canvas; i++) {
++            Canvas* c = &canvas[i];
++            if (c->dirty && (CanvasOverlaps(c, px, py, pw, 256) ||
++                             (depth < 2 && CanvasOverlaps(c, cx, cy, 256, 1)))) {
++                SyncCanvasToVram(c);
++            }
++        }
++    }
++}
++
++// a VRAM rectangle that was just written (texture `tex`, the region's pixels
++// at uv0-uv1) mirrored into the canvases it touches
++static void CopyIntoCanvases(int x, int y, int w, int h, GLuint tex, float u0,
++                             float v0, float u1, float v1, bool clear_sides) {
++    bool done = false;
++    for (int i = 0; i < n_canvas; i++) {
++        Canvas* c = &canvas[i];
++        if (!CanvasOverlaps(c, x, y, w, h)) {
++            continue;
++        }
++        SDL_Rect full = CanvasRect(c, x, y, w, h);
++        glBindFramebuffer(GL_FRAMEBUFFER, c->fbo);
++        glEnable(GL_SCISSOR_TEST);
++        if (clear_sides && full.w == c->pw) {
++            glScissor(full.x, full.y, full.w, full.h);
++            glClearColor(0, 0, 0, 0);
++            glClear(GL_COLOR_BUFFER_BIT);
++        }
++        glScissor(0, 0, c->pw, c->ph);
++        const int s = (int)wide_scale;
++        glViewport((x - c->x + (int)wide_extra) * s, (y - c->y) * s, w * s,
++                   h * s);
++        DrawTexQuad(tex, -1.0f, -1.0f, 1.0f, 1.0f, u0, v0, u1, v1);
++        done = true;
++    }
++    if (done) {
++        BindDrawFbo();
++        ApplyScissor();
++    }
++}
++
++static void UploadIntoCanvases(PS1_RECT* rect, const u8* rgba) {
++    if (!n_canvas || display_rgb24) {
++        return;
++    }
++    bool any = false;
++    for (int i = 0; i < n_canvas; i++) {
++        any |= CanvasOverlaps(&canvas[i], rect->x, rect->y, rect->w, rect->h);
++    }
++    if (!any) {
++        return;
++    }
++    if (!canvas_upload_tex) {
++        glGenTextures(1, &canvas_upload_tex);
++    }
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, canvas_upload_tex);
++    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rect->w, rect->h, 0, GL_RGBA,
++                 GL_UNSIGNED_BYTE, rgba);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++    CopyIntoCanvases(rect->x, rect->y, rect->w, rect->h, canvas_upload_tex,
++                     0.0f, 0.0f, 1.0f, 1.0f, true);
++}
++
++static Canvas* ShownCanvas(void) {
++    for (int i = 0; i < n_canvas; i++) {
++        if (canvas[i].x == display_area.x && canvas[i].y == display_area.y &&
++            canvas[i].gw == display_size.x && canvas[i].gh == display_size.y) {
++            return &canvas[i];
++        }
++    }
++    return NULL;
++}
++
++int Psyz_VideoSetWidescreen(unsigned extra, unsigned scale) {
++    if (extra > 256 || scale > 8) {
++        return -1;
++    }
++    if (scale == 0) {
++        scale = 1;
++    }
++    if (extra == wide_extra && scale == wide_scale) {
++        return 0;
++    }
++    if (is_platform_init_successful) {
++        Draw_FlushBuffer();
++        for (int i = 0; i < n_canvas; i++) {
++            if (canvas[i].dirty) {
++                SyncCanvasToVram(&canvas[i]);
++            }
++        }
++        DeleteAllCanvases();
++    }
++    wide_extra = extra;
++    wide_scale = scale;
++    if (is_platform_init_successful) {
++        UpdateScissor();
++    }
++    return 0;
++}
++
++unsigned Psyz_VideoGetWidescreen(void) { return wide_extra; }
++
++static GLuint ActiveCanvasFbo(void) { return canvas[active_canvas].fbo; }
++static void SetActiveCanvasViewport(void) {
++    SetCanvasViewport(&canvas[active_canvas]);
++}
++
++
++// ---- indexed images (native map backgrounds) --------------------------------
++// A whole background as one texture of palette indices (R = index, A = 0 for
++// a pixel with no image, drawn black), looked up in a CLUT of the VRAM like
++// an 8-bit texture page: the game's day/night palette changes still apply.
++// It is drawn in ordering-table order (the game queues an application GP0
++// command) at any size, so a background wider than the VRAM tile ring, or
++// with more pixels than the PS1 had, can be shown.
++#define MAX_INDEXED 2
++static struct {
++    GLuint tex;
++    int w, h;
++} indexed[MAX_INDEXED];
++static GLuint idx_program = 0;
++static GLint idx_u_clut = -1;
++static const char idx_fragment_body[] = {
++    "VARY vec2 vUV;\n"
++    "uniform sampler2D texVram;\n"
++    "uniform sampler2D texIdx;\n"
++    "uniform vec2 clutPos;\n"
++    "void main() {\n"
++    "    vec4 p = TEX2D(texIdx, vUV);\n"
++    "    if (p.a < 0.5) {\n"
++    "        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
++    "        return;\n"
++    "    }\n"
++    "    float i = floor(p.r * 255.0 + 0.5);\n"
++    "    vec4 c = TEX2D(texVram, (clutPos + vec2(i, 0.0) + 0.5) /\n"
++    "                            vec2(1024.0, 512.0));\n"
++    "    if (c.r == 0.0 && c.g == 0.0 && c.b == 0.0 && c.a == 0.0) {\n"
++    "        discard;\n"
++    "    }\n"
++    "    FragColor = vec4(c.rgb, 1.0);\n"
++    "}\n"};
++
++static bool InitIndexed(void) {
++    if (idx_program) {
++        return true;
++    }
++    if (!InitQuad()) {
++        return false;
++    }
++#if defined(__vita__)
++    GLuint vs = Init_CompileShaderWith(
++        float_prologue_vs_vita, quad_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs = Init_CompileShaderWith(
++        float_prologue_fs_vita, idx_fragment_body, GL_FRAGMENT_SHADER);
++#else
++    GLuint vs = Init_CompileShaderWith(
++        float_prologue_vs_core, quad_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs = Init_CompileShaderWith(
++        float_prologue_fs_core, idx_fragment_body, GL_FRAGMENT_SHADER);
++#endif
++    GLuint program = glCreateProgram();
++    glAttachShader(program, vs);
++    glAttachShader(program, fs);
++    glBindAttribLocation(program, 0, "pos");
++    glBindAttribLocation(program, 1, "uv");
++    glLinkProgram(program);
++    glDeleteShader(vs);
++    glDeleteShader(fs);
++    int success = 0;
++    glGetProgramiv(program, GL_LINK_STATUS, &success);
++    if (!success) {
++        ERRORF("indexed image shader failed to link");
++        glDeleteProgram(program);
++        return false;
++    }
++    glUseProgram(program);
++    glUniform1i(glGetUniformLocation(program, "texVram"), 0);
++    glUniform1i(glGetUniformLocation(program, "texIdx"), 1);
++    idx_u_clut = glGetUniformLocation(program, "clutPos");
++    glUseProgram(shader_program);
++    idx_program = program;
++    return true;
++}
++
++int Psyz_VideoSetIndexedImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    if (slot >= MAX_INDEXED || !InitPlatform()) {
++        return -1;
++    }
++    if (indexed[slot].tex) {
++        glDeleteTextures(1, &indexed[slot].tex);
++        indexed[slot].tex = 0;
++    }
++    if (!rgba || !w || !h) {
++        return 0;
++    }
++    if (!InitIndexed()) {
++        return -1;
++    }
++    glGenTextures(1, &indexed[slot].tex);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, indexed[slot].tex);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)w, (GLsizei)h, 0,
++                 GL_RGBA, GL_UNSIGNED_BYTE, rgba);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++    indexed[slot].w = (int)w;
++    indexed[slot].h = (int)h;
++    return 0;
++}
++
++int Psyz_VideoDrawIndexedImage(
++    unsigned slot, int x, int y, int w, int h, unsigned clut) {
++    if (slot >= MAX_INDEXED || !indexed[slot].tex || !InitIndexed()) {
++        return -1;
++    }
++    Draw_FlushBuffer(); // keep the ordering-table order
++    SyncCanvasesSampled();
++
++    // VRAM coordinates, like the vertex shader: position plus draw offset
++    float ox = 0, oy = 0;
++    if (active_canvas >= 0) {
++        CanvasOrigin(&canvas[active_canvas], &ox, &oy);
++    }
++    float x0 = (float)(x + draw_offset.x) - ox;
++    float y0 = (float)(y + draw_offset.y) - oy;
++    float x1 = x0 + (float)w, y1 = y0 + (float)h;
++    float q[16] = {x0, y0, 0.0f, 0.0f, x1, y0, 1.0f, 0.0f,
++                   x0, y1, 0.0f, 1.0f, x1, y1, 1.0f, 1.0f};
++    for (int i = 0; i < 16; i += 4) {
++        q[i] = q[i] / (VRAM_W / 2.0f) - 1.0f;
++        q[i + 1] = q[i + 1] / (VRAM_H / 2.0f) - 1.0f;
++    }
++    if (active_canvas >= 0) {
++        SetActiveCanvasViewport();
++        canvas[active_canvas].dirty = true;
++    } else {
++        glViewport(0, 0, VRAM_W * internal_res, VRAM_H * internal_res);
++    }
++    glDisable(GL_BLEND);
++    glUseProgram(idx_program);
++    glUniform2f(idx_u_clut, (float)((clut & 63) * 16), (float)(clut >> 6));
++    glActiveTexture(GL_TEXTURE1);
++    glBindTexture(GL_TEXTURE_2D, indexed[slot].tex);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++#if defined(__vita__)
++    glBindVertexArray(0);
++    glBindBuffer(GL_ARRAY_BUFFER, 0);
++    glEnableVertexAttribArray(0);
++    glEnableVertexAttribArray(1);
++    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), q);
++    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), q + 2);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glDisableVertexAttribArray(0);
++    glDisableVertexAttribArray(1);
++#else
++    glBindVertexArray(quad_vao);
++    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
++    glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glBindVertexArray(0);
++#endif
++    glActiveTexture(GL_TEXTURE1);
++    glBindTexture(GL_TEXTURE_2D, 0);
++    glActiveTexture(GL_TEXTURE0);
++    glEnable(GL_BLEND);
++    glUseProgram(shader_program);
++    return 0;
++}
++
++
++// ---- external movies --------------------------------------------------------
++// Psyz_VideoPlayMovie: plays a video file full screen (aspect kept), with its
++// audio, until it ends or skip() says so. The Vita decodes it in hardware
++// (sceAvPlayer, H.264/AAC MP4) and samples its YUV frames directly, as
++// vitaGL's video_playback sample does; elsewhere ffmpeg decodes it through a
++// pipe (a development path).
++
++static void PresentMovieTexture(GLuint tex, int w, int h) {
++    WndSize win;
++#if defined(__vita__)
++    win.w = PSYZ_VITA_SCREEN_W;
++    win.h = PSYZ_VITA_SCREEN_H;
++#else
++    SDL_GetWindowSizeInPixels(sdl3_window, &win.w, &win.h);
++#endif
++    SDL_Rect dst = FitGameToWindow((float)w / (float)h, win);
++    glBindFramebuffer(GL_FRAMEBUFFER, 0);
++    glDisable(GL_SCISSOR_TEST);
++    glViewport(0, 0, win.w, win.h);
++    glClearColor(0, 0, 0, 1);
++    glClear(GL_COLOR_BUFFER_BIT);
++    if (tex) {
++        glViewport(dst.x, dst.y, dst.w, dst.h);
++        // row 0 of a frame is its top line
++        DrawTexQuad(tex, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f);
++    }
++#if defined(__vita__)
++    vglSwapBuffers(GL_FALSE);
++#else
++    SDL_GL_SwapWindow(sdl3_window);
++#endif
++}
++
++static void EndMovie(void) {
++    BindDrawFbo();
++    ApplyScissor();
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++}
++
++#if defined(__vita__)
++#include <psp2/audioout.h>
++#include <psp2/avplayer.h>
++#include <psp2/gxm.h>
++#include <psp2/io/stat.h>
++#include <psp2/kernel/sysmem.h>
++#include <psp2/kernel/threadmgr.h>
++#include <psp2/sysmodule.h>
++#include <malloc.h>
++
++#define MOVIE_BUFFERS 5
++#define PHYCONT_ALIGN (1024 * 1024)
++
++static void* MovieAllocCpu(void* p, uint32_t align, uint32_t size) {
++    (void)p;
++    return memalign(align, size);
++}
++static void MovieFreeCpu(void* p, void* ptr) {
++    (void)p;
++    free(ptr);
++}
++static void* MovieAllocGpu(void* p, uint32_t align, uint32_t size) {
++    (void)p, (void)align;
++    size = (size + PHYCONT_ALIGN - 1) & ~(PHYCONT_ALIGN - 1);
++    SceUID blk = sceKernelAllocMemBlock(
++        "dw1_movie", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, size,
++        NULL);
++    if (blk < 0) {
++        return NULL;
++    }
++    void* res;
++    sceKernelGetMemBlockBase(blk, &res);
++    sceGxmMapMemory(res, size, SCE_GXM_MEMORY_ATTRIB_RW);
++    return res;
++}
++static void MovieFreeGpu(void* p, void* addr) {
++    (void)p;
++    glFinish(); // the GPU may still sample it
++    SceUID blk = sceKernelFindMemBlockByAddr(addr, 0);
++    sceGxmUnmapMemory(addr);
++    sceKernelFreeMemBlock(blk);
++}
++
++static SceAvPlayerHandle movie_player;
++static volatile int movie_running;
++
++static int MovieAudioThread(SceSize args, void* argp) {
++    (void)args, (void)argp;
++    int port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_BGM, 1024, 48000,
++                                   SCE_AUDIO_OUT_MODE_STEREO);
++    while (movie_running) {
++        SceAvPlayerFrameInfo frame;
++        if (sceAvPlayerIsActive(movie_player) &&
++            sceAvPlayerGetAudioData(movie_player, &frame)) {
++            sceAudioOutSetConfig(
++                port, 1024, frame.details.audio.sampleRate,
++                frame.details.audio.channelCount == 1
++                    ? SCE_AUDIO_OUT_MODE_MONO
++                    : SCE_AUDIO_OUT_MODE_STEREO);
++            sceAudioOutOutput(port, frame.pData);
++        } else {
++            sceKernelDelayThread(1000);
++        }
++    }
++    if (port >= 0) {
++        sceAudioOutReleasePort(port);
++    }
++    return sceKernelExitDeleteThread(0);
++}
++
++int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
++    SceIoStat st;
++    if (sceIoGetstat(path, &st) < 0 || !InitPlatform() || !InitQuad()) {
++        return -1;
++    }
++    Draw_FlushBuffer();
++    sceSysmoduleLoadModule(SCE_SYSMODULE_AVPLAYER);
++    SceAvPlayerInitData init;
++    memset(&init, 0, sizeof(init));
++    init.memoryReplacement.allocate = MovieAllocCpu;
++    init.memoryReplacement.deallocate = MovieFreeCpu;
++    init.memoryReplacement.allocateTexture = MovieAllocGpu;
++    init.memoryReplacement.deallocateTexture = MovieFreeGpu;
++    init.basePriority = 0xA0;
++    init.numOutputVideoFrameBuffers = MOVIE_BUFFERS;
++    init.autoStart = GL_TRUE;
++    movie_player = sceAvPlayerInit(&init);
++    if (!movie_player) {
++        ERRORF("sceAvPlayerInit failed");
++        return -1;
++    }
++    // textures whose data pointer becomes each decoded frame
++    GLuint tex[MOVIE_BUFFERS];
++    SceGxmTexture* gxm_tex[MOVIE_BUFFERS];
++    glGenTextures(MOVIE_BUFFERS, tex);
++    for (int i = 0; i < MOVIE_BUFFERS; i++) {
++        glBindTexture(GL_TEXTURE_2D, tex[i]);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 8, 8, 0, GL_RGBA,
++                     GL_UNSIGNED_BYTE, NULL);
++        gxm_tex[i] = vglGetGxmTexture(GL_TEXTURE_2D);
++        vglFree(vglGetTexDataPointer(GL_TEXTURE_2D));
++    }
++    movie_running = 1;
++    SceUID audio = sceKernelCreateThread("dw1_movie_audio", MovieAudioThread,
++                                         0x10000100 - 10, 0x4000, 0, 0, NULL);
++    sceKernelStartThread(audio, 0, NULL);
++    int added = sceAvPlayerAddSource(movie_player, path);
++    INFOF("movie: playing %s (add source %d)", path, added);
++
++    int idx = 0, shown = 0, result = 1, w = 960, h = 544;
++    Uint64 started = SDL_GetTicks();
++    for (;;) {
++        SDL_PumpEvents();
++        if (!shown && SDL_GetTicks() - started > 5000) {
++            // sceAvPlayer never started (memory, unsupported stream): the
++            // game plays its own movie instead of waiting on a black screen
++            ERRORF("movie: no frame from %s after 5 s, giving up", path);
++            result = -1;
++            break;
++        }
++        if (skip && skip()) {
++            result = 0;
++            break;
++        }
++        if (sceAvPlayerIsActive(movie_player)) {
++            SceAvPlayerFrameInfo frame;
++            if (sceAvPlayerGetVideoData(movie_player, &frame)) {
++                idx = (idx + 1) % MOVIE_BUFFERS;
++                w = frame.details.video.width;
++                h = frame.details.video.height;
++                sceGxmTextureInitLinear(gxm_tex[idx], frame.pData,
++                                        SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
++                                        w, h, 0);
++                sceGxmTextureSetMinFilter(
++                    gxm_tex[idx], SCE_GXM_TEXTURE_FILTER_LINEAR);
++                sceGxmTextureSetMagFilter(
++                    gxm_tex[idx], SCE_GXM_TEXTURE_FILTER_LINEAR);
++                shown = 1;
++            }
++        } else if (shown) {
++            break; // played to the end
++        }
++        PresentMovieTexture(shown ? tex[idx] : 0, w, h);
++    }
++    movie_running = 0;
++    sceAvPlayerStop(movie_player);
++    sceAvPlayerClose(movie_player);
++    sceKernelWaitThreadEnd(audio, NULL, NULL);
++    glFinish();
++    glDeleteTextures(MOVIE_BUFFERS, tex);
++    EndMovie();
++    INFOF("movie: %s", result > 0 ? "finished" : result == 0 ? "skipped" : "failed");
++    return result;
++}
++
++#elif !defined(__EMSCRIPTEN__)
++#include <stdio.h>
++
++// ffmpeg through pipes: rgba frames, and 48 kHz stereo s16 into an SDL stream
++int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
++    char cmd[1024];
++    int w = 0, h = 0, num = 30, den = 1;
++    FILE* f = fopen(path, "rb");
++    if (!f || !InitPlatform() || !InitQuad()) {
++        if (f) {
++            fclose(f);
++        }
++        return -1;
++    }
++    fclose(f);
++    snprintf(cmd, sizeof(cmd),
++             "ffprobe -v error -select_streams v:0 -show_entries "
++             "stream=width,height,r_frame_rate -of csv=p=0 \"%s\"",
++             path);
++    FILE* probe = popen(cmd, "r");
++    if (!probe || fscanf(probe, "%d,%d,%d/%d", &w, &h, &num, &den) != 4 ||
++        w <= 0 || h <= 0 || num <= 0 || den <= 0) {
++        if (probe) {
++            pclose(probe);
++        }
++        ERRORF("movie: cannot probe %s (ffprobe missing?)", path);
++        return -1;
++    }
++    pclose(probe);
++    snprintf(cmd, sizeof(cmd),
++             "ffmpeg -v error -i \"%s\" -f rawvideo -pix_fmt rgba -", path);
++    FILE* video = popen(cmd, "r");
++    snprintf(cmd, sizeof(cmd),
++             "ffmpeg -v error -i \"%s\" -vn -f s16le -ac 2 -ar 48000 -", path);
++    FILE* audio = popen(cmd, "r");
++    SDL_AudioSpec spec = {SDL_AUDIO_S16LE, 2, 48000};
++    SDL_AudioStream* stream = SDL_OpenAudioDeviceStream(
++        SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
++    if (stream) {
++        SDL_ResumeAudioStreamDevice(stream);
++    }
++    Draw_FlushBuffer();
++    GLuint tex;
++    glGenTextures(1, &tex);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, tex);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    size_t frame_bytes = (size_t)w * h * 4;
++    unsigned char* rgba = malloc(frame_bytes);
++    char chunk[16384];
++    const bool turbo = SDL_getenv("DW1_TURBO") != NULL;
++    Uint64 t0 = SDL_GetTicksNS();
++    long frame = 0;
++    int result = 1;
++    INFOF("movie: playing %s (%dx%d at %d/%d)", path, w, h, num, den);
++    while (video && rgba && fread(rgba, 1, frame_bytes, video) == frame_bytes) {
++        SDL_PumpEvents();
++        if (skip && skip()) {
++            result = 0;
++            break;
++        }
++        while (stream && audio &&
++               SDL_GetAudioStreamQueued(stream) < 48000 * 4 / 4) {
++            size_t n = fread(chunk, 1, sizeof(chunk), audio);
++            if (n == 0) {
++                break;
++            }
++            SDL_PutAudioStreamData(stream, chunk, (int)n);
++        }
++        glBindTexture(GL_TEXTURE_2D, tex);
++        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
++                     GL_UNSIGNED_BYTE, rgba);
++        PresentMovieTexture(tex, w, h);
++        frame++;
++        Uint64 due = t0 + (Uint64)frame * 1000000000ull * den / num;
++        Uint64 now = SDL_GetTicksNS();
++        if (!turbo && due > now) {
++            SDL_DelayNS(due - now);
++        }
++    }
++    free(rgba);
++    if (video) {
++        pclose(video);
++    }
++    if (audio) {
++        pclose(audio);
++    }
++    if (stream) {
++        SDL_DestroyAudioStream(stream);
++    }
++    glDeleteTextures(1, &tex);
++    EndMovie();
++    INFOF("movie: %s after %ld frames", result ? "finished" : "skipped",
++          frame);
++    return frame > 0 ? result : -1;
++}
++#else
++int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
++    (void)path, (void)skip;
++    return -1;
++}
++#endif
++
++#if defined(__vita__)
++static bool PresentFromVram(const SDL_Rect* src, const SDL_Rect* dst);
++// The upload draws land in VRAM when their scene ends: until then the
++// primitives that sample it read what the previous scenes left, so a menu
++// that rewrites its text every frame flickered between old and new. The next
++// flush ends the scene first (glFlush: no wait for the GPU), once for any
++// number of uploads in a row
++static bool upload_pending = false;
++#endif
+ static void PlatformBackend_Present_impl(void) {
+     if (!InitPlatform()) {
+         return;
+@@ -845,6 +1754,14 @@ static void PlatformBackend_Present_impl(void) {
+         game_aspect = (float)VRAM_W / (float)VRAM_H;
+     }
+ 
++    Canvas* shown = disp_on && !use_rgb24 && !debug_show_vram && wide_extra
++                        ? ShownCanvas()
++                        : NULL;
++    if (shown) {
++        game_aspect *=
++            (float)(shown->gw + 2 * (int)wide_extra) / (float)shown->gw;
++    }
++
+     WndSize win;
+ #if defined(__vita__)
+     win.w = PSYZ_VITA_SCREEN_W;
+@@ -858,7 +1775,13 @@ static void PlatformBackend_Present_impl(void) {
+     glClearColor(0, 0, 0, 1);
+     glClear(GL_COLOR_BUFFER_BIT);
+ 
+-    if (disp_on && pixel_filter && !debug_show_vram && InitPixelFilter()) {
++    if (shown) {
++        // canvas row 0 is the top line
++        glBindFramebuffer(GL_FRAMEBUFFER, 0);
++        glViewport(dst.x, dst.y, dst.w, dst.h);
++        DrawTexQuad(shown->tex, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
++                    0.0f);
++    } else if (disp_on && pixel_filter && !debug_show_vram && InitPixelFilter()) {
+         GLuint src_tex = use_rgb24             ? rgb24_texture
+                          : HasSeparateDrawTarget() ? scaled_vram_texture
+                                                    : vram_texture;
+@@ -879,6 +1802,9 @@ static void PlatformBackend_Present_impl(void) {
+         glBindVertexArray(0);
+         glEnable(GL_BLEND);
+         glViewport(0, 0, win.w, win.h);
++#if defined(__vita__)
++    } else if (disp_on && !use_rgb24 && PresentFromVram(&src, &dst)) {
++#endif
+     } else if (disp_on) {
+         glBlitFramebuffer(src.x * n, (src.y + src.h) * n, (src.x + src.w) * n,
+                           src.y * n, dst.x, dst.y, dst.x + dst.w, dst.y + dst.h,
+@@ -968,8 +1894,15 @@ void ResetPlatform(void) {
+     QuitPlatform();
+ }
+ 
++static unsigned char* AllocRgb888FromFbo(GLuint fbo, int x, int y, int w,
++                                         int h);
+ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+-    if (vram_fbo == 0) {
++    return AllocRgb888FromFbo(vram_fbo, x, y, w, h);
++}
++
++static unsigned char* AllocRgb888FromFbo(GLuint fbo, int x, int y, int w,
++                                         int h) {
++    if (fbo == 0) {
+         ERRORF("FBO not initialized");
+         return NULL;
+     }
+@@ -982,7 +1915,7 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+     while (glGetError() != GL_NO_ERROR) {
+     }
+ 
+-    glBindFramebuffer(GL_READ_FRAMEBUFFER, vram_fbo);
++    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+ 
+     size_t count = (size_t)w * h;
+     u8* rgba = GetVramConvertBuffer(count * 4);
+@@ -1009,6 +1942,13 @@ static unsigned char* AllocRgb888Region(int x, int y, int w, int h) {
+ }
+ 
+ unsigned char* Psyz_VideoAllocCapturedFrame(int* w, int* h) {
++    Canvas* shown = wide_extra && !display_rgb24 ? ShownCanvas() : NULL;
++    if (shown) {
++        Draw_FlushBuffer();
++        *w = shown->pw;
++        *h = shown->ph;
++        return AllocRgb888FromFbo(shown->fbo, 0, 0, *w, *h);
++    }
+     *w = display_size.x;
+     *h = display_size.y;
+     return display_rgb24
+@@ -1054,14 +1994,26 @@ static void UpdateScissor(void) {
+     }
+     Draw_FlushBuffer();
+ 
+-    int sx = draw_area_start.x * internal_res;
+-    int sy = draw_area_start.y * internal_res;
+-    int sw = width * internal_res;
+-    int sh = height * internal_res;
+-    glEnable(GL_SCISSOR_TEST);
+-    glScissor(sx, sy, sw, sh);
+     scissor_rect =
+         (SDL_Rect){draw_area_start.x, draw_area_start.y, width, height};
++    int was = active_canvas;
++    active_canvas = FindCanvas(draw_area_start.x, draw_area_start.y, width,
++                               height);
++    if (active_canvas != was) {
++        BindDrawFbo();
++    }
++    ApplyScissor();
++}
++
++static void ApplyScissor(void) {
++    glEnable(GL_SCISSOR_TEST);
++    if (active_canvas >= 0) {
++        // the canvas is the drawing area plus its margins
++        glScissor(0, 0, canvas[active_canvas].pw, canvas[active_canvas].ph);
++        return;
++    }
++    glScissor(scissor_rect.x * internal_res, scissor_rect.y * internal_res,
++              scissor_rect.w * internal_res, scissor_rect.h * internal_res);
+ }
+ static void ApplyDisplayPendingChanges() {
+     if (!InitPlatform()) {
+@@ -1109,6 +2061,13 @@ void Draw_DisplayArea(unsigned int x, unsigned int y) {
+         rgb24_dirty = true;
+     display_area.x = (GLint)x;
+     display_area.y = (GLint)y;
++    bool known = false;
++    for (int i = 0; i < n_shown; i++) {
++        known |= shown_origin[i].x == (int)x && shown_origin[i].y == (int)y;
++    }
++    if (!known && n_shown < MAX_CANVAS) {
++        shown_origin[n_shown++] = display_area;
++    }
+ 
+     Draw_FlushBuffer();
+     ApplyDisplayPendingChanges();
+@@ -1171,6 +2130,39 @@ int Draw_ExequeSync() { return 0; }
+ 
+ static unsigned int VAO = -1, VBO = -1, EBO = -1;
+ 
++// PGXP (Psyz_VideoSetPgxp): per vertex exact x, y, depth w and 1 when used,
++// beside vertex_buf. A polygon uses them only when the GTE recorded all its
++// vertices; anything else (2D, lines, sprites) keeps the PS1 integers.
++static unsigned int PGXP_VBO = -1;
++static float pgxp_buf[MAX_VERTEX_COUNT][4];
++static bool pgxp_video = false;
++
++int Psyz_VideoSetPgxp(int on) {
++    pgxp_video = on != 0;
++    Psyz_PgxpSetEnabled(pgxp_video);
++    return 0;
++}
++
++int Psyz_VideoGetPgxp(void) { return pgxp_video; }
++
++// fills the PGXP slots of the n vertices about to be enqueued
++static void PgxpFill(int n, bool poly) {
++    float(*p)[4] = &pgxp_buf[vertex_cur - vertex_buf];
++    if (poly && pgxp_video && n <= PGXP_MAX_POLY) {
++        short sx[PGXP_MAX_POLY], sy[PGXP_MAX_POLY];
++        for (int i = 0; i < n; i++) {
++            sx[i] = vertex_cur[i].x;
++            sy[i] = vertex_cur[i].y;
++        }
++        if (Psyz_PgxpLookupPolygon(n, sx, sy, p)) {
++            return;
++        }
++    }
++    for (int i = 0; i < n; i++) {
++        p[i][3] = 0.0f;
++    }
++}
++
+ static void Draw_InitBuffer() {
+     glGenVertexArrays(1, &VAO);
+     glBindVertexArray(VAO);
+@@ -1197,9 +2189,42 @@ static void Draw_InitBuffer() {
+     glVertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(Vertex),
+                           (void*)offsetof(Vertex, twin));
+     glEnableVertexAttribArray(3);
++
++    glGenBuffers(1, &PGXP_VBO);
++    glBindBuffer(GL_ARRAY_BUFFER, PGXP_VBO);
++    glBufferData(GL_ARRAY_BUFFER, sizeof(pgxp_buf), pgxp_buf, GL_DYNAMIC_DRAW);
++    glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(pgxp_buf[0]), 0);
++    glEnableVertexAttribArray(4);
+     glBindVertexArray(0);
+ }
+ 
++// Widescreen: an untextured quad spanning the whole 4:3 width of the canvas
++// (a fade, a flash, a screen tint) reaches the margins too
++static void StretchFullWidth(Vertex* v, int n) {
++    if (active_canvas < 0 || n != 4 || !(v[0].t & TPAGE_NOTEXTURE)) {
++        return;
++    }
++    const Canvas* c = &canvas[active_canvas];
++    int x0 = v[0].x, x1 = v[0].x, y0 = v[0].y, y1 = v[0].y;
++    for (int i = 1; i < 4; i++) {
++        x0 = v[i].x < x0 ? v[i].x : x0;
++        x1 = v[i].x > x1 ? v[i].x : x1;
++        y0 = v[i].y < y0 ? v[i].y : y0;
++        y1 = v[i].y > y1 ? v[i].y : y1;
++    }
++    if (x0 + draw_offset.x > c->x || x1 + draw_offset.x < c->x + c->gw - 1 ||
++        y1 - y0 < c->gh / 2) {
++        return;
++    }
++    for (int i = 0; i < 4; i++) {
++        if (v[i].x == x0) {
++            v[i].x = (short)(x0 - (int)wide_extra);
++        } else if (v[i].x == x1) {
++            v[i].x = (short)(x1 + (int)wide_extra);
++        }
++    }
++}
++
+ int Draw_PushPrim(u_long* packets, int max_len) {
+     int len = max_len;
+     int code = (int)(*packets >> 24) & 0xFF;
+@@ -1274,6 +2299,8 @@ int Draw_PushPrim(u_long* packets, int max_len) {
+             }
+ 
+             SET_TC_ALL(vertex_cur, tpage, clut);
++            StretchFullWidth(vertex_cur, nVertices);
++            PgxpFill(nVertices, true);
+             Draw_EnqueueBuffer(nVertices, nIndices);
+         } else {
+             // shouldn't happen on a normal PSX application
+@@ -1387,6 +2414,7 @@ int Draw_PushPrim(u_long* packets, int max_len) {
+                 index_cur[3] = base + 0;
+                 index_cur[4] = base + 2;
+                 index_cur[5] = base + 3;
++                PgxpFill(4, false);
+                 Draw_EnqueueBuffer(4, 6);
+             }
+         }
+@@ -1461,6 +2489,8 @@ int Draw_PushPrim(u_long* packets, int max_len) {
+         index_cur[4] = n_vertices + 3;
+         index_cur[5] = n_vertices + 2;
+         SET_TC_ALL(vertex_cur, tpage, clut);
++        StretchFullWidth(vertex_cur, 4);
++        PgxpFill(4, false);
+         Draw_EnqueueBuffer(4, 6);
+     }
+     return max_len - len;
+@@ -1506,6 +2536,18 @@ static void Draw_ClearImage_impl(PS1_RECT* rect, u_char r, u_char g, u_char b) {
+                   rect->w * internal_res, rect->h * internal_res);
+         glClear(GL_COLOR_BUFFER_BIT);
+     }
++    for (int i = 0; i < n_canvas; i++) {
++        Canvas* c = &canvas[i];
++        if (CanvasOverlaps(c, rect->x, rect->y, rect->w, rect->h)) {
++            SDL_Rect cr = CanvasRect(c, rect->x, rect->y, rect->w, rect->h);
++            glBindFramebuffer(GL_FRAMEBUFFER, c->fbo);
++            glScissor(cr.x, cr.y, cr.w, cr.h);
++            glClear(GL_COLOR_BUFFER_BIT);
++        }
++    }
++#if defined(__vita__)
++    upload_pending = true; // lands at the end of the scene, like an upload
++#endif
+     BindDrawFbo();
+     UpdateScissor();
+ }
+@@ -1598,6 +2640,7 @@ static void UploadToVram(PS1_RECT* rect, const u8* rgba) {
+     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+     glDisableVertexAttribArray(0);
+     glDisableVertexAttribArray(1);
++    upload_pending = true;
+ 
+     glEnable(GL_BLEND);
+     glUseProgram(shader_program);
+@@ -1605,6 +2648,43 @@ static void UploadToVram(PS1_RECT* rect, const u8* rgba) {
+     BindDrawFbo();
+     glEnable(GL_SCISSOR_TEST);
+ }
++
++// present the display area with the same shader as the uploads: vitaGL's
++// glBlitFramebuffer reads an FBO texture upside down from how its shaders
++// sample it (rows counted from 512 down), so the blit showed the frame 32
++// lines low with the next buffer's top in the gap
++static bool PresentFromVram(const SDL_Rect* src, const SDL_Rect* dst) {
++    if (!upload_program && !InitUpload()) {
++        return false;
++    }
++    const float u0 = (float)src->x / VRAM_W;
++    const float u1 = (float)(src->x + src->w) / VRAM_W;
++    const float v0 = (float)src->y / VRAM_H;
++    const float v1 = (float)(src->y + src->h) / VRAM_H;
++    // positions in the upload shader's VRAM pixels: 0..1024 x 0..512 is the
++    // whole viewport, its top (512) showing the first display line
++    const float quad[16] = {0.0f,    0.0f,   u0, v1, 1024.0f, 0.0f,   u1, v1,
++                            0.0f,    512.0f, u0, v0, 1024.0f, 512.0f, u1, v0};
++    glBindFramebuffer(GL_FRAMEBUFFER, 0);
++    glViewport(dst->x, dst->y, dst->w, dst->h);
++    glDisable(GL_BLEND);
++    glUseProgram(upload_program);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++    glBindVertexArray(0);
++    glBindBuffer(GL_ARRAY_BUFFER, 0);
++    glEnableVertexAttribArray(0);
++    glEnableVertexAttribArray(1);
++    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), quad);
++    glVertexAttribPointer(
++        1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), quad + 2);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glDisableVertexAttribArray(0);
++    glDisableVertexAttribArray(1);
++    glEnable(GL_BLEND);
++    glUseProgram(shader_program);
++    return true;
++}
+ #endif
+ 
+ static void Draw_LoadImage_impl(PS1_RECT* rect, u_long* p) {
+@@ -1631,6 +2711,7 @@ static void Draw_LoadImage_impl(PS1_RECT* rect, u_long* p) {
+                     GL_RGBA, GL_UNSIGNED_BYTE, buf);
+ #endif
+     SyncNativeVramToScaled(rect->x, rect->y, rect->w, rect->h);
++    UploadIntoCanvases(rect, buf);
+ }
+ static void Draw_StoreImage_impl(PS1_RECT* rect, u_long* p) {
+     if (rect->w == 0 || rect->h == 0) {
+@@ -1645,6 +2726,7 @@ static void Draw_StoreImage_impl(PS1_RECT* rect, u_long* p) {
+         return;
+     }
+     Draw_FlushBuffer(); // flush primitives before operating with the VRAM
++    SyncCanvasesOverlapping(rect->x, rect->y, rect->w, rect->h);
+     glBindFramebuffer(GL_READ_FRAMEBUFFER, vram_fbo);
+     glPixelStorei(GL_PACK_ALIGNMENT, 4);
+     glReadPixels(
+@@ -1714,11 +2796,33 @@ static void Draw_MoveImage_impl(PS1_RECT* rect, unsigned int x, unsigned int y)
+         return;
+     }
+ 
++    SyncCanvasesOverlapping(src_x, src_y, src_w, src_h);
+     // same-FBO blit work-around for MESA and macOS
+     if (!EnsureScratchFbo()) {
+         return;
+     }
+     glDisable(GL_SCISSOR_TEST);
++#if defined(__vita__) || defined(PSYZ_QUAD_MOVE)
++    // vitaGL's glBlitFramebuffer reads an FBO texture upside down from how
++    // shaders sample it (see PresentFromVram), so its copies landed on the
++    // wrong rows: textures the game moves or saves through MoveImage (the
++    // tamer, menu sprites after an evolution) came back as garbage. Copy with
++    // the quad shader instead, through the scratch texture, which also
++    // handles overlapping rectangles
++    glBindFramebuffer(GL_FRAMEBUFFER, scratch_fbo);
++    glViewport(0, 0, copy_w, copy_h);
++    DrawTexQuad(vram_texture, -1.0f, -1.0f, 1.0f, 1.0f,
++                (float)src_x / VRAM_W, (float)src_y / VRAM_H,
++                (float)(src_x + copy_w) / VRAM_W,
++                (float)(src_y + copy_h) / VRAM_H);
++    glBindFramebuffer(GL_FRAMEBUFFER, vram_fbo);
++    glViewport(dst_x, dst_y, copy_w, copy_h);
++    DrawTexQuad(scratch_texture, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 0.0f,
++                (float)copy_w / VRAM_W, (float)copy_h / VRAM_H);
++#if defined(__vita__)
++    upload_pending = true; // lands when the scene ends, like an upload
++#endif
++#else
+     if (!RectsOverlap(src_x, src_y, dst_x, dst_y, copy_w, copy_h)) {
+         glBindFramebuffer(GL_READ_FRAMEBUFFER, vram_fbo);
+         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, scratch_fbo);
+@@ -1744,10 +2848,17 @@ static void Draw_MoveImage_impl(PS1_RECT* rect, unsigned int x, unsigned int y)
+                 dst_y + row + 1, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+         }
+     }
++#endif
+     SyncNativeVramToScaled(dst_x, dst_y, copy_w, copy_h);
+     MarkRgb24Dirty(dst_x, dst_y, copy_w, copy_h);
+     BindDrawFbo();
+     glEnable(GL_SCISSOR_TEST);
++    if (!display_rgb24) {
++        CopyIntoCanvases(dst_x, dst_y, copy_w, copy_h, vram_texture,
++                         (float)dst_x / VRAM_W, (float)dst_y / VRAM_H,
++                         (float)(dst_x + copy_w) / VRAM_W,
++                         (float)(dst_y + copy_h) / VRAM_H, false);
++    }
+ }
+ void Draw_ResetBuffer(void) {
+     n_vertices = 0;
+@@ -1788,6 +2899,13 @@ static void Draw_FlushBuffer_impl(void) {
+     if (n_vertices == 0) {
+         return;
+     }
++#if defined(__vita__)
++    if (upload_pending) {
++        upload_pending = false;
++        glFlush();
++    }
++#endif
++    SyncCanvasesSampled();
+     if (VBO == -1) {
+         Draw_InitBuffer();
+     }
+@@ -1806,18 +2924,25 @@ static void Draw_FlushBuffer_impl(void) {
+         // the scratch pool hands out blocks back to back without aligning
+         // them: an odd count of 16-bit indices left the next block (vitaGL's
+         // own, for a blit) at 2 mod 4 and its float stores faulted
++        size_t psize = sizeof(pgxp_buf[0]) * (size_t)n_vertices;
+         void* vmem = vglAllocFromScratch((vsize + 15) & ~(size_t)15);
+         void* imem = vglAllocFromScratch((isize + 15) & ~(size_t)15);
+-        if (vmem && imem) {
++        void* pmem = vglAllocFromScratch((psize + 15) & ~(size_t)15);
++        if (vmem && imem && pmem) {
+             memcpy(vmem, vertex_buf, vsize);
+             memcpy(imem, index_buf, isize);
++            memcpy(pmem, pgxp_buf, psize);
+             glBindBuffer(GL_ARRAY_BUFFER, VBO);
+             vglBufferData(GL_ARRAY_BUFFER, vmem);
++            glBindBuffer(GL_ARRAY_BUFFER, PGXP_VBO);
++            vglBufferData(GL_ARRAY_BUFFER, pmem);
+             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+             vglBufferData(GL_ELEMENT_ARRAY_BUFFER, imem);
+         } else {
+             glBindBuffer(GL_ARRAY_BUFFER, VBO);
+             glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)vsize, vertex_buf);
++            glBindBuffer(GL_ARRAY_BUFFER, PGXP_VBO);
++            glBufferSubData(GL_ARRAY_BUFFER, 0, (GLsizeiptr)psize, pgxp_buf);
+             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+             glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, (GLsizeiptr)isize,
+                             index_buf);
+@@ -1828,13 +2953,26 @@ static void Draw_FlushBuffer_impl(void) {
+     glBufferSubData(
+         GL_ARRAY_BUFFER, 0, (GLsizeiptr)(sizeof(Vertex) * (size_t)n_vertices),
+         vertex_buf);
++    glBindBuffer(GL_ARRAY_BUFFER, PGXP_VBO);
++    glBufferSubData(GL_ARRAY_BUFFER, 0,
++                    (GLsizeiptr)(sizeof(pgxp_buf[0]) * (size_t)n_vertices),
++                    pgxp_buf);
+     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+     glBufferSubData(
+         GL_ELEMENT_ARRAY_BUFFER, 0,
+         (GLsizeiptr)(sizeof(*index_buf) * (size_t)n_indices), index_buf);
+ #endif
+     glBindVertexArray(VAO);
+-    {
++    if (active_canvas >= 0) {
++        float ox, oy;
++        CanvasOrigin(&canvas[active_canvas], &ox, &oy);
++        glUniform2f(uniform_vram_origin, ox, oy);
++        SetActiveCanvasViewport();
++        glUniform2f(uniform_half_pixel, 0.5f / (float)wide_scale,
++                    0.5f / (float)wide_scale);
++        canvas[active_canvas].dirty = true;
++    } else {
++        glUniform2f(uniform_vram_origin, 0, 0);
+         const float grid_scale_x = GetDrawGridXScale();
+         const float render_scale = (float)internal_res;
+         const GLint viewport_x = (GLint)lroundf(
+@@ -1943,6 +3081,7 @@ void Draw_FlushBuffer(void) { PERF_WRAP(PERF_FLUSH, Draw_FlushBuffer_impl()); }
+ static void PlatformBackend_Present(void) {
+     static Uint64 last;
+     PERF_WRAP(PERF_PRESENT, PlatformBackend_Present_impl());
++    Psyz_PgxpNextFrame();
+     if (!PerfOn() || perf_calls[PERF_PRESENT] < 120) {
+         return;
+     }
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index d1d3907..e545e83 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -756,6 +756,37 @@ int Psyz_VideoSetPixelFilter(unsigned block) {
+ 
+ unsigned Psyz_VideoGetPixelFilter(void) { return 0; }
+ 
++int Psyz_VideoSetWidescreen(unsigned extra, unsigned scale) {
++    (void)scale;
++    return extra ? -1 : 0;
++}
++
++unsigned Psyz_VideoGetWidescreen(void) { return 0; }
++
++int Psyz_VideoSetPgxp(int on) {
++    (void)on;
++    return -1;
++}
++
++int Psyz_VideoGetPgxp(void) { return 0; }
++
++int Psyz_VideoSetIndexedImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)slot, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoDrawIndexedImage(
++    unsigned slot, int x, int y, int w, int h, unsigned clut) {
++    (void)slot, (void)x, (void)y, (void)w, (void)h, (void)clut;
++    return -1;
++}
++
++int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
++    (void)path, (void)skip;
++    return -1;
++}
++
+ static void PlatformBackend_Present(void) {
+     if (!sdl3_window && !InitPlatform()) {
+         return;
+diff --git a/psyz/src/platform/sdl3_soft.c b/psyz/src/platform/sdl3_soft.c
+index 3118942..e8f1ef3 100644
+--- a/psyz/src/platform/sdl3_soft.c
++++ b/psyz/src/platform/sdl3_soft.c
+@@ -290,6 +290,37 @@ int Psyz_VideoSetPixelFilter(unsigned block) {
+ 
+ unsigned Psyz_VideoGetPixelFilter(void) { return 0; }
+ 
++int Psyz_VideoSetWidescreen(unsigned extra, unsigned scale) {
++    (void)scale;
++    return extra ? -1 : 0;
++}
++
++unsigned Psyz_VideoGetWidescreen(void) { return 0; }
++
++int Psyz_VideoSetPgxp(int on) {
++    (void)on;
++    return -1;
++}
++
++int Psyz_VideoGetPgxp(void) { return 0; }
++
++int Psyz_VideoSetIndexedImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)slot, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoDrawIndexedImage(
++    unsigned slot, int x, int y, int w, int h, unsigned clut) {
++    (void)slot, (void)x, (void)y, (void)w, (void)h, (void)clut;
++    return -1;
++}
++
++int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
++    (void)path, (void)skip;
++    return -1;
++}
++
+ // ---- display --------------------------------------------------------------
+ 
+ static void ApplyDisplayPendingChanges(void) {
+diff --git a/psyz/src/psp/psp_gpu.c b/psyz/src/psp/psp_gpu.c
+index 217912b..8f5a962 100644
+--- a/psyz/src/psp/psp_gpu.c
++++ b/psyz/src/psp/psp_gpu.c
+@@ -1015,6 +1015,37 @@ int Psyz_VideoSetPixelFilter(unsigned block) {
+ 
+ unsigned Psyz_VideoGetPixelFilter(void) { return 0; }
+ 
++int Psyz_VideoSetWidescreen(unsigned extra, unsigned scale) {
++    (void)scale;
++    return extra ? -1 : 0;
++}
++
++unsigned Psyz_VideoGetWidescreen(void) { return 0; }
++
++int Psyz_VideoSetPgxp(int on) {
++    (void)on;
++    return -1;
++}
++
++int Psyz_VideoGetPgxp(void) { return 0; }
++
++int Psyz_VideoSetIndexedImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)slot, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoDrawIndexedImage(
++    unsigned slot, int x, int y, int w, int h, unsigned clut) {
++    (void)slot, (void)x, (void)y, (void)w, (void)h, (void)clut;
++    return -1;
++}
++
++int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
++    (void)path, (void)skip;
++    return -1;
++}
++
+ int Psyz_VideoSetAspectMode(PsyzAspectMode mode) {
+     switch (mode) {
+     case PSYZ_ASPECT_DISPLAY:
+diff --git a/psyz/src/psyz/libgte.c b/psyz/src/psyz/libgte.c
+index 1ce03ad..fdba96c 100644
+--- a/psyz/src/psyz/libgte.c
++++ b/psyz/src/psyz/libgte.c
+@@ -1820,6 +1820,195 @@ static unsigned clz16(unsigned x) {
+     } while (0)
+ #endif
+ 
++// ---- PGXP: sub-pixel screen positions and depth for the renderer ---------
++// The PS1 GTE hands out whole-pixel screen coordinates and no depth, so 3D
++// polygons wobble as the camera moves and their textures warp (affine
++// mapping). Like the PGXP of PS1 emulators, each projection also stores the
++// exact x,y and the view depth, under the integer x,y that the game gets and
++// later writes into its primitives.
++//
++// Small models put several vertices on one pixel, so a pixel keeps up to
++// PGXP_CANDS different ones, each with the sequence numbers of the
++// projections that gave it (a vertex shared by several polygons is projected
++// again for each of them). A polygon takes, for each of its vertices, the
++// candidate projected closest in sequence to the others: the vertices of one
++// polygon go through the GTE together (RTPT, RotTransPers3/4). When a pixel
++// overflows or the best fit is too far apart, the renderer draws that
++// polygon the PS1 way.
++#define PGXP_SLOTS 16384 // power of two
++#define PGXP_PROBES 16
++#define PGXP_CANDS 8
++#define PGXP_MAX_SPAN 4096 // projections between the vertices of a polygon
++typedef struct {
++    float x, y, w;
++    unsigned first, last; // sequence numbers of the projections
++} PgxpVertex;
++typedef struct {
++    unsigned key; // packed SXY
++    unsigned gen; // frame that wrote it
++    int n;        // candidates, -1 after an overflow
++    PgxpVertex v[PGXP_CANDS];
++} PgxpEntry;
++static PgxpEntry pgxp_cache[PGXP_SLOTS];
++static unsigned pgxp_gen = 2; // entries start at gen 0: never valid
++static unsigned pgxp_seq;
++static int pgxp_on;
++
++void Psyz_PgxpSetEnabled(int on) { pgxp_on = on != 0; }
++int Psyz_PgxpIsEnabled(void) { return pgxp_on; }
++void Psyz_PgxpNextFrame(void) { pgxp_gen++; }
++
++static inline unsigned pgxp_slot(unsigned key) {
++    return (key * 2654435761u) >> 18; // 14 bits
++}
++
++// x,y,z the model vertex (V0..V2), sx,sy the GTE's integer result
++static void pgxp_store(int x, int y, int z, int sx, int sy) {
++    float fx = (float)M.t[0] + ((float)M.m[0][0] * x + (float)M.m[0][1] * y +
++                                (float)M.m[0][2] * z) *
++                                   (1.0f / 4096.0f);
++    float fy = (float)M.t[1] + ((float)M.m[1][0] * x + (float)M.m[1][1] * y +
++                                (float)M.m[1][2] * z) *
++                                   (1.0f / 4096.0f);
++    float fz = (float)M.t[2] + ((float)M.m[2][0] * x + (float)M.m[2][1] * y +
++                                (float)M.m[2][2] * z) *
++                                   (1.0f / 4096.0f);
++    float px, py, dx, dy;
++    unsigned key, i, seq = ++pgxp_seq;
++    int n, k;
++    // the GTE divider saturates there: keep the PS1 result
++    if (fz * 2.0f <= (float)H || fz >= 65536.0f) {
++        return;
++    }
++    // the GTE truncates, so sx is about px rounded down: centre it on sx
++    px = (float)OFX + (float)H * fx / fz - 0.5f;
++    py = (float)OFY + (float)H * fy / fz - 0.5f;
++    dx = px - (float)sx;
++    dy = py - (float)sy;
++    if (dx < -1.0f || dx > 1.0f || dy < -1.0f || dy > 1.0f) {
++        return; // clamped to the GTE's screen range
++    }
++    key = SXY(sx, sy);
++    i = pgxp_slot(key);
++    for (n = 0; n < PGXP_PROBES; n++, i = (i + 1) & (PGXP_SLOTS - 1)) {
++        PgxpEntry* e = &pgxp_cache[i];
++        if (e->gen != pgxp_gen) {
++            e->key = key;
++            e->gen = pgxp_gen;
++            e->n = 0;
++        } else if (e->key != key) {
++            continue;
++        }
++        for (k = 0; k < e->n; k++) {
++            // the same vertex again gives the same values
++            PgxpVertex* v = &e->v[k];
++            float ex = v->x - px, ey = v->y - py, ew = v->w - fz;
++            if (ex > -0.01f && ex < 0.01f && ey > -0.01f && ey < 0.01f &&
++                ew > -0.001f * fz && ew < 0.001f * fz) {
++                v->last = seq;
++                return;
++            }
++        }
++        if (e->n < 0) {
++            return;
++        }
++        if (e->n == PGXP_CANDS) {
++            e->n = -1;
++            return;
++        }
++        e->v[e->n].x = px;
++        e->v[e->n].y = py;
++        e->v[e->n].w = fz;
++        e->v[e->n].first = seq;
++        e->v[e->n].last = seq;
++        e->n++;
++        return;
++    }
++}
++
++static const PgxpEntry* pgxp_find(int sx, int sy) {
++    unsigned key = SXY(sx, sy), i = pgxp_slot(key);
++    int n;
++    for (n = 0; n < PGXP_PROBES; n++, i = (i + 1) & (PGXP_SLOTS - 1)) {
++        const PgxpEntry* e = &pgxp_cache[i];
++        if (e->key == key && pgxp_gen - e->gen <= 1u) {
++            return e->n > 0 ? e : NULL;
++        }
++    }
++    return NULL;
++}
++
++// projections between two candidates (0 when their ranges overlap)
++static unsigned pgxp_gap(const PgxpVertex* a, const PgxpVertex* b) {
++    if (b->last < a->first) {
++        return a->first - b->last;
++    }
++    if (a->last < b->first) {
++        return b->first - a->last;
++    }
++    return 0;
++}
++
++int Psyz_PgxpLookupPolygon(int n, const short* sx, const short* sy,
++                           float (*out)[4]) {
++    const PgxpEntry* e[PGXP_MAX_POLY];
++    const PgxpVertex* pick[PGXP_MAX_POLY];
++    unsigned best = PGXP_MAX_SPAN + 1;
++    float best_dw = 0.0f;
++    int i, a, k;
++    if (n > PGXP_MAX_POLY) {
++        return 0;
++    }
++    for (i = 0; i < n; i++) {
++        if ((e[i] = pgxp_find(sx[i], sy[i])) == NULL) {
++            return 0;
++        }
++    }
++    // anchor on each candidate of the first vertex, take the closest
++    // candidate of every other vertex; nearest depth breaks ties
++    for (a = 0; a < e[0]->n; a++) {
++        const PgxpVertex* anchor = &e[0]->v[a];
++        const PgxpVertex* cur[PGXP_MAX_POLY];
++        unsigned span = 0;
++        float dw = 0.0f;
++        cur[0] = anchor;
++        for (i = 1; i < n; i++) {
++            unsigned g = ~0u;
++            float gw = 0.0f;
++            for (k = 0; k < e[i]->n; k++) {
++                const PgxpVertex* c = &e[i]->v[k];
++                unsigned gk = pgxp_gap(anchor, c);
++                float wk = c->w > anchor->w ? c->w - anchor->w
++                                            : anchor->w - c->w;
++                if (gk < g || (gk == g && wk < gw)) {
++                    g = gk;
++                    gw = wk;
++                    cur[i] = c;
++                }
++            }
++            span = g > span ? g : span;
++            dw += gw;
++        }
++        if (span < best || (span == best && dw < best_dw)) {
++            best = span;
++            best_dw = dw;
++            for (i = 0; i < n; i++) {
++                pick[i] = cur[i];
++            }
++        }
++    }
++    if (best > PGXP_MAX_SPAN) {
++        return 0;
++    }
++    for (i = 0; i < n; i++) {
++        out[i][0] = pick[i]->x;
++        out[i][1] = pick[i]->y;
++        out[i][2] = pick[i]->w;
++        out[i][3] = 1.0f;
++    }
++    return 1;
++}
++
+ // Perspective transformation of one vertex into caller locals.
+ #define RTP_VERTEX(                                                            \
+     sf, lm, x, y, z, f, div, mac1, mac2, mac3, ir1, ir2, ir3, sx, sy, sz)      \
+@@ -1853,6 +2042,9 @@ static unsigned clz16(unsigned x) {
+         (sy) = OFY + MUL_DIV_HI(div, ir2);                                     \
+         MAC0_OVF(sy, f);                                                       \
+         SAT_FLAG(sy, sy, -0x400, 0x3FF, FLAG_SY2_SAT, f);                      \
++        if (pgxp_on && (sf)) {                                                 \
++            pgxp_store(rv_x, rv_y, rv_z, sx, sy);                              \
++        }                                                                      \
+     } while (0)
+ 
+ #define RTP_STORE_MAC_IR()                                                     \
+diff --git a/psyz/src/psyz/libsnd.c b/psyz/src/psyz/libsnd.c
+index d7dd9bc..47e05f7 100644
+--- a/psyz/src/psyz/libsnd.c
++++ b/psyz/src/psyz/libsnd.c
+@@ -59,7 +59,8 @@ void _SsInit(void) {
+ 
+ // void _SsVmFlush(void) { NOT_IMPLEMENTED; }
+ 
+-void _SsSeqPlay(short arg0, short arg1) { NOT_IMPLEMENTED; }
++
++// The SEQ interpreter (_SsSeqPlay, _SsNoteOn, _SsCont*...) is in libsnd_seq.c
+ 
+ void _SsSndTempo(short arg0, short arg1) { NOT_IMPLEMENTED; }
+ 
+@@ -84,31 +85,6 @@ void SeAutoPan(short arg0, short arg1, short arg2, short arg3) {
+     NOT_IMPLEMENTED;
+ }
+ 
+-void _SsNoteOn(short a0, short a1, unsigned char a2, unsigned char a3) {
+-    NOT_IMPLEMENTED;
+-}
+-void _SsSetProgramChange(short a0, short a1, unsigned char a2) {
+-    NOT_IMPLEMENTED;
+-}
+-void _SsGetMetaEvent(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsSetPitchBend(short a0, short a1) { NOT_IMPLEMENTED; }
+-void _SsSetControlChange(short a0, short a1, unsigned char a2) {
+-    NOT_IMPLEMENTED;
+-}
+-void _SsContBankChange(short a0, short a1) { NOT_IMPLEMENTED; }
+-void _SsContDataEntry(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContMainVol(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContPanpot(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContExpression(short a0, short a1, unsigned char a2) {
+-    NOT_IMPLEMENTED;
+-}
+-void _SsContDamper(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContExternal(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContNrpn1(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContNrpn2(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContRpn1(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContRpn2(short a0, short a1, unsigned char a2) { NOT_IMPLEMENTED; }
+-void _SsContResetAll(short a0, short a1) { NOT_IMPLEMENTED; }
+ 
+ void _SsSetNrpnVabAttr0(
+     short a0, short a1, short a2, VagAtr a3, short a4, unsigned char a5) {
+diff --git a/psyz/src/psyz/libsnd_seq.c b/psyz/src/psyz/libsnd_seq.c
+new file mode 100644
+index 0000000..2b0d271
+--- /dev/null
++++ b/psyz/src/psyz/libsnd_seq.c
+@@ -0,0 +1,470 @@
++// SEQ ("pQES") interpreter for libsnd: the parts of midiread.c, midinote.c,
++// midicc.c, midiprog.c, midibend.c, midimeta.c and vm_key.c that are still
++// assembly in the decomp, written from the PsyQ behaviour.
++//
++// _SsSeqPlay runs once per sound tick (SsSeqCalledTbyT). delta_value holds
++// the time left to the event at seq_ptr in 1/10 sequence ticks (that is what
++// _SsReadDeltaValue returns) and each sound tick consumes
++// resolution * tempo(BPM) * 10 / (VBLANK_MINUS * 60) of it.
++//
++// SEQ events are MIDI with running status. Meta events carry no length byte:
++// FF 51 tt tt tt (tempo, us per quarter) and FF 2F (end of track). Loops are
++// NRPN through data entry: CC99=20 marks the loop start and the CC6 that
++// follows gives the count (127 = forever), CC99=30 jumps back to the start.
++#include <psyz.h>
++#include <libsnd.h>
++#include <libspu.h>
++#include <psyz/log.h>
++#include <string.h>
++#include "../../decomp/src/libspu/libspu_private.h"
++#include "../../decomp/src/libsnd/libsnd_private.h"
++
++#define N_SEQ 32
++#define N_SEP 16
++
++void _SsVmKeyOffNow(int mode);
++
++// state the PsyQ score keeps in fields the decomp has not named yet
++typedef struct {
++    unsigned tick_frac;  // remainder of the per-tick delta consumption
++    u8* loop_ptr;        // first delta after the loop start event
++    u8 loop_status;      // running status at the loop start
++    u8 loop_count;       // 127 = forever
++    u8 loop_done;        // laps already played
++    u8 nrpn[16];         // last CC99 value per channel
++    u8 expr[16];         // CC11
++    u8 bend[16];         // pitch bend MSB, 64 = centre
++} SeqExtra;
++
++static SeqExtra extra[N_SEQ][N_SEP];
++
++static struct SeqStruct* score_of(short seq, short sep) {
++    return &_ss_score[seq][sep];
++}
++
++static void reset_extra(SeqExtra* x) {
++    memset(x, 0, sizeof(*x));
++    x->loop_count = 127;
++    for (int i = 0; i < 16; i++) {
++        x->expr[i] = 127;
++        x->bend[i] = 64;
++        x->nrpn[i] = 0xFF;
++    }
++}
++
++// Pitch of voice v for its note plus the channel bend (tone range pbmin/pbmax
++// semitones, in 1/128 semitone steps like VagAtr.shift).
++static unsigned short voice_pitch(int note, int bend, const VagAtr* tn) {
++    int fine = 0;
++    if (bend > 64) {
++        fine = (bend - 64) * tn->pbmax * 128 / 63;
++    } else if (bend < 64) {
++        fine = (bend - 64) * tn->pbmin * 128 / 64;
++    }
++    int total = note * 128 + fine;
++    if (total < 0) {
++        total = 0;
++    }
++    return note2pitch2((unsigned short)(total >> 7), (unsigned short)(total & 127));
++}
++
++// Same volume/pan maths as _SsVmKeyOnNow, for a voice already playing.
++static void voice_volume(int i, struct SeqStruct* ss, int volume, int pan) {
++    const VagAtr* tn = &_svm_tn[_svm_voice[i].fake_program * 16 + _svm_voice[i].tone];
++    unsigned vol = (volume * (_svm_vh->mvol * 16383)) / 16129;
++    unsigned chR = ((vol * _svm_pg[_svm_voice[i].prog].mvol) * tn->vol) / 16129;
++    unsigned chL;
++    vol = (chR * ss->voll) / 127;
++    chR = (chR * ss->volr) / 127;
++    if (tn->pan < 64) {
++        chR = (chR * tn->pan) / 63;
++        chL = vol;
++    } else {
++        chL = (vol * (127 - tn->pan)) / 63;
++    }
++    int mpan = _svm_pg[_svm_voice[i].prog].mpan;
++    if (mpan < 64) {
++        chR = (chR * mpan) / 63;
++    } else {
++        chL = (chL * (127 - mpan)) / 63;
++    }
++    if (pan < 64) {
++        chR = (chR * pan) / 63;
++    } else {
++        chL = (chL * (127 - pan)) / 63;
++    }
++    if (_svm_stereo_mono == 1) {
++        if (chL < chR) {
++            chL = chR;
++        } else {
++            chR = chL;
++        }
++    }
++    ((short*)_svm_sreg_buf)[i * 8 + 0] = (chL * chL) / 16383;
++    ((short*)_svm_sreg_buf)[i * 8 + 1] = (chR * chR) / 16383;
++    _svm_sreg_dirty[i] |= 3;
++}
++
++static int chan_volume(struct SeqStruct* ss, SeqExtra* x, int ch, int vel) {
++    return vel * ss->vol[ch] / 127 * x->expr[ch] / 127;
++}
++
++// Applies f to every voice this sequence channel is sounding.
++#define FOR_CHANNEL_VOICES(seq, sep, ch, i)                                     \
++    for (int i = 0; i < _SsVmMaxVoice; i++)                                    \
++        if ((u16)_svm_voice[i].seq_sep_no == (u16)((seq) | ((sep) << 8)) &&     \
++            _svm_voice[i].unk1b &&                                             \
++            _svm_voice[i].prog == score_of(seq, sep)->programs[ch])
++
++static void refresh_channel(short seq, short sep, int ch, int pitch_too) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    SeqExtra* x = &extra[seq][sep];
++    FOR_CHANNEL_VOICES(seq, sep, ch, i) {
++        if (_SsVmVSetUp(_svm_voice[i].vabId, _svm_voice[i].prog)) {
++            continue;
++        }
++        voice_volume(i, ss, chan_volume(ss, x, ch, _svm_voice[i].voll1), ss->panpot[ch]);
++        if (pitch_too) {
++            const VagAtr* tn = &_svm_tn[_svm_voice[i].fake_program * 16 + _svm_voice[i].tone];
++            _svm_cur.tone = _svm_voice[i].tone;
++            _svm_cur.fake_program = _svm_voice[i].fake_program;
++            unsigned short p = voice_pitch(_svm_voice[i].note, x->bend[ch], tn);
++            ((short*)_svm_sreg_buf)[i * 8 + 2] = p;
++            _svm_voice[i].unk04 = p;
++            _svm_sreg_dirty[i] |= 4;
++        }
++    }
++}
++
++static void key_off(short seq, short sep, int ch, int note) {
++    FOR_CHANNEL_VOICES(seq, sep, ch, i) {
++        if (_svm_voice[i].note == note) {
++            _svm_cur.voice = i;
++            _SsVmKeyOffNow(0);
++        }
++    }
++}
++
++// _SsVmKeyOn: every tone of the channel's program whose key range holds the
++// note gets a voice (VAB programs layer several tones).
++static void key_on(short seq, short sep, int ch, int note, int vel) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    SeqExtra* x = &extra[seq][sep];
++    int prog = ss->programs[ch];
++    short seq_sep_no = seq | (sep << 8);
++
++    if (_SsVmVSetUp(ss->vab_id, prog)) {
++        return;
++    }
++    int ntones = _svm_pg[prog].tones;
++    for (int t = 0; t < ntones && t < 16; t++) {
++        const VagAtr* tn = &_svm_tn[_svm_cur.fake_program * 16 + t];
++        if (note < tn->min || note > tn->max || tn->vag == 0) {
++            continue;
++        }
++        _svm_cur.seq_sep_no = seq_sep_no;
++        _svm_cur.note = note;
++        _svm_cur.fine = 0;
++        _svm_cur.tone = t;
++        _svm_cur.volume = chan_volume(ss, x, ch, vel);
++        _svm_cur.pan = ss->panpot[ch];
++        _svm_cur.mvol = _svm_pg[prog].mvol;
++        _svm_cur.mpan = _svm_pg[prog].mpan;
++        _svm_cur.prog_tones = ntones;
++        _svm_cur.tone_prior = tn->prior;
++        _svm_cur.tone_vag_idx = tn->vag;
++        _svm_cur.tone_vol = tn->vol;
++        _svm_cur.tone_pan = tn->pan;
++        _svm_cur.tone_center = tn->center;
++        _svm_cur.tone_shift = tn->shift;
++        _svm_cur.tone_mode = tn->mode;
++        _svm_cur.tone_min = tn->min;
++        _svm_cur.tone_max = tn->max;
++
++        int voice = _SsVmAlloc(tn->vag);
++        if (voice >= _SsVmMaxVoice) {
++            return;
++        }
++        // a stolen voice still sounding for someone else is cut first
++        _svm_cur.voice = voice;
++        _svm_voice[voice].seq_sep_no = seq_sep_no;
++        _svm_voice[voice].vabId = ss->vab_id;
++        _svm_voice[voice].fake_program = _svm_cur.fake_program;
++        _svm_voice[voice].prog = prog;
++        _svm_voice[voice].vag_idx = tn->vag;
++        _svm_voice[voice].tone = t;
++        _svm_voice[voice].note = note;
++        _svm_voice[voice].voll1 = vel;
++        _svm_voice[voice].pan = ss->panpot[ch];
++        _svm_voice[voice].unk1b = 1;
++        _svm_voice[voice].unk2 = 0;
++        _SsVmDoAllocate();
++        _SsVmKeyOnNow(1, voice_pitch(note, x->bend[ch], tn));
++    }
++}
++
++// ---------------------------------------------------------------- SsFCALL
++
++void _SsNoteOn(short seq, short sep, unsigned char note, unsigned char vel) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    int ch = ss->channel_idx;
++    if (ss->channel_mute & (1 << ch)) {
++        return;
++    }
++    if (vel) {
++        key_on(seq, sep, ch, note, vel);
++    } else {
++        key_off(seq, sep, ch, note);
++    }
++}
++
++void _SsSetProgramChange(short seq, short sep, unsigned char prog) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    ss->programs[ss->channel_idx] = prog;
++}
++
++void _SsSetPitchBend(short seq, short sep) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    int ch = ss->channel_idx;
++    ss->seq_ptr++; // LSB, libsnd only uses the MSB
++    extra[seq][sep].bend[ch] = *ss->seq_ptr++ & 0x7F;
++    refresh_channel(seq, sep, ch, 1);
++}
++
++void _SsContBankChange(short seq, short sep) { (void)seq, (void)sep; }
++
++void _SsContMainVol(short seq, short sep, unsigned char vol) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    ss->vol[ss->channel_idx] = vol;
++    refresh_channel(seq, sep, ss->channel_idx, 0);
++}
++
++void _SsContPanpot(short seq, short sep, unsigned char pan) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    ss->panpot[ss->channel_idx] = pan;
++    refresh_channel(seq, sep, ss->channel_idx, 0);
++}
++
++void _SsContExpression(short seq, short sep, unsigned char expr) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    extra[seq][sep].expr[ss->channel_idx] = expr;
++    refresh_channel(seq, sep, ss->channel_idx, 0);
++}
++
++void _SsContDamper(short seq, short sep, unsigned char v) {
++    (void)seq, (void)sep, (void)v;
++}
++
++void _SsContExternal(short seq, short sep, unsigned char v) {
++    (void)seq, (void)sep, (void)v;
++}
++
++void _SsContNrpn1(short seq, short sep, unsigned char v) { // CC99
++    struct SeqStruct* ss = score_of(seq, sep);
++    SeqExtra* x = &extra[seq][sep];
++    x->nrpn[ss->channel_idx] = v;
++    if (v == 20) {
++        x->loop_ptr = ss->seq_ptr;
++        x->loop_status = ss->running_status;
++        x->loop_count = 127;
++        x->loop_done = 0;
++    } else if (v == 30 && x->loop_ptr) {
++        if (x->loop_count == 127 || ++x->loop_done < x->loop_count) {
++            ss->seq_ptr = x->loop_ptr;
++            ss->running_status = x->loop_status;
++        }
++    }
++}
++
++void _SsContNrpn2(short seq, short sep, unsigned char v) { // CC98
++    (void)seq, (void)sep, (void)v;
++}
++
++void _SsContRpn1(short seq, short sep, unsigned char v) {
++    (void)seq, (void)sep, (void)v;
++}
++
++void _SsContRpn2(short seq, short sep, unsigned char v) {
++    (void)seq, (void)sep, (void)v;
++}
++
++void _SsContDataEntry(short seq, short sep, unsigned char v) { // CC6
++    struct SeqStruct* ss = score_of(seq, sep);
++    SeqExtra* x = &extra[seq][sep];
++    if (x->nrpn[ss->channel_idx] == 20) {
++        x->loop_count = v;
++    }
++}
++
++void _SsContResetAll(short seq, short sep) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    int ch = ss->channel_idx;
++    extra[seq][sep].expr[ch] = 127;
++    extra[seq][sep].bend[ch] = 64;
++    refresh_channel(seq, sep, ch, 1);
++}
++
++void _SsSetControlChange(short seq, short sep, unsigned char cc) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    unsigned char v = *ss->seq_ptr++ & 0x7F;
++    switch (cc) {
++    case 0:
++        _SsContBankChange(seq, sep);
++        break;
++    case 6:
++        _SsContDataEntry(seq, sep, v);
++        break;
++    case 7:
++        _SsContMainVol(seq, sep, v);
++        break;
++    case 10:
++        _SsContPanpot(seq, sep, v);
++        break;
++    case 11:
++        _SsContExpression(seq, sep, v);
++        break;
++    case 64:
++        _SsContDamper(seq, sep, v);
++        break;
++    case 91:
++        _SsContExternal(seq, sep, v);
++        break;
++    case 98:
++        _SsContNrpn2(seq, sep, v);
++        break;
++    case 99:
++        _SsContNrpn1(seq, sep, v);
++        break;
++    case 100:
++        _SsContRpn2(seq, sep, v);
++        break;
++    case 101:
++        _SsContRpn1(seq, sep, v);
++        break;
++    case 121:
++        _SsContResetAll(seq, sep);
++        break;
++    default:
++        break;
++    }
++}
++
++static void seq_end(short seq, short sep);
++
++void _SsGetMetaEvent(short seq, short sep, unsigned char type) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    if (type == 0x51) {
++        u8* p = ss->seq_ptr;
++        int us = (p[0] << 16) | (p[1] << 8) | p[2];
++        ss->seq_ptr += 3;
++        if (us > 0) { // same rounding as _SsInitSoundSeq
++            ss->unk94 = us / 2 < 60000000 % us ? 60000000 / us + 1 : 60000000 / us;
++        }
++    } else if (type == 0x2F) {
++        seq_end(seq, sep);
++    }
++}
++
++// ---------------------------------------------------------------- reader
++
++int _SsSeqGetEof(short seq, short sep) {
++    return !(score_of(seq, sep)->flags & SEQ_FLAG_1);
++}
++
++// End of track: replay from the top while l_count allows it
++// (SSPLAY_INFINITY = 0 repeats forever), otherwise stop.
++static void seq_end(short seq, short sep) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    if (ss->l_count == SSPLAY_INFINITY || --ss->l_count > 0) {
++        ss->seq_ptr = ss->read_pos;
++        ss->running_status = 0;
++        ss->unk94 = ss->tempo;
++        reset_extra(&extra[seq][sep]);
++        ss->delta_value += ss->unk84;
++        ss->unk15 = 1; // delta already loaded
++        return;
++    }
++    _SsVmSeqKeyOff(seq | (sep << 8));
++    ss->flags &= ~SEQ_FLAG_1;
++    ss->flags |= SEQ_FLAG_200;
++    ss->play_mode = SSPLAY_PAUSE;
++    ss->unk15 = 1;
++}
++
++// One event at seq_ptr; then reads the delta to the next one.
++void _SsGetSeqData(short seq, short sep) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    u8 c = *ss->seq_ptr;
++    if (c & 0x80) {
++        ss->running_status = c;
++        ss->seq_ptr++;
++    }
++    u8 st = ss->running_status;
++    ss->unk15 = 0;
++    if (st == 0xFF) {
++        _SsGetMetaEvent(seq, sep, *ss->seq_ptr++);
++    } else {
++        ss->channel_idx = st & 0x0F;
++        u8* p = ss->seq_ptr;
++        switch (st & 0xF0) {
++        case 0x90:
++            ss->seq_ptr += 2;
++            _SsNoteOn(seq, sep, p[0] & 0x7F, p[1] & 0x7F);
++            break;
++        case 0x80:
++            ss->seq_ptr += 2;
++            _SsNoteOn(seq, sep, p[0] & 0x7F, 0);
++            break;
++        case 0xB0:
++            ss->seq_ptr++;
++            _SsSetControlChange(seq, sep, p[0] & 0x7F);
++            break;
++        case 0xC0:
++            ss->seq_ptr++;
++            _SsSetProgramChange(seq, sep, p[0] & 0x7F);
++            break;
++        case 0xE0:
++            _SsSetPitchBend(seq, sep);
++            break;
++        case 0xA0:
++            ss->seq_ptr += 2;
++            break;
++        case 0xD0:
++            ss->seq_ptr += 1;
++            break;
++        default: // sysex or garbage: nothing sane to do but stop
++            WARNF("SEQ %d/%d: status %02X", seq, sep, st);
++            ss->unk15 = 0;
++            seq_end(seq, sep);
++            ss->flags &= ~SEQ_FLAG_1;
++            return;
++        }
++    }
++    if (!ss->unk15 && (ss->flags & SEQ_FLAG_1)) {
++        ss->delta_value += _SsReadDeltaValue(seq, sep);
++    }
++}
++
++void _SsSeqPlay(short seq, short sep) {
++    struct SeqStruct* ss = score_of(seq, sep);
++    SeqExtra* x = &extra[seq][sep];
++    if (seq < 0 || seq >= N_SEQ || sep < 0 || sep >= N_SEP) {
++        return;
++    }
++    if (ss->play_mode != SSPLAY_PLAY) {
++        return;
++    }
++    if (ss->seq_ptr == ss->read_pos && ss->delta_value == ss->unk84) {
++        // fresh start (open, stop or replay): channel state back to defaults
++        reset_extra(x);
++        ss->unk94 = ss->tempo;
++    }
++    unsigned den = VBLANK_MINUS * 60;
++    x->tick_frac += (unsigned)ss->resolution * ss->unk94 * 10;
++    ss->delta_value -= x->tick_frac / den;
++    x->tick_frac %= den;
++    // guard against corrupt data looping forever inside one tick
++    for (int n = 0; n < 1024 && ss->delta_value <= 0 && (ss->flags & SEQ_FLAG_1); n++) {
++        _SsGetSeqData(seq, sep);
++    }
++}
+diff --git a/psyz/src/psyz/psyz_spu.c b/psyz/src/psyz/psyz_spu.c
+index b75e9fd..af88b83 100644
+--- a/psyz/src/psyz/psyz_spu.c
++++ b/psyz/src/psyz/psyz_spu.c
+@@ -120,7 +120,9 @@ void Psyz_SpuMemWrite(unsigned int offset, const void* src, unsigned int size) {
+     }
+ }
+ 
++unsigned psyz_spu_key_ons; // notes started, for sdl3_audio's perf line
+ static void spu_key_on_voice(int v) {
++    psyz_spu_key_ons++;
+     VoiceState* vs = &spu.voice[v];
+     unsigned wait = spu.ticks & 1;
+     spu_voice_key_on(vs, &_spu_RXX->rxx.voice[v], spu.ram);

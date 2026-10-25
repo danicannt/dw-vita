@@ -4,6 +4,11 @@
  *   DW1_DUMP_VSYNC=600,...   the same counted in VSync calls (movies never
  *                            swap through libgs)
  *   DW1_DUMP_DIR=dir         where vram_<frame>.ppm goes (default: current dir)
+ *   DW1_SHOT_EVERY=n         every n swaps, the frame as presented (the
+ *                            renderer's capture: the wide canvas in
+ *                            widescreen) as shot_<frame>.ppm; DW1_SHOT_MAX
+ *                            caps how many (default 30), DW1_SHOT_FROM
+ *                            skips the frames before it
  *
  * At each listed frame the whole 1024x512 VRAM is read back just before the
  * buffers swap, so both display buffers and the texture pages are visible.
@@ -14,6 +19,7 @@
 
 #include <libgpu.h>
 #include <psyz/audio.h>
+#include <psyz/video.h>
 
 void __real_GsSwapDispBuff(void);
 int __real_VSync(int mode);
@@ -118,8 +124,45 @@ static void dump_named(const char *name)
     fclose(f);
 }
 
+static void shot(long frame)
+{
+    static int every = -1, max = 30, taken;
+    static long from;
+    const char *dir = getenv("DW1_DUMP_DIR");
+    char path[512];
+    unsigned char *rgb;
+    int w, h;
+    FILE *f;
+
+    if (every < 0) {
+        const char *s = getenv("DW1_SHOT_EVERY");
+
+        every = s ? atoi(s) : 0;
+        if ((s = getenv("DW1_SHOT_MAX")) != NULL)
+            max = atoi(s);
+        if ((s = getenv("DW1_SHOT_FROM")) != NULL)
+            from = atol(s);
+    }
+    if (every <= 0 || frame < from || frame % every != 0 || taken >= max)
+        return;
+    rgb = Psyz_VideoAllocCapturedFrame(&w, &h);
+    if (rgb == NULL)
+        return;
+    taken++;
+    snprintf(path, sizeof(path), "%s%sshot_%05ld.ppm", dir ? dir : "", dir ? "/" : "", frame);
+    f = fopen(path, "wb");
+    if (f != NULL) {
+        fprintf(f, "P6\n%d %d\n255\n", w, h);
+        fwrite(rgb, 1, (size_t)w * h * 3, f);
+        fclose(f);
+        fprintf(stderr, "dw1: shot %s (%dx%d)\n", path, w, h);
+    }
+    free(rgb);
+}
+
 void __wrap_GsSwapDispBuff(void)
 {
+    shot(by_swap.count + 1);
     if (named_request[0] != '\0') {
         dump_named(named_request);
         named_request[0] = '\0';

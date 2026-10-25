@@ -3736,7 +3736,12 @@ void STD_renderBracketIntro(void)
 	prim->clut = GetClut(0x100, 0x1f6);
 	setRGB0(prim, MAIN_D_80135165, MAIN_D_80135165, MAIN_D_80135165);
 	setUVDataPolyFT4(prim, 0xfa, 0xfd, 2, 2);
+#ifdef DW1_NATIVE
+	/* widescreen: the whole wider screen */
+	setPosDataPolyFT4(prim, -0xa0 - dw1_wide_extra, -0x78, 0x140 + 2 * dw1_wide_extra, 0xf0);
+#else
 	setPosDataPolyFT4(prim, -0xa0, -0x78, 0x140, 0xf0);
+#endif
 	AddPrim(&ACTIVE_ORDERING_TABLE->org[3], prim++);
 	SetPolyFT4(prim);
 	if (STD_BRACKET_FADE != 0x80) {

@@ -265,24 +265,31 @@ void renderGameClock(int32_t instanceId)
 		CLOCK_OFFSET_X = -220;
 	}
 
-	renderRectPolyFT4(CLOCK_OFFSET_X - 2, -90, 16, 16, 192, 224,
+#ifdef DW1_NATIVE
+	/* widescreen: in the top-left corner of the wider screen */
+	int16_t clockX = CLOCK_OFFSET_X - dw1_wide_extra;
+#else
+	int16_t clockX = CLOCK_OFFSET_X;
+#endif
+
+	renderRectPolyFT4(clockX - 2, -90, 16, 16, 192, 224,
 			  GetTPage(0, 0, 896, 448), GetClut(256, 497), 9, 0);
 
-	renderRectPolyFT4(CLOCK_OFFSET_X + 34, -90, 16, 16, 192, 240,
+	renderRectPolyFT4(clockX + 34, -90, 16, 16, 192, 240,
 			  GetTPage(0, 0, 896, 448), GetClut(256, 497), 9, 0);
 
-	renderRectPolyFT4(CLOCK_OFFSET_X + 8, -100, 32, 16,
+	renderRectPolyFT4(clockX + 8, -100, 32, 16,
 			  CLOCK_TEXCOORD_U[isNight][frame],
 			  CLOCK_TEXCOORD_V[isNight][frame],
 			  GetTPage(0, 0, 896, 448), GetClut(256, 498), 9, 0);
 
-	renderRectPolyFT4(CLOCK_OFFSET_X, -88, 48, 40, 208, 215,
+	renderRectPolyFT4(clockX, -88, 48, 40, 208, 215,
 			  GetTPage(0, 0, 896, 448), GetClut(256, 496), 10, 0);
 
-	CLOCK_SPRITE.x = CLOCK_OFFSET_X + 23;
+	CLOCK_SPRITE.x = clockX + 23;
 	GsSortSprite(&CLOCK_SPRITE, ACTIVE_ORDERING_TABLE, 9);
 
-	renderRectPolyFT4(CLOCK_OFFSET_X + HOUR_POINT_X[HOUR],
+	renderRectPolyFT4(clockX + HOUR_POINT_X[HOUR],
 			  HOUR_POINT_Y[HOUR] - 88,
 			  6, 6, 203, 216,
 			  GetTPage(0, 0, 896, 448), GetClut(256, 497), 9, 0);

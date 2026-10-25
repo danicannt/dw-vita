@@ -216,6 +216,18 @@ int32_t MOV_playMovie(int32_t movieId)
 
 	movie = &MOV_MOVIES[movieId];
 
+#ifdef DW1_NATIVE
+	/* an upscaled version of the movie, when installed (port/src/widescreen.c);
+	 * the ending (3) cannot be skipped, as below */
+	{
+		int32_t hd = dw1_play_hd_movie(movieId, movieId != 3);
+
+		if (hd >= 0) {
+			return hd;
+		}
+	}
+#endif
+
 #if VERSION_IS(EU)
 	while (CdSearchFile(&file, movie->path) == NULL) {
 	}

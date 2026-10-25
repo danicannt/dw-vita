@@ -16,6 +16,11 @@
  *                             model and plays the whole sequence
  *   DW1_SMOKE=battles[:a-b]   visit maps a..b like "maps" and fight every
  *                             Digimon on each one (startBattle per entity slot)
+ *   DW1_SMOKE=death           let the partner die of old age where the replay
+ *                             left it and play the death and rebirth scenes
+ *                             with X tapped through; logs the partner's
+ *                             state changes and "done" once the new baby is
+ *                             in (before naming it)
  *
  * Anything a map breaks (crash stack, division by zero, unsupported GPU
  * command) lands in the log after its "smoke: map" line; dw1-run/smoke.sh
@@ -54,7 +59,7 @@ extern short EVOLUTION_TARGET;
 int dw1_file_queue_idle(void);
 extern void *ENTITY_TABLE[];
 
-enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES, SMOKE_WALK, SMOKE_ANIMS, SMOKE_EVENTS };
+enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES, SMOKE_WALK, SMOKE_ANIMS, SMOKE_EVENTS, SMOKE_DEATH };
 
 static int mode = -1;
 static int warp_map, warp_exit;
@@ -142,6 +147,10 @@ static void parse(void)
             mode = SMOKE_EVENTS;
             n = 6;
             map_end = 254;
+        } else if (strncmp(s, "death", 5) == 0) {
+            mode = SMOKE_DEATH;
+            n = 5;
+            map_end = 0;
         } else if (strncmp(s, "walk", 4) == 0) {
             mode = SMOKE_WALK;
             n = 4;
@@ -197,6 +206,10 @@ void dw1_dump_request(const char *name);
 void callScriptSection(int scriptId, int section, int param);
 int dw1_debug_start_section(int section);
 void dw1_debug_freeze_partner(void);
+void dw1_debug_kill_partner(void);
+int dw1_debug_partner_in_scene(void);
+void dw1_debug_dooa(int *phase, int *frame);
+void dw1_debug_partner_info(int *type, int *state, int *lives);
 extern unsigned short CURRENT_SCREEN_ID;
 extern signed char GAME_STATE;
 
@@ -327,6 +340,55 @@ void dw1_smoke_frame(void)
         partnerSetState(12);
         partnerStartAnimation((short)map_cur);
         break;
+    case SMOKE_DEATH: {
+        static int last_state = -1, start_type, killed;
+        int type, state, lives;
+
+        active = 1;
+        dw1_debug_partner_info(&type, &state, &lives);
+        if (!killed) {
+            if (++frame < 60 || tamerGetState() != 0)
+                break;
+            killed = 1;
+            frame = 0;
+            start_type = type;
+            fprintf(stderr, "dw1: smoke: death of partner %d (lives %d)\n", type, lives);
+            dw1_debug_kill_partner();
+        }
+        frame++;
+        if (state != last_state) {
+            fprintf(stderr, "dw1: smoke: death frame %d partner %d state %d lives %d tamer %d\n",
+                    frame, type, state, lives, tamerGetState());
+            fflush(stderr);
+            last_state = state;
+        }
+        if (frame % 120 == 0) {
+            int phase, dframe;
+            char name[32];
+
+            dw1_debug_dooa(&phase, &dframe);
+            fprintf(stderr, "dw1: smoke: death frame %d dooa phase %d frame %d script %d/%d paused %d\n",
+                    frame, phase, dframe, CURRENT_SCRIPT_ID, SCRIPT_SECTION, IS_SCRIPT_PAUSED);
+            if (frame <= 3000) {
+                snprintf(name, sizeof(name), "death_%05d", frame);
+                dw1_dump_request(name);
+            }
+        }
+        /* the baby is in once its type changes; the naming screen that
+         * follows would loop forever on blind X taps ("another name") */
+        if (type != start_type && state != 8) {
+            if (++settle < 300)
+                break;
+            fprintf(stderr, "dw1: smoke: done (reborn as %d, lives %d)\n", type, lives);
+            exit(0);
+        }
+        if (frame > 20000) {
+            fprintf(stderr, "dw1: smoke: death still busy after %d frames\n", frame);
+            dw1_dump_state();
+            exit(1);
+        }
+        break;
+    }
     case SMOKE_EVENTS:
         /* every section of the map's own script, one after the other: the
          * events, NPC dialogues and tile triggers, with X tapped through the
@@ -346,6 +408,10 @@ void dw1_smoke_frame(void)
              * event, not the game */
             if (!done && (ev_frames < 900 || (GAME_STATE != 0 && ev_frames < 6000)))
                 break;
+            /* never cut an evolution or death scene short (see
+             * dw1_debug_partner_in_scene) */
+            if (!done && dw1_debug_partner_in_scene() && ev_frames < 12000)
+                break;
             if (!done) {
                 fprintf(stderr, "dw1: smoke: event %d %d still busy (game state %d)\n", map_cur,
                         ev_section - 1, GAME_STATE);
@@ -361,6 +427,8 @@ void dw1_smoke_frame(void)
         /* wait until the tamer is free on this map before the next section */
         if (tamerGetState() != 0 || IS_SCRIPT_PAUSED != 1 || ev_frames < 30) {
             if (ev_frames < frames_per_map + 600)
+                break;
+            if (dw1_debug_partner_in_scene() && ev_frames < 12000)
                 break;
             fprintf(stderr, "dw1: smoke: map %d still busy, changing anyway\n", map_cur);
             goto events_next_map;

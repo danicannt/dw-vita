@@ -157,7 +157,12 @@ void renderFade(uint8_t progress)
 	SetSemiTrans(prim, 1);
 	prim->tpage = GetTPage(0, FADE_MODE, 896, 448);
 	prim->clut = GetClut(256, 502);
+#ifdef DW1_NATIVE
+	/* widescreen: the whole wider screen */
+	setPosDataPolyFT4(prim, -160 - dw1_wide_extra, -120, 320 + 2 * dw1_wide_extra, 240);
+#else
 	setPosDataPolyFT4(prim, -160, -120, 320, 240);
+#endif
 	setUVDataPolyFT4(prim, 250, 509, 2, 2);
 	
 	setRGB0(prim, progress, progress, progress);

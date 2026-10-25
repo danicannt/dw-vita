@@ -111,6 +111,20 @@ int main(int argc, char **argv)
         const char *n = strchr(getenv("DW1_FILTER"), ':');
         Psyz_VideoSetPixelFilter(n ? (unsigned)atoi(n + 1) : 1);
     }
+    /* DW1_PGXP=1 (default on the Vita, =0 turns it off): 3D polygons at the
+     * GTE's exact positions with perspective-correct textures, no wobble or
+     * warping; needs the sdl3_gl renderer */
+    {
+        const char *pgxp = getenv("DW1_PGXP");
+#ifdef __vita__
+        int on = pgxp == NULL || atoi(pgxp) != 0;
+#else
+        int on = pgxp != NULL && atoi(pgxp) != 0;
+#endif
+        if (on)
+            Psyz_VideoSetPgxp(1);
+    }
+    dw1_widescreen_init(DW1_DATA_DIR); /* DW1_WIDE, port/src/widescreen.c */
     dw1_disc_set_path(disc);
     dw1_memcard_set_dir(DW1_DATA_DIR);
     dw1_overlay_init();

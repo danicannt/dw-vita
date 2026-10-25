@@ -99,7 +99,7 @@ int dw1_debug_start_section(int section)
 
 /* Keep the partner's age and remaining life where they were at the first
  * call, so long test runs (DW1_SMOKE=events) do not wander into evolutions
- * or death scenes the battery then cuts short. */
+ * or death scenes the battery then cuts short (DW1_SMOKE=death tests those). */
 void dw1_debug_freeze_partner(void)
 {
     static int saved;
@@ -112,6 +112,42 @@ void dw1_debug_freeze_partner(void)
     }
     PARTNER_PARA.age = age;
     PARTNER_PARA.remainingLifetime = life;
+    PARTNER_PARA.evoTimer = 0;      /* hours towards the next evolution */
+    PARTNER_PARA.sicknessTimer = 0; /* 12 hours sick costs a life */
+    /* and so does every battle the battery loses: at 0 the death scene
+     * starts, and changing map in the middle of it crashes (DOOA's model
+     * buffer is gone), which play never does */
+    if (PARTNER_ENTITY.lives < 3)
+        PARTNER_ENTITY.lives = 3;
+}
+
+/* DW1_SMOKE=death: a natural death (no life left; tickDeathCondition does
+ * the rest), and what the partner is and does while the scene plays */
+extern int8_t PARTNER_STATE;
+void dw1_debug_kill_partner(void)
+{
+    PARTNER_PARA.remainingLifetime = 0;
+}
+
+void dw1_debug_partner_info(int *type, int *state, int *lives)
+{
+    *type = PARTNER_ENTITY.digimonEntity.entity.type;
+    *state = PARTNER_STATE;
+    *lives = PARTNER_ENTITY.lives;
+}
+
+/* dying (8), evolving (13) or being reborn (14): changing map now loses
+ * the model the scene is loading (DOOA/EVL buffers) and crashes */
+int dw1_debug_partner_in_scene(void)
+{
+    return PARTNER_STATE == 8 || PARTNER_STATE == 13 || PARTNER_STATE == 14 || EVOLUTION_TARGET != -1;
+}
+
+#include <dw/dooa.h>
+void dw1_debug_dooa(int *phase, int *frame)
+{
+    *phase = DOOA_REINCARNATION_SEQ.phase;
+    *frame = (int)DOOA_REINCARNATION_SEQ.frame;
 }
 
 /* ---- helpers ----------------------------------------------------------- */

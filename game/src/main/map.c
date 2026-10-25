@@ -2,6 +2,8 @@
 #ifdef DW1_NATIVE
 #include <stdio.h>
 int32_t dw1_object_exists(int32_t objectId);
+static void dw1_cameraRangeX(int32_t *lo, int32_t *hi);
+static int32_t dw1_clampCameraX(void);
 #endif
 
 #include <inline_n.h>
@@ -3708,8 +3710,14 @@ int32_t isTileOffScreen(int8_t tileX, int8_t tileZ)
 	screen.vx -= 160 - DRAWING_OFFSET_X;
 	screen.vy -= 120 - DRAWING_OFFSET_Y;
 
+#ifdef DW1_NATIVE
+	/* widescreen: the screen reaches dw1_wide_extra further on each side */
+	if ((screen.vx < -200 - dw1_wide_extra) || (screen.vx > 200 + dw1_wide_extra) ||
+	    (screen.vy < -160) || (screen.vy > 160)) {
+#else
 	if ((screen.vx < -200) || (screen.vx > 200) || (screen.vy < -160) ||
 	    (screen.vy > 160)) {
+#endif
 		return 1;
 	}
 
@@ -3946,6 +3954,9 @@ int32_t entityIsOffScreen(Entity *entity, int32_t width, int32_t height)
 
 int32_t isOffScreen(DVECTOR *pos, int16_t width, int16_t height)
 {
+#ifdef DW1_NATIVE
+	width += 2 * dw1_wide_extra; /* widescreen */
+#endif
 	if ((pos->vx - (160 - DRAWING_OFFSET_X)) < (-width / 2)) {
 		return 1;
 	}
@@ -4024,6 +4035,20 @@ void renderMap(int32_t arg0)
 
 	ot = ACTIVE_ORDERING_TABLE->org;
 
+#ifdef DW1_NATIVE
+	{
+		/* where tile (0,0) would go, as in setPosDataMapTile */
+		int16_t x = -160 - (MAP_TILE_DATA.cameraX - (160 - DRAWING_OFFSET_X));
+		int16_t y = -120 - (MAP_TILE_DATA.cameraY - (120 - DRAWING_OFFSET_Y));
+		void *next = dw1_bg_queue(&ot[0xfff], GsGetWorkBase(), x, y,
+					  MAP_TILE_DATA.tiles[0].clut);
+
+		if (next != NULL) {
+			GsSetWorkBase((PACKET *)next);
+			goto overlays;
+		}
+	}
+#endif
 	for (row = 0; row < 3; row++) {
 		for (col = 0; col < columns; col++) {
 			prim = (POLY_FT4 *)GsGetWorkBase();
@@ -4052,6 +4077,9 @@ void renderMap(int32_t arg0)
 		}
 	}
 
+#ifdef DW1_NATIVE
+overlays:
+#endif
 	renderMapOverlays(MAP_TILE_DATA.objects,
 			  MAP_TILE_DATA.cameraX, MAP_TILE_DATA.cameraY);
 
@@ -4307,6 +4335,21 @@ void setupMap(void)
 		}
 	}
 
+#ifdef DW1_NATIVE
+	/* the whole map as one native background (port/src/widescreen.c): the
+	 * PS1 only had a 4x3 ring of tiles in VRAM, one column short of a 16:9
+	 * screen */
+	{
+		uint8_t *images[35];
+
+		for (i = 0; i < MAP_TILE_DATA.width * MAP_TILE_DATA.height && i < 35; i++) {
+			images[i] = MAP_TILE_DATA.tiles[i].imagePtr;
+		}
+		dw1_bg_set(MAP_ENTRIES[CURRENT_SCREEN].filename, MAP_TILE_DATA.width,
+			   MAP_TILE_DATA.height, images);
+	}
+#endif
+
 	MAP_TILE_DATA.cameraX = ((MAP_TILE_DATA.width * 128) / 2) - 160;
 	MAP_TILE_DATA.cameraY = ((MAP_TILE_DATA.height * 128) / 2) - 120;
 	DRAW_OFFSET_LIMIT_X_MAX = MAP_TILE_DATA.cameraX + 160;
@@ -4423,6 +4466,9 @@ void initializeDrawingOffsets(MapTileData *tiles)
 	PLAYER_OFFSET_X += viewScreen.vx - tamerScreen.vx;
 	PLAYER_OFFSET_Y += viewScreen.vy - tamerScreen.vy;
 
+#ifdef DW1_NATIVE
+	dw1_clampCameraX();
+#else
 	if (MAP_TILE_DATA.cameraX < 0) {
 		MAP_TILE_DATA.cameraX = 0;
 		DRAWING_OFFSET_X = DRAW_OFFSET_LIMIT_X_MAX;
@@ -4430,6 +4476,7 @@ void initializeDrawingOffsets(MapTileData *tiles)
 		MAP_TILE_DATA.cameraX = (MAP_TILE_DATA.width * 128) - 320;
 		DRAWING_OFFSET_X = DRAW_OFFSET_LIMIT_X_MIN;
 	}
+#endif
 
 	if (MAP_TILE_DATA.cameraY < 0) {
 		MAP_TILE_DATA.cameraY = 0;
@@ -4554,6 +4601,58 @@ void initializeDaytimeTransition(timeOfDay)
 		addObject(0xfbe, timeOfDay, tickDaytimeTransition, NULL);
 	}
 }
+
+#ifdef DW1_NATIVE
+/* Widescreen: the camera range (cameraX) that keeps the wider screen on the
+ * picture. With an HD pack whose margins cover the extra width, the 4:3
+ * range; without one, dw1_wide_extra further in on each side, unless the map
+ * is too narrow for that (then the 4:3 range, with black at the side). The
+ * drawing offset moves opposite to cameraX: DRAWING_OFFSET_X =
+ * DRAW_OFFSET_LIMIT_X_MAX - cameraX. */
+static void dw1_cameraRangeX(int32_t *lo, int32_t *hi)
+{
+	int32_t w = MAP_TILE_DATA.width * 128;
+	int left, right;
+	int32_t l, h;
+
+	*lo = 0;
+	*hi = w - 320;
+	if (dw1_wide_extra == 0) {
+		return;
+	}
+	dw1_wide_margins(&left, &right);
+	l = dw1_wide_extra - left;
+	h = w + right - 320 - dw1_wide_extra;
+	if (l < 0) {
+		l = 0;
+	}
+	if (h > w - 320) {
+		h = w - 320;
+	}
+	if (l <= h) {
+		*lo = l;
+		*hi = h;
+	}
+}
+
+static int32_t dw1_clampCameraX(void)
+{
+	int32_t lo, hi;
+
+	dw1_cameraRangeX(&lo, &hi);
+	if (MAP_TILE_DATA.cameraX < lo) {
+		MAP_TILE_DATA.cameraX = lo;
+		DRAWING_OFFSET_X = DRAW_OFFSET_LIMIT_X_MAX - lo;
+		return 1;
+	}
+	if (MAP_TILE_DATA.cameraX > hi) {
+		MAP_TILE_DATA.cameraX = hi;
+		DRAWING_OFFSET_X = DRAW_OFFSET_LIMIT_X_MAX - hi;
+		return 1;
+	}
+	return 0;
+}
+#endif
 
 void setPosDataMapTile(MapTileData *tile, int16_t camX, int16_t camY,
 		       POLY_FT4 *prim)
@@ -4864,6 +4963,11 @@ void cameraIsAtEdge(int32_t *outX, int32_t *outY)
 {
 	*outX = *outY = 1;
 
+#ifdef DW1_NATIVE
+	if (dw1_clampCameraX()) {
+		*outX = 0;
+	}
+#else
 	if (MAP_TILE_DATA.cameraX < 0) {
 		MAP_TILE_DATA.cameraX = 0;
 		DRAWING_OFFSET_X = DRAW_OFFSET_LIMIT_X_MAX;
@@ -4873,6 +4977,7 @@ void cameraIsAtEdge(int32_t *outX, int32_t *outY)
 		DRAWING_OFFSET_X = DRAW_OFFSET_LIMIT_X_MIN;
 		*outX = 0;
 	}
+#endif
 
 	if (MAP_TILE_DATA.cameraY < 0) {
 		MAP_TILE_DATA.cameraY = 0;
@@ -4935,6 +5040,19 @@ void tickCameraMovement(instanceId)
 		PLAYER_OFFSET_X += CAMERA_MOVE_DIFF_X - PLAYER_OFFSET_X;
 		PLAYER_OFFSET_Y += CAMERA_MOVE_DIFF_Y - PLAYER_OFFSET_Y;
 
+#ifdef DW1_NATIVE
+		{
+			int32_t lo, hi;
+
+			dw1_cameraRangeX(&lo, &hi);
+			if (CAMERA_MOVE_DIFF_X < DRAW_OFFSET_LIMIT_X_MAX - hi) {
+				CAMERA_MOVE_DIFF_X = DRAW_OFFSET_LIMIT_X_MAX - hi;
+			}
+			if (CAMERA_MOVE_DIFF_X > DRAW_OFFSET_LIMIT_X_MAX - lo) {
+				CAMERA_MOVE_DIFF_X = DRAW_OFFSET_LIMIT_X_MAX - lo;
+			}
+		}
+#else
 		if (CAMERA_MOVE_DIFF_X < DRAW_OFFSET_LIMIT_X_MIN) {
 			CAMERA_MOVE_DIFF_X = DRAW_OFFSET_LIMIT_X_MIN;
 		}
@@ -4942,6 +5060,7 @@ void tickCameraMovement(instanceId)
 		if (CAMERA_MOVE_DIFF_X > DRAW_OFFSET_LIMIT_X_MAX) {
 			CAMERA_MOVE_DIFF_X = DRAW_OFFSET_LIMIT_X_MAX;
 		}
+#endif
 
 		if (CAMERA_MOVE_DIFF_Y < DRAW_OFFSET_LIMIT_Y_MIN) {
 			CAMERA_MOVE_DIFF_Y = DRAW_OFFSET_LIMIT_Y_MIN;

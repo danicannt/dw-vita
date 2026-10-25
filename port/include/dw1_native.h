@@ -80,6 +80,23 @@ void dw1_crash_handler_install(void);
  * DW1_WARP / DW1_SMOKE (port/src/smoke.c), stepped from the top of gameLoop. */
 void dw1_smoke_frame(void);
 
+/* ---- widescreen and native backgrounds --------------------------------------
+ * port/src/widescreen.c. dw1_wide_extra: game pixels added on each side of
+ * the 320-wide screen (0 in 4:3). The background functions take the map's
+ * tiles (NULL image: black tile) and queue it in the ordering table; with
+ * no renderer support dw1_bg_set returns 0 and dw1_bg_queue NULL. */
+extern int dw1_wide_extra;
+void dw1_widescreen_init(const char *data_dir);
+int dw1_bg_set(const char *name, int tiles_w, int tiles_h, unsigned char *const *tile_images);
+void dw1_bg_clear(void);
+void *dw1_bg_queue(void *ot_entry, void *work, int x, int y, unsigned clut);
+/* margins an HD pack adds around the map (original pixels), 0 without one;
+ * returns whether a native background is active */
+int dw1_wide_margins(int *left, int *right);
+/* an upscaled FMV from <hd dir>/movies when there is one: 1 played to the
+ * end, 0 skipped with Start, -1 none (play the original) */
+int dw1_play_hd_movie(int movie_id, int skippable);
+
 /* ---- file queue ------------------------------------------------------------
  * game/src/main/file_queue.c: let synchronous reads wait for queued ones. */
 void dw1_file_queue_drain(void);

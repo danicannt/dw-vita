@@ -155,7 +155,12 @@ psyz_title(dw1 "Digimon World")
 # and holds nothing from the game.
 if(VITA)
     include("$ENV{VITASDK}/share/vita.cmake" REQUIRED)
-    set(DW1_VITA_TITLEID "DGWD00001")
+    # widescreen 16:9 by default (port/src/widescreen.c); only the sdl3_gl
+    # renderer has it, the others stay 4:3
+    target_compile_definitions(dw1_port PRIVATE DW1_VITA_WIDE)
+    # test builds set their own, so they install next to the main one
+    set(DW1_VITA_TITLEID "DGWD00001" CACHE STRING "Vita title ID")
+    set(DW1_VITA_NAME "Digimon World" CACHE STRING "Vita bubble name")
     set(DW1_VITA_VERSION "00.10")
     vita_create_self(eboot.bin dw1 UNSAFE)
     # vita_create_vpk() would do this, but it splits its arguments on spaces
@@ -173,7 +178,7 @@ if(VITA)
     endforeach()
     add_custom_command(OUTPUT ${DW1_VITA_SFO}
         COMMAND ${VITA_MKSFOEX} -s APP_VER=${DW1_VITA_VERSION}
-            -s TITLE_ID=${DW1_VITA_TITLEID} "Digimon World" ${DW1_VITA_SFO}
+            -s TITLE_ID=${DW1_VITA_TITLEID} "${DW1_VITA_NAME}" ${DW1_VITA_SFO}
         DEPENDS ${DW1_VITA_EBOOT}
         COMMENT "Generating param.sfo"
         VERBATIM)

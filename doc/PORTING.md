@@ -81,8 +81,40 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
    cards; `host/main.c` already uses that path on `__vita__`).
 6. **Performance on the Vita** (Cortex-A9 at 444 MHz): software GTE and SPU,
    `-O2`/`-O3`, NEON where it pays.
-7. **Extras**, only once the game is complete: widescreen, higher internal
-   resolution, no-wobble vertices.
+7. **Extras**: widescreen, HD backgrounds, HD movies, music and no-wobble
+   vertices are done (see "Enhancements" below); higher internal resolution
+   is the canvas scale.
+
+## Enhancements (sdl3_gl renderer)
+
+- **Widescreen** (`DW1_WIDE=extra[:scale]`, on by default on the Vita as
+  52:2): drawing into a display buffer goes to a canvas `extra` game pixels
+  wider on each side, at `scale` resolution, through a `vramOrigin` uniform
+  (`Psyz_VideoSetWidescreen`); VRAM reads of a display buffer copy the
+  canvas centre back. The game side (`DW1_NATIVE`) widens culling
+  (`isOffScreen`, `isTileOffScreen`), the fade quads, keeps the camera on
+  the picture (`dw1_cameraRangeX` in map.c) and anchors the clock and the
+  status bars to the edges. Code: `port/src/widescreen.c`.
+- **Native backgrounds**: the whole map is one texture of palette indices
+  looked up in the map's CLUT (VRAM row 480, so day/dusk/night still work),
+  queued in the ordering table as an application GP0 command (0xF7) instead
+  of the 4x3 tile ring. Indices come from the map's tiles or from an HD pack,
+  `<data>/hd/<MAP>.hdm` (format in widescreen.c; packs made by
+  `dw1-tools/pack_fondos_hd.py`, AI-upscaled with AI-extended sides).
+- **HD movies**: `<data>/hd/movies/OP1.mp4` (OP2, ED2, EDR) replaces that FMV
+  (`MOV_playMovie`); the Vita decodes it with sceAvPlayer, Linux through
+  ffmpeg. On the Vita sceAvPlayer has not delivered a frame yet: after 5 s
+  the original movie plays.
+- **Music**: PSY-Z had no libsnd SEQ interpreter (`_SsSeqPlay` was a stub),
+  so no music ever played; `psyz/src/psyz/libsnd_seq.c` implements it.
+- **PGXP** (`DW1_PGXP=1`, on by default on the Vita): the GTE keeps each
+  projected vertex's exact x, y and depth, and the renderer draws 3D
+  polygons with them: no wobble, perspective-correct textures.
+- **vitaGL pitfalls met here**: `glBlitFramebuffer` reads an FBO texture
+  upside down from how shaders sample it (present and MoveImage use the
+  quad shader instead); GLSL goes through a Cg translator, where `==` on
+  vectors is per component; and a separate draw target kept in sync with
+  blits never reached the sampled VRAM (the Vita draws into VRAM directly).
 
 ## Known risks and open questions
 
