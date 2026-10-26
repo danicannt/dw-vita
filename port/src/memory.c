@@ -94,7 +94,11 @@ void free3(void *ptr)
 
 void *calloc3(size_t n, size_t size)
 {
-    void *p = malloc3(n * size);
+    void *p;
+
+    if (size != 0 && n > (size_t)-1 / size)
+        return NULL;
+    p = malloc3(n * size);
     if (p != NULL)
         memset(p, 0, n * size);
     return p;

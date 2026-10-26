@@ -111,9 +111,15 @@ void TRN_tickSlotMachine(arg)
 	case 0:
 		if (((POLLED_INPUT & ~POLLED_INPUT_PREVIOUS) & CONFIRM_BUTTON) || (p->autoStart >= 0)) {
 			p->state = 1;
+#ifdef DW1_NATIVE
+			/* fair slots spin at half speed (4 frames a symbol, not 2) so
+			 * a stop can be aimed */
+			p->spinSpeed[0] = p->spinSpeed[1] = p->spinSpeed[2] = dw1_slots_original() ? 0x400 : 0x200;
+#else
 			p->spinSpeed[0] = 0x400;
 			p->spinSpeed[1] = 0x400;
 			p->spinSpeed[2] = 0x400;
+#endif
 			p->stopSteps[0] = 0;
 			p->stopSteps[1] = 0;
 			p->stopSteps[2] = 0;
@@ -339,6 +345,10 @@ scan:
 			if (p->targetSymbol[0] != TRN_D_8008F1AC[i][(p->reelPos[i] + 12) % 13]) {
 				break;
 			}
+#ifdef DW1_NATIVE
+			if (!dw1_slots_original())
+				break;
+#endif
 			p->stopSteps[i] = (rand() % 2) + 1;
 			break;
 		case 1:
@@ -404,7 +414,15 @@ void TRN_createSlotMachineBox(int32_t arg)
 	st->state = 0;
 	st->stat = arg;
 	st->autoStart = -1;
+#ifdef DW1_NATIVE
+	/* fair slots: the PS1 picked a hidden mode per spin, 50% of which nudged
+	 * the third reel off any triple, 40% steered toward the first symbol but
+	 * never 7-7-7, 10% hunted for 7s. Mode 0 without the nudge stops each
+	 * reel where it is pressed. DW1_SLOTS_ORIGINAL=1 keeps the PS1's. */
+	st->assist = dw1_slots_original() ? TRN_D_8008F2CC[rand() % 10] : 0;
+#else
 	st->assist = TRN_D_8008F2CC[rand() % 10];
+#endif
 	for (i = 0; i < 3; i++) {
 		st->reelPos[i] = rand() % 13;
 		st->scrollY[i] = 0;

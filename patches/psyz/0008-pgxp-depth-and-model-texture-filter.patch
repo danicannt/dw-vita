@@ -1,0 +1,1160 @@
+diff --git a/psyz/include/psyz/video.h b/psyz/include/psyz/video.h
+index df3f271..f637eb3 100644
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -284,6 +284,38 @@ int Psyz_VideoSetPgxp(int on);
+  */
+ int Psyz_VideoGetPgxp(void);
+ 
++/**
++ * @brief PGXP depth buffer (default: off; needs Psyz_VideoSetPgxp)
++ *
++ * Opaque polygons drawn with PGXP depth-test against each other with their
++ * GTE depth, so parts of a model that the ordering table sorted wrong no
++ * longer cut into each other. 2D primitives keep the ordering-table order.
++ * Only the sdl3_gl renderer implements it; others return -1.
++ */
++int Psyz_VideoSetPgxpDepth(int on);
++int Psyz_VideoGetPgxpDepth(void);
++
++/**
++ * @brief Marks the GTE projections that follow as a model's (default: off)
++ *
++ * Only models' polygons get the PGXP depth buffer and the texture filter.
++ * Scenery (map objects, signs, fences) keeps the ordering-table order, as
++ * on the PS1, and its pixel-art textures: its meshes can reach into the
++ * spaces characters walk through, so depth would cut them.
++ */
++void Psyz_VideoSetPgxpModel(int on);
++
++/**
++ * @brief Texture filter for PGXP models' polygons (default: 0)
++ *
++ * 0 keeps the PS1's nearest texels, 1 is a 3-point filter (as on the N64),
++ * 2 bilinear. Each polygon only filters within its own UVs and transparent
++ * texels stay sharp. HUD, text and backgrounds are never filtered.
++ * Only the sdl3_gl renderer implements it; others return -1.
++ */
++int Psyz_VideoSetModelFilter(int mode);
++int Psyz_VideoGetModelFilter(void);
++
+ /**
+  * @brief Synchronize with vertical blank
+  *
+diff --git a/psyz/src/internal.h b/psyz/src/internal.h
+index b09682a..d3f4e2a 100644
+--- a/psyz/src/internal.h
++++ b/psyz/src/internal.h
+@@ -54,7 +54,9 @@ void Psyz_PgxpSetEnabled(int on);
+ int Psyz_PgxpIsEnabled(void);
+ void Psyz_PgxpNextFrame(void);
+ // the n (up to PGXP_MAX_POLY) integer vertices of a polygon; fills out with
+-// {x, y, w, 1} and returns 1 when the GTE projected all of them
++// {x, y, w, f} and returns 1 when the GTE projected all of them. f is 2 when
++// the vertex belongs to a model (Psyz_VideoSetPgxpModel) projected with the
++// frame's main projection, so it gets depth and texture filtering; else 1
+ #define PGXP_MAX_POLY 4
+ int Psyz_PgxpLookupPolygon(int n, const short* sx, const short* sy,
+                            float (*out)[4]);
+diff --git a/psyz/src/platform/gl_float_shaders.h b/psyz/src/platform/gl_float_shaders.h
+index 551f96e..c829a54 100644
+--- a/psyz/src/platform/gl_float_shaders.h
++++ b/psyz/src/platform/gl_float_shaders.h
+@@ -36,6 +36,7 @@ static const char float_vertex_shader_body[] = {
+     "ATTR vec4 color;\n" // normalized RGBA8
+     "ATTR vec4 twin;\n"  // texture window: and.x, and.y, or.x, or.y
+     "ATTR vec4 prec;\n"  // PGXP x, y, w, on (1.0)
++    "ATTR vec4 uvbox;\n" // PGXP polygon's UV min, max
+     "uniform vec2 drawOffset;\n"
+     "uniform vec2 halfPixel;\n"
+     "uniform vec2 vramOrigin;\n" // VRAM point at the target's corner
+@@ -47,6 +48,7 @@ static const char float_vertex_shader_body[] = {
+     "VARY vec4 vPage;\n" // xy texture page origin, zw palette origin
+     "VARY vec4 vTwin;\n"
+     "VARY float vAbr;\n" // semi-transparency mode
++    "VARY vec4 vBox;\n"  // UV bounds to filter in, x < 0: no filter
+     "float bit(float word, float value) {\n"
+     "    return mod(floor(word / value), 2.0);\n"
+     "}\n"
+@@ -58,7 +60,11 @@ static const char float_vertex_shader_body[] = {
+     "    float w = prec.w > 0.5 ? prec.z : 1.0;\n"
+     "    float x = ((p.x + drawOffset.x + shift.x - vramOrigin.x) / (1024.0 / 2.0)) - 1.0;\n"
+     "    float y = ((p.y + drawOffset.y + shift.y - vramOrigin.y) / (512.0 / 2.0)) - 1.0;\n"
+-    "    gl_Position = vec4(x * w, y * w, 0.0, w);\n"
++    // PGXP depth 1 - 8/w (LEQUAL, cleared to 1) for the world's projection
++    // (prec.w 2); the rest in front of it
++    "    float z = prec.w > 1.5 ? max(w - 16.0, -w) : -0.999;\n"
++    "    gl_Position = vec4(x * w, y * w, z, w);\n"
++    "    vBox = prec.w > 1.5 && word < 32768.0 ? uvbox : vec4(-1.0);\n"
+     "    vColor = color;\n"
+     "    float tpage = mod(word, 512.0);\n"
+     "    vUV = tex.xy + shift - halfPixel;\n"
+@@ -88,7 +94,9 @@ static const char float_fragment_shader_body[] = {
+     "VARY vec4 vPage;\n"
+     "VARY vec4 vTwin;\n"
+     "VARY float vAbr;\n"
++    "VARY vec4 vBox;\n"
+     "uniform sampler2D texVram;\n"
++    "uniform float texFilter;\n" // 3D polygons: 0 PS1, 1 3-point, 2 bilinear
+     "\n"
+     "vec4 fetch(vec2 p) {\n"
+     "    return TEX2D(texVram, (p + 0.5) / vec2(1024.0, 512.0));\n"
+@@ -112,6 +120,67 @@ static const char float_fragment_shader_body[] = {
+     "    }\n"
+     "    return t;\n"
+     "}\n"
++    // colour of texel t (0..255, texture window applied) of the page
++    "vec4 texelAt(vec2 tc, float mode) {\n"
++    "    if (mode < 1.5) {\n"
++    "        return fetch(vPage.xy + tc);\n"
++    "    }\n"
++    "    float perPixel = floor(vMode.y + 0.5);\n"
++    "    float size = floor(vMode.z + 0.5);\n"
++    "    vec4 c = fetch(vPage.xy + vec2(floor(tc.x / perPixel), tc.y));\n"
++    "    float word = floor(c.r * 31.0 + 0.5)\n"
++    "               + floor(c.g * 31.0 + 0.5) * 32.0\n"
++    "               + floor(c.b * 31.0 + 0.5) * 1024.0\n"
++    "               + floor(c.a + 0.5) * 32768.0;\n"
++    "    float sub = mod(tc.x, perPixel);\n"
++    // exact powers: pow() is exp2(log2()) on the SGX and can land just
++    // under 16, 256...
++    "    float div = sub < 0.5 ? 1.0 : sub < 1.5 ? size\n"
++    "              : sub < 2.5 ? size * size : size * size * size;\n"
++    "    float index = mod(floor(word / div), size);\n"
++    "    return fetch(vPage.zw + vec2(index, 0.0));\n"
++    "}\n"
++    // the texture filter's code is only compiled in when it is on: it costs
++    // every pixel registers, and the Vita's GPU fewer threads, even unused
++    "#if PSYZ_FILTER\n"
++    // texel t before the window, clamped to the polygon's UVs
++    "vec4 boxTexel(vec2 tc, float mode) {\n"
++    "    tc = clamp(clamp(tc, vBox.xy, vBox.zw), vec2(0.0), vec2(255.0));\n"
++    "    vec4 win = floor(vTwin + 0.5);\n"
++    "    if (win.x < 255.0 || win.y < 255.0 || win.z > 0.0 || win.w > 0.0) {\n"
++    "        tc = vec2(and8(tc.x, win.x), and8(tc.y, win.y)) + win.zw;\n"
++    "    }\n"
++    "    return texelAt(tc, mode);\n"
++    "}\n"
++    // 1 for a texel that is not fully transparent (component by component:
++    // see main)
++    "float opaque(vec4 c) {\n"
++    "    return c.r > 0.0 || c.g > 0.0 || c.b > 0.0 || c.a > 0.0 ? 1.0 : 0.0;\n"
++    "}\n"
++    // smoothed colour around vUV from the opaque texels; w0 > 0 when any
++    "vec3 filteredTexel(float mode, out float w0) {\n"
++    "    vec2 p = vUV - 0.5 + 1.0 / 512.0;\n"
++    "    vec2 b = floor(p);\n"
++    "    vec2 f = p - b;\n"
++    "    vec4 c00 = boxTexel(b, mode);\n"
++    "    vec4 c10 = boxTexel(b + vec2(1.0, 0.0), mode);\n"
++    "    vec4 c01 = boxTexel(b + vec2(0.0, 1.0), mode);\n"
++    "    vec4 c11 = boxTexel(b + vec2(1.0, 1.0), mode);\n"
++    "    vec4 k;\n" // weights of c00, c10, c01, c11
++    "    if (texFilter > 1.5) {\n"
++    "        k = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y),\n"
++    "                 (1.0 - f.x) * f.y, f.x * f.y);\n"
++    "    } else if (f.x + f.y <= 1.0) {\n" // N64 3-point
++    "        k = vec4(1.0 - f.x - f.y, f.x, f.y, 0.0);\n"
++    "    } else {\n"
++    "        k = vec4(0.0, 1.0 - f.y, 1.0 - f.x, f.x + f.y - 1.0);\n"
++    "    }\n"
++    "    k *= vec4(opaque(c00), opaque(c10), opaque(c01), opaque(c11));\n"
++    "    w0 = k.x + k.y + k.z + k.w;\n"
++    "    return (c00.rgb * k.x + c10.rgb * k.y + c01.rgb * k.z + c11.rgb * k.w)\n"
++    "           / max(w0, 0.000001);\n"
++    "}\n"
++    "#endif\n"
+     "#ifndef PSYZ_NO_DITHER\n"
+     "float ditherOffset() {\n"
+     "    float dx = mod(floor(gl_FragCoord.x), 4.0);\n"
+@@ -139,43 +208,46 @@ static const char float_fragment_shader_body[] = {
+     "    vec4 texColor;\n"
+     "    if (mode < 0.5) {\n"
+     "        texColor = vec4(1.0, 1.0, 1.0, 2.0);\n"
+-    "    } else if (mode < 1.5) {\n"
+-    "        texColor = fetch(vPage.xy + resolveTexel());\n"
+     "    } else {\n"
+-    "        float perPixel = floor(vMode.y + 0.5);\n"
+-    "        float size = floor(vMode.z + 0.5);\n"
+-    "        vec2 t = resolveTexel();\n"
+-    "        vec4 c = fetch(vPage.xy + vec2(floor(t.x / perPixel), t.y));\n"
+-    "        float word = floor(c.r * 31.0 + 0.5)\n"
+-    "                   + floor(c.g * 31.0 + 0.5) * 32.0\n"
+-    "                   + floor(c.b * 31.0 + 0.5) * 1024.0\n"
+-    "                   + floor(c.a + 0.5) * 32768.0;\n"
+-    "        float sub = mod(t.x, perPixel);\n"
+-    // exact powers: pow() is exp2(log2()) on the SGX and can land just
+-    // under 16, 256...
+-    "        float div = sub < 0.5 ? 1.0 : sub < 1.5 ? size\n"
+-    "                  : sub < 2.5 ? size * size : size * size * size;\n"
+-    "        float index = mod(floor(word / div), size);\n"
+-    "        texColor = fetch(vPage.zw + vec2(index, 0.0));\n"
++    "        texColor = texelAt(resolveTexel(), mode);\n"
+     "    }\n"
+     // component by component: vitaGL turns GLSL into Cg, where vector ==
+     // is per component and if() then takes any of them, so every texel
+     // with alpha (STP) 0, nearly all of a PS1 palette, was dropped
++    // (with the depth buffer, discard: nothing reaches it; without, a
++    // transparent colour, as discard is slow on the Vita's GPU)
+     "    if (texColor.r == 0.0 && texColor.g == 0.0 && texColor.b == 0.0 &&\n"
+     "        texColor.a == 0.0) {\n"
++    "#if PSYZ_DEPTH\n"
++    "        discard;\n"
++    "#else\n"
+     "        FragColor = vec4(0.0);\n"
+     "        return;\n"
++    "#endif\n"
++    "    }\n"
++    "    bool filtered = false;\n"
++    "#if PSYZ_FILTER\n"
++    "    if (texFilter > 0.5 && vBox.x >= 0.0 && mode > 0.5) {\n"
++    "        float w0;\n"
++    "        vec3 smoothed = filteredTexel(mode, w0);\n"
++    "        if (w0 > 0.0) {\n"
++    "            texColor.rgb = smoothed;\n"
++    "            filtered = true;\n"
++    "        }\n"
+     "    }\n"
++    "#endif\n"
+     "    bool isSemiTrans = vColor.a < 0.75;\n"
+     "    bool colorSemiTrans = texColor.a > 0.0;\n"
+     "    vec3 modColor;\n"
+     "    if (mode < 0.5) {\n"
+     "        modColor = texColor.rgb * vColor.rgb;\n"
+     "    } else {\n"
+-    "        vec3 tex5 = floor(texColor.rgb * 31.0 + 0.5);\n"
++    "        vec3 tex5 = filtered ? texColor.rgb * 31.0\n"
++    "                             : floor(texColor.rgb * 31.0 + 0.5);\n"
+     "        vec3 col8 = min(floor(vColor.rgb * 127.5 + 0.5), vec3(255.0));\n"
+     "        vec3 prod8 = min(tex5 * col8 / 16.0, vec3(255.0));\n"
+-    "        modColor = dither ? prod8 / 255.0 : floor(prod8 / 8.0) / 31.0;\n"
++    "        modColor = dither || filtered ? prod8 / 255.0\n"
++    "                                      : floor(prod8 / 8.0) / 31.0;\n"
+     "    }\n"
+     "    modColor = applyDither(modColor);\n"
+     "    if (colorSemiTrans && isSemiTrans) {\n"
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index c474edc..02dcb50 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -59,6 +59,7 @@ static const char vertex_shader_body[] = {
+     "layout(location = 2) in vec4 color;\n"
+     "layout(location = 3) in vec4 twin;\n"
+     "layout(location = 4) in vec4 prec;\n" // PGXP x, y, w, on
++    "layout(location = 5) in vec4 uvbox;\n" // PGXP polygon's UV min, max
+     "uniform vec2 resolution;\n"
+     "uniform vec2 drawOffset, halfPixel;\n"
+     "uniform vec2 vramOrigin;\n" // VRAM point at the target's corner
+@@ -75,6 +76,7 @@ static const char vertex_shader_body[] = {
+     "flat out uint dither;\n"       // 1 when this primitive dithers
+     "flat out ivec2 pageBase;\n"    // texture page origin, in VRAM pixels
+     "flat out uvec4 texWindow;\n"   // GP0(E2h) as {and.xy, or.zw}
++    "flat out vec4 uvBox;\n" // UV bounds to filter in, x < 0: no filter
+     "\n"
+     "void main() {\n"
+     // polygons move their PS1 integer coords onto the pixel centres, while
+@@ -85,7 +87,12 @@ static const char vertex_shader_body[] = {
+     "    float w = prec.w > 0.5 ? prec.z : 1.0;\n"
+     "    float x = ((p.x + drawOffset.x + shift.x - vramOrigin.x) / (1024.0 / 2.0)) - 1.0;\n"
+     "    float y = ((p.y + drawOffset.y + shift.y - vramOrigin.y) / (512.0 / 2.0)) - 1.0;\n"
+-    "    gl_Position = vec4(x * w, y * w, 0.0, w);\n"
++    // PGXP depth 1 - 8/w (LEQUAL, cleared to 1) for the world's projection
++    // (prec.w 2); the rest in front of it
++    "    float z = prec.w > 1.5 ? max(w - 16.0, -w) : -0.999;\n"
++    "    gl_Position = vec4(x * w, y * w, z, w);\n"
++    "    uvBox = prec.w > 1.5 && (uint(tex.w) & 0x8000u) == 0u ? uvbox\n"
++    "                                                         : vec4(-1.0);\n"
+     // gouraud colors
+     "    vertexColor = color;\n"
+     // select the right texture coords based on the tpage
+@@ -138,7 +145,9 @@ static const char fragment_shader_body[] = {
+     "flat in uint dither;\n"
+     "flat in ivec2 pageBase;\n"
+     "flat in uvec4 texWindow;\n"
++    "flat in vec4 uvBox;\n"
+     "uniform sampler2D texVram;\n"
++    "uniform float texFilter;\n" // 3D polygons: 0 PS1, 1 3-point, 2 bilinear
+     "\n"
+     "uvec2 resolveTexel() {\n"
+     "    vec2 uv = rawUV + 1.0 / 512.0;\n"
+@@ -153,6 +162,49 @@ static const char fragment_shader_body[] = {
+     "    uint a = uint(c.a + 0.5);\n"
+     "    return r | (g << 5u) | (b << 10u) | (a << 15u);\n"
+     "}\n"
++    // the texture filter's code is only compiled in when it is on (see
++    // Init_SetupShader)
++    "#if PSYZ_FILTER\n"
++    // texel t (0..255 before the texture window) of the primitive's page
++    "vec4 sampleTexel(vec2 t) {\n"
++    "    uvec2 u = uvec2(clamp(t, vec2(0.0), vec2(255.0)));\n"
++    "    ivec2 texel = ivec2((u & texWindow.xy) | texWindow.zw);\n"
++    "    if (textureMode == 1u) {\n"
++    "        return texelFetch(texVram, pageBase + texel, 0);\n"
++    "    }\n"
++    "    uint subPixel = uint(texel.x) & subPixelMask;\n"
++    "    ivec2 texelPos = pageBase + ivec2(texel.x >> texelShift, texel.y);\n"
++    "    uint word16 = rgb5551ToU16(texelFetch(texVram, texelPos, 0));\n"
++    "    uint colorIdx = (word16 >> (subPixel * indexShift)) & indexMask;\n"
++    "    ivec2 clutBase = ivec2((clut % 64u) * 16u, clut / 64u);\n"
++    "    return texelFetch(texVram, clutBase + ivec2(colorIdx, 0), 0);\n"
++    "}\n"
++    // smoothed colour around rawUV, from the opaque texels only and within
++    // the polygon's UVs (texture atlases); w0 > 0 when there is one
++    "vec3 filteredTexel(out float w0) {\n"
++    "    vec2 p = rawUV - 0.5 + 1.0 / 512.0;\n"
++    "    vec2 b = floor(p);\n"
++    "    vec2 f = p - b;\n"
++    "    vec4 c00 = sampleTexel(clamp(b, uvBox.xy, uvBox.zw));\n"
++    "    vec4 c10 = sampleTexel(clamp(b + vec2(1.0, 0.0), uvBox.xy, uvBox.zw));\n"
++    "    vec4 c01 = sampleTexel(clamp(b + vec2(0.0, 1.0), uvBox.xy, uvBox.zw));\n"
++    "    vec4 c11 = sampleTexel(clamp(b + vec2(1.0, 1.0), uvBox.xy, uvBox.zw));\n"
++    "    vec4 k;\n" // weights of c00, c10, c01, c11
++    "    if (texFilter > 1.5) {\n"
++    "        k = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y),\n"
++    "                 (1.0 - f.x) * f.y, f.x * f.y);\n"
++    "    } else if (f.x + f.y <= 1.0) {\n" // N64 3-point
++    "        k = vec4(1.0 - f.x - f.y, f.x, f.y, 0.0);\n"
++    "    } else {\n"
++    "        k = vec4(0.0, 1.0 - f.y, 1.0 - f.x, f.x + f.y - 1.0);\n"
++    "    }\n"
++    "    k *= vec4(c00 != vec4(0.0) ? 1.0 : 0.0, c10 != vec4(0.0) ? 1.0 : 0.0,\n"
++    "              c01 != vec4(0.0) ? 1.0 : 0.0, c11 != vec4(0.0) ? 1.0 : 0.0);\n"
++    "    w0 = k.x + k.y + k.z + k.w;\n"
++    "    return (c00.rgb * k.x + c10.rgb * k.y + c01.rgb * k.z + c11.rgb * k.w)\n"
++    "           / max(w0, 1e-6);\n"
++    "}\n"
++    "#endif\n"
+     "const mat4 ditherMatrix = mat4("
+     "    -4.0, +0.0, -3.0, +1.0,"
+     "    +2.0, -2.0, +3.0, -1.0,"
+@@ -186,11 +238,27 @@ static const char fragment_shader_body[] = {
+     "        texColor = texelFetch(texVram, clutBase + ivec2(colorIdx, 0), "
+     "0);\n"
+     "    }\n"
+-    // check for full transparency
++    // check for full transparency (with the depth buffer, discard: nothing
++    // reaches it)
+     "    if (texColor == vec4(0, 0, 0, 0)) {\n"
++    "#if PSYZ_DEPTH\n"
++    "        discard;\n"
++    "#else\n"
+     "        FragColor = vec4(0);\n"
+     "        return;\n"
++    "#endif\n"
++    "    }\n"
++    "    bool filtered = false;\n"
++    "#if PSYZ_FILTER\n"
++    "    if (texFilter > 0.5 && uvBox.x >= 0.0 && textureMode != 0u) {\n"
++    "        float w0;\n"
++    "        vec3 smoothed = filteredTexel(w0);\n"
++    "        if (w0 > 0.0) {\n"
++    "            texColor.rgb = smoothed;\n"
++    "            filtered = true;\n"
++    "        }\n"
+     "    }\n"
++    "#endif\n"
+     // check for setSemiTrans(p, 1)
+     "    bool isSemiTrans = vertexColor.a < 0.75;"
+     // when a color has the 0x8000 bit left then it has the semitrans flag on
+@@ -201,11 +269,12 @@ static const char fragment_shader_body[] = {
+     // untextured: PS1 uses color directly, no modulation
+     "        modColor = texColor.rgb * vertexColor.rgb;\n"
+     "    } else {\n"
+-    "        vec3 tex5 = floor(texColor.rgb * 31.0 + 0.5);\n"
++    "        vec3 tex5 = filtered ? texColor.rgb * 31.0\n"
++    "                             : floor(texColor.rgb * 31.0 + 0.5);\n"
+     "        vec3 col8 = min(floor(vertexColor.rgb * 127.5 + 0.5), "
+     "vec3(255.0));\n"
+     "        vec3 prod8 = min(tex5 * col8 / 16.0, vec3(255.0));\n"
+-    "        modColor = dither != 0u ? prod8 / 255.0\n"
++    "        modColor = dither != 0u || filtered ? prod8 / 255.0\n"
+     "                                : floor(prod8 / 8.0) / 31.0;\n"
+     "    }\n"
+     "    modColor = applyDither(modColor);\n"
+@@ -246,6 +315,7 @@ static GLint uniform_tex_vram = 0;
+ static GLint uniform_draw_offset = 0;
+ static GLint uniform_half_pixel = 0;
+ static GLint uniform_vram_origin = -1;
++static GLint uniform_tex_filter = -1;
+ static GLuint vram_texture;
+ static GLuint vram_fbo = 0;
+ static GLuint scratch_texture = 0;
+@@ -322,8 +392,17 @@ static GLuint Init_CompileShaderWith(
+     return shader;
+ }
+ 
+-static GLuint Init_SetupShader() {
++// the main program's variants (MAIN_FILTER, MAIN_DEPTH), compiled when first
++// used: the PGXP texture filter and depth buffer cost every pixel some speed
++// on the Vita even unused, so they are only in the variants that use them
++#define MAIN_FILTER 1
++#define MAIN_DEPTH 2
++static GLuint main_programs[4];
++
++static GLuint Init_SetupShader(int variant) {
+     GLuint vertShader, fragShader;
++    const char *vs_prologue, *fs_prologue;
++    char fs_head[1024];
+ #if defined(__vita__)
+     float_shaders = true;
+ #else
+@@ -331,25 +410,30 @@ static GLuint Init_SetupShader() {
+ #endif
+     if (float_shaders) {
+ #if defined(__vita__)
+-        vertShader = Init_CompileShaderWith(float_prologue_vs_vita,
+-                                            float_vertex_shader_body,
+-                                            GL_VERTEX_SHADER);
+-        fragShader = Init_CompileShaderWith(float_prologue_fs_vita,
+-                                            float_fragment_shader_body,
+-                                            GL_FRAGMENT_SHADER);
++        vs_prologue = float_prologue_vs_vita;
++        fs_prologue = float_prologue_fs_vita;
+ #else
+-        vertShader = Init_CompileShaderWith(float_prologue_vs_core,
+-                                            float_vertex_shader_body,
+-                                            GL_VERTEX_SHADER);
+-        fragShader = Init_CompileShaderWith(float_prologue_fs_core,
+-                                            float_fragment_shader_body,
+-                                            GL_FRAGMENT_SHADER);
++        vs_prologue = float_prologue_vs_core;
++        fs_prologue = float_prologue_fs_core;
+ #endif
+-        INFOF("using the float-only PS1 shaders");
+     } else {
+-        vertShader = Init_CompileShader(vertex_shader_body, GL_VERTEX_SHADER);
+-        fragShader =
+-            Init_CompileShader(fragment_shader_body, GL_FRAGMENT_SHADER);
++        vs_prologue = fs_prologue =
++            use_gles ? shader_prologue_es : shader_prologue_core;
++    }
++    snprintf(fs_head, sizeof(fs_head), "%s#define PSYZ_FILTER %d\n"
++             "#define PSYZ_DEPTH %d\n", fs_prologue,
++             (variant & MAIN_FILTER) != 0, (variant & MAIN_DEPTH) != 0);
++    if (float_shaders) {
++        vertShader = Init_CompileShaderWith(
++            vs_prologue, float_vertex_shader_body, GL_VERTEX_SHADER);
++        fragShader = Init_CompileShaderWith(
++            fs_head, float_fragment_shader_body, GL_FRAGMENT_SHADER);
++        INFOF("using the float-only PS1 shaders (variant %d)", variant);
++    } else {
++        vertShader = Init_CompileShaderWith(
++            vs_prologue, vertex_shader_body, GL_VERTEX_SHADER);
++        fragShader = Init_CompileShaderWith(
++            fs_head, fragment_shader_body, GL_FRAGMENT_SHADER);
+     }
+     GLuint program = glCreateProgram();
+     glAttachShader(program, vertShader);
+@@ -360,6 +444,7 @@ static GLuint Init_SetupShader() {
+     glBindAttribLocation(program, 2, "color");
+     glBindAttribLocation(program, 3, "twin");
+     glBindAttribLocation(program, 4, "prec");
++    glBindAttribLocation(program, 5, "uvbox");
+     glLinkProgram(program);
+ 
+     int success = 0;
+@@ -374,6 +459,33 @@ static GLuint Init_SetupShader() {
+     return program;
+ }
+ 
++// makes the variant (MAIN_FILTER, MAIN_DEPTH) the main program, with the
++// uniforms that are not set before every draw
++static bool UseMainProgram(int variant) {
++    if (!main_programs[variant]) {
++        main_programs[variant] = Init_SetupShader(variant);
++        if (!main_programs[variant]) {
++            return false;
++        }
++    }
++    if (shader_program == main_programs[variant]) {
++        return true;
++    }
++    shader_program = main_programs[variant];
++    glUseProgram(shader_program);
++    uniform_resolution = glGetUniformLocation(shader_program, "resolution");
++    uniform_tex_vram = glGetUniformLocation(shader_program, "texVram");
++    uniform_draw_offset = glGetUniformLocation(shader_program, "drawOffset");
++    uniform_half_pixel = glGetUniformLocation(shader_program, "halfPixel");
++    uniform_vram_origin = glGetUniformLocation(shader_program, "vramOrigin");
++    uniform_tex_filter = glGetUniformLocation(shader_program, "texFilter");
++    glUniform1i(uniform_tex_vram, 0);
++    glUniform2f(uniform_draw_offset, (float)draw_offset.x, (float)draw_offset.y);
++    glUniform2f(uniform_resolution, (float)cur_display_size.x,
++                (float)cur_display_size.y);
++    return true;
++}
++
+ // Optional "pixel art" presentation filter (Psyz_VideoSetPixelFilter): the
+ // frame is sampled in blocks of pixel_filter game pixels, its colours snapped
+ // to a small palette per channel and dark outlines drawn where the luminance
+@@ -524,8 +636,16 @@ bool InitPlatform() {
+     // the result is not success: vitaGL returns GL_TRUE only when it had to
+     // fall back to a smaller resolution (and GL_FALSE on a normal init), so
+     // it is ignored as CTR High Octane does
+-    if (vglInitExtended(0, PSYZ_VITA_SCREEN_W, PSYZ_VITA_SCREEN_H,
+-                        8 * 1024 * 1024, SCE_GXM_MULTISAMPLE_NONE)) {
++#ifndef SCE_KERNEL_MAX_MAIN_CDIALOG_MEM_SIZE
++#define SCE_KERNEL_MAX_MAIN_CDIALOG_MEM_SIZE 0x8C6000 // vitaGL's mem_utils.h
++#endif
++    // as vglInitExtended, but 32 MB of physically contiguous memory stay
++    // out of vitaGL's pools: sceAvPlayer decodes the HD movies into it
++    // (vitaGL's video_playback sample does the same)
++    if (vglInitWithCustomThreshold(0, PSYZ_VITA_SCREEN_W, PSYZ_VITA_SCREEN_H,
++                                   8 * 1024 * 1024, 0, 32 * 1024 * 1024,
++                                   SCE_KERNEL_MAX_MAIN_CDIALOG_MEM_SIZE,
++                                   SCE_GXM_MULTISAMPLE_NONE)) {
+         WARNF("vitaGL fell back to a smaller resolution");
+     }
+     vglWaitVblankStart(GL_TRUE);
+@@ -593,17 +713,10 @@ bool InitPlatform() {
+     INFOF("%s %d.%d initialized", profile_name, glVer_major, glVer_minor);
+     INFOF("renderer: %s", (const char*)glGetString(GL_RENDERER));
+ #endif
+-    shader_program = Init_SetupShader();
+-    if (!shader_program) {
++    if (!UseMainProgram(0)) {
+         ERRORF("failed to compile shaders: %s", SDL_GetError());
+         return false;
+     }
+-    glUseProgram(shader_program);
+-    uniform_resolution = glGetUniformLocation(shader_program, "resolution");
+-    uniform_tex_vram = glGetUniformLocation(shader_program, "texVram");
+-    uniform_draw_offset = glGetUniformLocation(shader_program, "drawOffset");
+-    uniform_half_pixel = glGetUniformLocation(shader_program, "halfPixel");
+-    uniform_vram_origin = glGetUniformLocation(shader_program, "vramOrigin");
+     glUniform2f(uniform_vram_origin, 0, 0);
+ 
+     glUniform1i(uniform_tex_vram, 0);
+@@ -1471,24 +1584,35 @@ static void EndMovie(void) {
+ 
+ static void* MovieAllocCpu(void* p, uint32_t align, uint32_t size) {
+     (void)p;
+-    return memalign(align, size);
++    void* res = memalign(align, size);
++    if (!res) {
++        ERRORF("movie: cpu alloc of %u bytes (align %u) failed", size, align);
++    }
++    return res;
+ }
+ static void MovieFreeCpu(void* p, void* ptr) {
+     (void)p;
+     free(ptr);
+ }
++// The decoder writes frames into physically contiguous memory; vglInit leaves
++// some out of vitaGL's pools for it (InitPlatform)
+ static void* MovieAllocGpu(void* p, uint32_t align, uint32_t size) {
+-    (void)p, (void)align;
++    (void)p;
++    uint32_t asked = size;
+     size = (size + PHYCONT_ALIGN - 1) & ~(PHYCONT_ALIGN - 1);
+     SceUID blk = sceKernelAllocMemBlock(
+         "dw1_movie", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, size,
+         NULL);
+     if (blk < 0) {
++        ERRORF("movie: gpu alloc of %u bytes (align %u): memblock 0x%08X",
++               asked, align, (unsigned)blk);
+         return NULL;
+     }
+-    void* res;
++    void* res = NULL;
+     sceKernelGetMemBlockBase(blk, &res);
+-    sceGxmMapMemory(res, size, SCE_GXM_MEMORY_ATTRIB_RW);
++    int map = sceGxmMapMemory(res, size, SCE_GXM_MEMORY_ATTRIB_RW);
++    INFOF("movie: gpu alloc of %u bytes (align %u): %p, map 0x%08X", asked,
++          align, res, (unsigned)map);
+     return res;
+ }
+ static void MovieFreeGpu(void* p, void* addr) {
+@@ -1499,6 +1623,16 @@ static void MovieFreeGpu(void* p, void* addr) {
+     sceKernelFreeMemBlock(blk);
+ }
+ 
++// sceAvPlayer's events (ids as in the PS4's libSceAvPlayer)
++static void MovieEvent(void* p, int32_t id, int32_t source, void* data) {
++    (void)p, (void)data;
++    static const char* const names[] = {
++        "?", "stop", "ready", "play", "pause", "buffering"};
++    INFOF("movie: event 0x%X (%s) source %d", (unsigned)id,
++          id >= 1 && id <= 5 ? names[id] : id == 0x11 ? "warning" : "other",
++          (int)source);
++}
++
+ static SceAvPlayerHandle movie_player;
+ static volatile int movie_running;
+ 
+@@ -1528,21 +1662,33 @@ static int MovieAudioThread(SceSize args, void* argp) {
+ 
+ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+     SceIoStat st;
+-    if (sceIoGetstat(path, &st) < 0 || !InitPlatform() || !InitQuad()) {
++    if (sceIoGetstat(path, &st) < 0) {
++        INFOF("movie: no %s, playing the original", path);
++        return -1;
++    }
++    if (!InitPlatform() || !InitQuad()) {
+         return -1;
+     }
+     Draw_FlushBuffer();
+-    sceSysmoduleLoadModule(SCE_SYSMODULE_AVPLAYER);
++    SceKernelFreeMemorySizeInfo mem;
++    mem.size = sizeof(mem);
++    sceKernelGetFreeMemorySize(&mem);
++    INFOF("movie: free memory: user %d KB, cdram %d KB, phycont %d KB",
++          mem.size_user / 1024, mem.size_cdram / 1024, mem.size_phycont / 1024);
++    int mod = sceSysmoduleLoadModule(SCE_SYSMODULE_AVPLAYER);
++    INFOF("movie: load avplayer module: 0x%08X", (unsigned)mod);
+     SceAvPlayerInitData init;
+     memset(&init, 0, sizeof(init));
+     init.memoryReplacement.allocate = MovieAllocCpu;
+     init.memoryReplacement.deallocate = MovieFreeCpu;
+     init.memoryReplacement.allocateTexture = MovieAllocGpu;
+     init.memoryReplacement.deallocateTexture = MovieFreeGpu;
++    init.eventReplacement.eventCallback = MovieEvent;
+     init.basePriority = 0xA0;
+     init.numOutputVideoFrameBuffers = MOVIE_BUFFERS;
+     init.autoStart = GL_TRUE;
+     movie_player = sceAvPlayerInit(&init);
++    INFOF("movie: sceAvPlayerInit: 0x%08X", (unsigned)movie_player);
+     if (!movie_player) {
+         ERRORF("sceAvPlayerInit failed");
+         return -1;
+@@ -1555,8 +1701,9 @@ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+         glBindTexture(GL_TEXTURE_2D, tex[i]);
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 8, 8, 0, GL_RGBA,
+                      GL_UNSIGNED_BYTE, NULL);
++        // its 8x8 data stays allocated: glDeleteTextures frees it below
++        // (the sample frees it at once, but never deletes the textures)
+         gxm_tex[i] = vglGetGxmTexture(GL_TEXTURE_2D);
+-        vglFree(vglGetTexDataPointer(GL_TEXTURE_2D));
+     }
+     movie_running = 1;
+     SceUID audio = sceKernelCreateThread("dw1_movie_audio", MovieAudioThread,
+@@ -1566,13 +1713,16 @@ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+     INFOF("movie: playing %s (add source %d)", path, added);
+ 
+     int idx = 0, shown = 0, result = 1, w = 960, h = 544;
++    int was_active = -1;
++    long polls = 0, frames = 0;
+     Uint64 started = SDL_GetTicks();
+     for (;;) {
+         SDL_PumpEvents();
+         if (!shown && SDL_GetTicks() - started > 5000) {
+             // sceAvPlayer never started (memory, unsupported stream): the
+             // game plays its own movie instead of waiting on a black screen
+-            ERRORF("movie: no frame from %s after 5 s, giving up", path);
++            ERRORF("movie: no frame from %s after 5 s (%ld polls while "
++                   "active), giving up", path, polls);
+             result = -1;
+             break;
+         }
+@@ -1580,9 +1730,23 @@ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+             result = 0;
+             break;
+         }
+-        if (sceAvPlayerIsActive(movie_player)) {
++        int active = sceAvPlayerIsActive(movie_player);
++        if (active != was_active) {
++            INFOF("movie: active %d after %u ms", active,
++                  (unsigned)(SDL_GetTicks() - started));
++            was_active = active;
++        }
++        if (active) {
+             SceAvPlayerFrameInfo frame;
++            polls++;
+             if (sceAvPlayerGetVideoData(movie_player, &frame)) {
++                if (frames++ == 0) {
++                    INFOF("movie: first frame %ux%u at %p after %u ms, %ld "
++                          "polls",
++                          frame.details.video.width,
++                          frame.details.video.height, frame.pData,
++                          (unsigned)(SDL_GetTicks() - started), polls);
++                }
+                 idx = (idx + 1) % MOVIE_BUFFERS;
+                 w = frame.details.video.width;
+                 h = frame.details.video.height;
+@@ -1607,7 +1771,8 @@ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+     glFinish();
+     glDeleteTextures(MOVIE_BUFFERS, tex);
+     EndMovie();
+-    INFOF("movie: %s", result > 0 ? "finished" : result == 0 ? "skipped" : "failed");
++    INFOF("movie: %s after %ld frames",
++          result > 0 ? "finished" : result == 0 ? "skipped" : "failed", frames);
+     return result;
+ }
+ 
+@@ -1854,10 +2019,13 @@ static void QuitPlatform(void) {
+ 
+ void ResetPlatform(void) {
+     cur_tpage = 0;
+-    if (shader_program) {
+-        glDeleteProgram(shader_program);
+-        shader_program = 0;
++    for (int i = 0; i < 4; i++) {
++        if (main_programs[i]) {
++            glDeleteProgram(main_programs[i]);
++            main_programs[i] = 0;
++        }
+     }
++    shader_program = 0;
+     if (vram_texture) {
+         glDeleteTextures(1, &vram_texture);
+         vram_texture = 0;
+@@ -2133,10 +2301,47 @@ static unsigned int VAO = -1, VBO = -1, EBO = -1;
+ // PGXP (Psyz_VideoSetPgxp): per vertex exact x, y, depth w and 1 when used,
+ // beside vertex_buf. A polygon uses them only when the GTE recorded all its
+ // vertices; anything else (2D, lines, sprites) keeps the PS1 integers.
++// Also its UV bounds (min u, v, max u, v) for the 3D texture filter.
+ static unsigned int PGXP_VBO = -1;
+-static float pgxp_buf[MAX_VERTEX_COUNT][4];
++static float pgxp_buf[MAX_VERTEX_COUNT][8];
+ static bool pgxp_video = false;
+ 
++// PGXP depth buffer (Psyz_VideoSetPgxpDepth): opaque PGXP polygons test and
++// write a depth from their w, so a model's parts no longer cut into each
++// other where the ordering table (one depth per polygon) sorts them wrong.
++// Everything else draws in OT order as before: it is in front of the depth
++// range and never writes it. Cleared at the first flush of each frame.
++static bool pgxp_depth = false;
++static bool pgxp_depth_active = false; // during a flush
++static unsigned pgxp_frame = 1;
++typedef struct {
++    GLuint fbo, rb; // rb: desktop GL only, vitaGL gives every FBO a depth
++    int w, h;
++    unsigned cleared; // pgxp_frame of the last clear
++} DepthTarget;
++#define MAX_DEPTH_TARGETS 6
++static DepthTarget depth_targets[MAX_DEPTH_TARGETS];
++
++// 3D texture filter (Psyz_VideoSetModelFilter): 0 off, 1 3-point, 2 bilinear
++static int model_filter = 0;
++
++int Psyz_VideoSetPgxpDepth(int on) {
++    pgxp_depth = on != 0;
++    return 0;
++}
++
++int Psyz_VideoGetPgxpDepth(void) { return pgxp_depth; }
++
++int Psyz_VideoSetModelFilter(int mode) {
++    if (mode < 0 || mode > 2) {
++        return -1;
++    }
++    model_filter = mode;
++    return 0;
++}
++
++int Psyz_VideoGetModelFilter(void) { return model_filter; }
++
+ int Psyz_VideoSetPgxp(int on) {
+     pgxp_video = on != 0;
+     Psyz_PgxpSetEnabled(pgxp_video);
+@@ -2145,16 +2350,38 @@ int Psyz_VideoSetPgxp(int on) {
+ 
+ int Psyz_VideoGetPgxp(void) { return pgxp_video; }
+ 
+-// fills the PGXP slots of the n vertices about to be enqueued
++// fills the PGXP slots of the n vertices about to be enqueued (on: 2 with
++// depth, 1 without)
+ static void PgxpFill(int n, bool poly) {
+-    float(*p)[4] = &pgxp_buf[vertex_cur - vertex_buf];
++    float(*p)[8] = &pgxp_buf[vertex_cur - vertex_buf];
+     if (poly && pgxp_video && n <= PGXP_MAX_POLY) {
+         short sx[PGXP_MAX_POLY], sy[PGXP_MAX_POLY];
++        float prec[PGXP_MAX_POLY][4];
+         for (int i = 0; i < n; i++) {
+             sx[i] = vertex_cur[i].x;
+             sy[i] = vertex_cur[i].y;
+         }
+-        if (Psyz_PgxpLookupPolygon(n, sx, sy, p)) {
++        if (Psyz_PgxpLookupPolygon(n, sx, sy, prec)) {
++            float u0 = vertex_cur[0].u, v0 = vertex_cur[0].v;
++            float u1 = u0, v1 = v0;
++            for (int i = 1; i < n; i++) {
++                u0 = vertex_cur[i].u < u0 ? vertex_cur[i].u : u0;
++                v0 = vertex_cur[i].v < v0 ? vertex_cur[i].v : v0;
++                u1 = vertex_cur[i].u > u1 ? vertex_cur[i].u : u1;
++                v1 = vertex_cur[i].v > v1 ? vertex_cur[i].v : v1;
++            }
++            float on = 2.0f;
++            for (int i = 0; i < n; i++) {
++                on = prec[i][3] < on ? prec[i][3] : on;
++            }
++            for (int i = 0; i < n; i++) {
++                memcpy(p[i], prec[i], sizeof(prec[i]));
++                p[i][3] = on;
++                p[i][4] = u0;
++                p[i][5] = v0;
++                p[i][6] = u1;
++                p[i][7] = v1;
++            }
+             return;
+         }
+     }
+@@ -2195,6 +2422,9 @@ static void Draw_InitBuffer() {
+     glBufferData(GL_ARRAY_BUFFER, sizeof(pgxp_buf), pgxp_buf, GL_DYNAMIC_DRAW);
+     glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(pgxp_buf[0]), 0);
+     glEnableVertexAttribArray(4);
++    glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(pgxp_buf[0]),
++                          (void*)(4 * sizeof(float)));
++    glEnableVertexAttribArray(5);
+     glBindVertexArray(0);
+ }
+ 
+@@ -2525,6 +2755,9 @@ static void Draw_ClearImage_impl(PS1_RECT* rect, u_char r, u_char g, u_char b) {
+     if (!InitPlatform()) {
+         return;
+     }
++    // the primitives queued so far were sent before the clear (the battle
++    // HUD, queued when the game clears its text area for the next frame)
++    Draw_FlushBuffer();
+     MarkRgb24Dirty(rect->x, rect->y, rect->w, rect->h);
+     glClearColor((float)r / 255.0f, (float)g / 255.0f, (float)b / 255.0f, 0.0f);
+     glBindFramebuffer(GL_FRAMEBUFFER, vram_fbo);
+@@ -2890,11 +3123,143 @@ static void SetBlendMode(BlendMode mode) {
+     }
+ }
+ 
+-static void DrawIndices(int start, int end) {
++static void DrawIndexRange(int start, int end) {
+     glDrawElements(GL_TRIANGLES, end - start, GL_UNSIGNED_SHORT,
+                    (const GLvoid*)((uintptr_t)start * sizeof(unsigned short)));
+ }
+ 
++// an opaque PGXP triangle, the only kind that writes depth
++static bool WritesDepth(int index) {
++    unsigned short v = index_buf[index];
++    return pgxp_buf[v][3] > 1.5f && vertex_buf[v].a == 0xFF;
++}
++
++static void DrawIndices(int start, int end) {
++    if (!pgxp_depth_active) {
++        DrawIndexRange(start, end);
++        return;
++    }
++    while (start < end) {
++        bool write = WritesDepth(start);
++        int stop = start + 3;
++        while (stop < end && WritesDepth(stop) == write) {
++            stop += 3;
++        }
++        glDepthMask(write ? GL_TRUE : GL_FALSE);
++        DrawIndexRange(start, stop);
++        start = stop;
++    }
++}
++
++// the draw target's size in pixels
++static void DrawFboSize(int* w, int* h) {
++    if (active_canvas >= 0) {
++        *w = canvas[active_canvas].pw;
++        *h = canvas[active_canvas].ph;
++    } else if (HasSeparateDrawTarget()) {
++        *w = VRAM_W * (int)internal_res;
++        *h = VRAM_H * (int)internal_res;
++    } else {
++        *w = VRAM_W;
++        *h = VRAM_H;
++    }
++}
++
++// depth testing for this flush when PGXP depth is on; false without a depth
++// buffer for the draw target
++static bool BeginPgxpDepth(void) {
++    GLuint fbo = GetDrawFbo();
++    DepthTarget* d = NULL;
++    int w, h;
++    if (!pgxp_video || !pgxp_depth) {
++        return false;
++    }
++    DrawFboSize(&w, &h);
++#if !defined(__vita__)
++    GLint bound = 0;
++    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &bound);
++    if ((GLuint)bound != fbo || fbo == 0) {
++        return false;
++    }
++#endif
++    for (int i = 0; i < MAX_DEPTH_TARGETS && !d; i++) {
++        if (depth_targets[i].fbo == fbo) {
++            d = &depth_targets[i];
++        }
++    }
++#if !defined(__vita__)
++    // a deleted and recreated FBO can come back with the same name
++    if (d) {
++        GLint type = GL_NONE;
++        glGetFramebufferAttachmentParameteriv(
++            GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
++            GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &type);
++        if (type == GL_NONE || d->w != w || d->h != h) {
++            glDeleteRenderbuffers(1, &d->rb);
++            d->fbo = 0;
++            d = NULL;
++        }
++    }
++#endif
++    if (!d) {
++        for (int i = 0; i < MAX_DEPTH_TARGETS && !d; i++) {
++            if (depth_targets[i].fbo == 0) {
++                d = &depth_targets[i];
++            }
++        }
++        if (!d) {
++            d = &depth_targets[pgxp_frame % MAX_DEPTH_TARGETS];
++#if !defined(__vita__)
++            glDeleteRenderbuffers(1, &d->rb);
++#endif
++        }
++        d->fbo = fbo;
++        d->rb = 0;
++        d->w = w;
++        d->h = h;
++        d->cleared = 0;
++#if !defined(__vita__)
++        glGenRenderbuffers(1, &d->rb);
++        glBindRenderbuffer(GL_RENDERBUFFER, d->rb);
++        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w, h);
++        glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
++                                  GL_RENDERBUFFER, d->rb);
++        if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) !=
++            GL_FRAMEBUFFER_COMPLETE) {
++            ERRORF("PGXP depth buffer failed (%dx%d)", w, h);
++            glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
++                                      GL_RENDERBUFFER, 0);
++            glDeleteRenderbuffers(1, &d->rb);
++            d->fbo = 0;
++            pgxp_depth = false;
++            return false;
++        }
++#endif
++    }
++    glEnable(GL_DEPTH_TEST);
++    glDepthFunc(GL_LEQUAL);
++    if (d->cleared != pgxp_frame) {
++        GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
++        d->cleared = pgxp_frame;
++        glDisable(GL_SCISSOR_TEST);
++        glDepthMask(GL_TRUE);
++        glClearDepthf(1.0f);
++        glClear(GL_DEPTH_BUFFER_BIT);
++        if (scissor) {
++            glEnable(GL_SCISSOR_TEST);
++        }
++    }
++    return true;
++}
++
++static void EndPgxpDepth(void) {
++    if (pgxp_depth_active) {
++        glDepthMask(GL_TRUE);
++        glDisable(GL_DEPTH_TEST);
++        pgxp_depth_active = false;
++    }
++}
++
+ static void Draw_FlushBuffer_impl(void) {
+     if (n_vertices == 0) {
+         return;
+@@ -2910,6 +3275,9 @@ static void Draw_FlushBuffer_impl(void) {
+         Draw_InitBuffer();
+     }
+ 
++    // the filter and depth only in the program when they are on
++    UseMainProgram((pgxp_video && model_filter ? MAIN_FILTER : 0) |
++                   (pgxp_video && pgxp_depth ? MAIN_DEPTH : 0));
+     glUseProgram(shader_program);
+     glBindVertexArray(VAO);
+ #if defined(__vita__)
+@@ -2983,6 +3351,10 @@ static void Draw_FlushBuffer_impl(void) {
+         glUniform2f(uniform_half_pixel, 0.5f / (render_scale * grid_scale_x),
+                     0.5f / render_scale);
+     }
++    if (uniform_tex_filter >= 0) { // only in the MAIN_FILTER variants
++        glUniform1f(uniform_tex_filter, (float)model_filter);
++    }
++    pgxp_depth_active = BeginPgxpDepth();
+     int prim_size = 3;
+     int start = 0;
+     while (start < n_indices) {
+@@ -3013,6 +3385,7 @@ static void Draw_FlushBuffer_impl(void) {
+             start = end;
+         }
+     }
++    EndPgxpDepth();
+     SyncScaledVramToNative();
+     if (!HasSeparateDrawTarget()) {
+         MarkRgb24Dirty(
+@@ -3082,6 +3455,7 @@ static void PlatformBackend_Present(void) {
+     static Uint64 last;
+     PERF_WRAP(PERF_PRESENT, PlatformBackend_Present_impl());
+     Psyz_PgxpNextFrame();
++    pgxp_frame++;
+     if (!PerfOn() || perf_calls[PERF_PRESENT] < 120) {
+         return;
+     }
+diff --git a/psyz/src/platform/sdl3_gpu.c b/psyz/src/platform/sdl3_gpu.c
+index e545e83..ecb1c84 100644
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -770,6 +770,20 @@ int Psyz_VideoSetPgxp(int on) {
+ 
+ int Psyz_VideoGetPgxp(void) { return 0; }
+ 
++int Psyz_VideoSetPgxpDepth(int on) {
++    (void)on;
++    return -1;
++}
++
++int Psyz_VideoGetPgxpDepth(void) { return 0; }
++
++int Psyz_VideoSetModelFilter(int mode) {
++    (void)mode;
++    return -1;
++}
++
++int Psyz_VideoGetModelFilter(void) { return 0; }
++
+ int Psyz_VideoSetIndexedImage(
+     unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
+     (void)slot, (void)w, (void)h, (void)rgba;
+diff --git a/psyz/src/platform/sdl3_soft.c b/psyz/src/platform/sdl3_soft.c
+index e8f1ef3..ec72b2b 100644
+--- a/psyz/src/platform/sdl3_soft.c
++++ b/psyz/src/platform/sdl3_soft.c
+@@ -304,6 +304,20 @@ int Psyz_VideoSetPgxp(int on) {
+ 
+ int Psyz_VideoGetPgxp(void) { return 0; }
+ 
++int Psyz_VideoSetPgxpDepth(int on) {
++    (void)on;
++    return -1;
++}
++
++int Psyz_VideoGetPgxpDepth(void) { return 0; }
++
++int Psyz_VideoSetModelFilter(int mode) {
++    (void)mode;
++    return -1;
++}
++
++int Psyz_VideoGetModelFilter(void) { return 0; }
++
+ int Psyz_VideoSetIndexedImage(
+     unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
+     (void)slot, (void)w, (void)h, (void)rgba;
+diff --git a/psyz/src/psp/psp_gpu.c b/psyz/src/psp/psp_gpu.c
+index 8f5a962..cc99242 100644
+--- a/psyz/src/psp/psp_gpu.c
++++ b/psyz/src/psp/psp_gpu.c
+@@ -1029,6 +1029,20 @@ int Psyz_VideoSetPgxp(int on) {
+ 
+ int Psyz_VideoGetPgxp(void) { return 0; }
+ 
++int Psyz_VideoSetPgxpDepth(int on) {
++    (void)on;
++    return -1;
++}
++
++int Psyz_VideoGetPgxpDepth(void) { return 0; }
++
++int Psyz_VideoSetModelFilter(int mode) {
++    (void)mode;
++    return -1;
++}
++
++int Psyz_VideoGetModelFilter(void) { return 0; }
++
+ int Psyz_VideoSetIndexedImage(
+     unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
+     (void)slot, (void)w, (void)h, (void)rgba;
+diff --git a/psyz/src/psyz/libgte.c b/psyz/src/psyz/libgte.c
+index fdba96c..af2d40b 100644
+--- a/psyz/src/psyz/libgte.c
++++ b/psyz/src/psyz/libgte.c
+@@ -1842,6 +1842,8 @@ static unsigned clz16(unsigned x) {
+ typedef struct {
+     float x, y, w;
+     unsigned first, last; // sequence numbers of the projections
++    int h;                // projection plane distance (H) it used, -1
++                          // outside Psyz_VideoSetPgxpModel
+ } PgxpVertex;
+ typedef struct {
+     unsigned key; // packed SXY
+@@ -1854,9 +1856,51 @@ static unsigned pgxp_gen = 2; // entries start at gen 0: never valid
+ static unsigned pgxp_seq;
+ static int pgxp_on;
+ 
++static int pgxp_model;
++
+ void Psyz_PgxpSetEnabled(int on) { pgxp_on = on != 0; }
+ int Psyz_PgxpIsEnabled(void) { return pgxp_on; }
+-void Psyz_PgxpNextFrame(void) { pgxp_gen++; }
++void Psyz_VideoSetPgxpModel(int on) { pgxp_model = on != 0; }
++// Depths only compare within one projection: 3D HUD pieces (DW1's "BATTLE"
++// letters, menus) use another H than the world and are placed in front by
++// the ordering table, not by depth. The H most vertices used last frame is
++// the world's; polygons with another one get no depth test.
++#define PGXP_H_SLOTS 4
++static struct {
++    int h;
++    unsigned count;
++} pgxp_h_count[PGXP_H_SLOTS];
++static int pgxp_world_h = -1;
++
++static void pgxp_count_h(void) {
++    int i, free_slot = -1;
++    for (i = 0; i < PGXP_H_SLOTS; i++) {
++        if (pgxp_h_count[i].count && pgxp_h_count[i].h == H) {
++            pgxp_h_count[i].count++;
++            return;
++        }
++        if (!pgxp_h_count[i].count && free_slot < 0) {
++            free_slot = i;
++        }
++    }
++    if (free_slot >= 0) {
++        pgxp_h_count[free_slot].h = H;
++        pgxp_h_count[free_slot].count = 1;
++    }
++}
++
++void Psyz_PgxpNextFrame(void) {
++    unsigned best = 0;
++    int i;
++    pgxp_gen++;
++    for (i = 0; i < PGXP_H_SLOTS; i++) {
++        if (pgxp_h_count[i].count > best) {
++            best = pgxp_h_count[i].count;
++            pgxp_world_h = pgxp_h_count[i].h;
++        }
++        pgxp_h_count[i].count = 0;
++    }
++}
+ 
+ static inline unsigned pgxp_slot(unsigned key) {
+     return (key * 2654435761u) >> 18; // 14 bits
+@@ -1888,6 +1932,7 @@ static void pgxp_store(int x, int y, int z, int sx, int sy) {
+     if (dx < -1.0f || dx > 1.0f || dy < -1.0f || dy > 1.0f) {
+         return; // clamped to the GTE's screen range
+     }
++    pgxp_count_h();
+     key = SXY(sx, sy);
+     i = pgxp_slot(key);
+     for (n = 0; n < PGXP_PROBES; n++, i = (i + 1) & (PGXP_SLOTS - 1)) {
+@@ -1919,6 +1964,7 @@ static void pgxp_store(int x, int y, int z, int sx, int sy) {
+         e->v[e->n].x = px;
+         e->v[e->n].y = py;
+         e->v[e->n].w = fz;
++        e->v[e->n].h = pgxp_model ? H : -1;
+         e->v[e->n].first = seq;
+         e->v[e->n].last = seq;
+         e->n++;
+@@ -2004,7 +2050,7 @@ int Psyz_PgxpLookupPolygon(int n, const short* sx, const short* sy,
+         out[i][0] = pick[i]->x;
+         out[i][1] = pick[i]->y;
+         out[i][2] = pick[i]->w;
+-        out[i][3] = 1.0f;
++        out[i][3] = pick[i]->h == pgxp_world_h ? 2.0f : 1.0f;
+     }
+     return 1;
+ }

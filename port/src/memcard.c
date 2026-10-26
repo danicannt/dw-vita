@@ -165,7 +165,14 @@ static int save(int idx)
         remove(tmp);
         return -1;
     }
-    fclose(f);
+    /* fclose flushes: a full disk shows up here, and the card must not be
+     * replaced by a short file */
+    if (fclose(f) != 0) {
+        remove(tmp);
+        return -1;
+    }
+    if (rename(tmp, path) == 0)
+        return 0;
     remove(path); /* rename does not replace on every platform */
     return rename(tmp, path);
 }

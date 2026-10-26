@@ -102,6 +102,9 @@ void EVL_tickParticle(int32_t id);
 void EVL_storeDigimonClut(int32_t buffer, Entity *entity);
 void EVL_storeClutBank0(int32_t buffer);
 void EVL_setOtherEntitiesVisible(int32_t restore);
+#ifdef DW1_NATIVE
+extern int8_t DW1_EVO_RUNNING;
+#endif
 int32_t EVL_spawnParticle(VECTOR *position, RGB8 *color);
 void EVL_renderParticle(int32_t id);
 int32_t EVL_initShardSets(int32_t base);
@@ -579,6 +582,9 @@ shards:
 		if (partner->digimonEntity.entity.anim.animFrame == partner->digimonEntity.entity.anim.frameCount) {
 			isSoundLoaded(0, 8);
 			data->timer = -1;
+#ifdef DW1_NATIVE
+			DW1_EVO_RUNNING = 0; /* main/evl.c */
+#endif
 			removeObject(0x80a, instanceId);
 			return;
 		}

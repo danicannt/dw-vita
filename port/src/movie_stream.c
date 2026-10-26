@@ -164,7 +164,10 @@ u_long __wrap_StGetNext(u_long **addr, u_long **hdr)
         int cn, cc;
 
         if (wait > 0 && !turbo) {
-            struct timespec ts = { 0, (long)(wait * 1e9) };
+            struct timespec ts;
+
+            ts.tv_sec = (time_t)wait; /* tv_nsec must stay below 1 s */
+            ts.tv_nsec = (long)((wait - (double)ts.tv_sec) * 1e9);
             nanosleep(&ts, NULL);
         }
         if (misses >= STR_GIVE_UP || read_sector(lba0 + pos, body) < 0) {

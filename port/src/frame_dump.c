@@ -56,35 +56,46 @@ static int due(struct trigger *t, const char *var)
     return 0;
 }
 
-static void dump(long frame)
+/* a VRAM rectangle from (0,0) as DW1_DUMP_DIR/<name>.ppm; vram and rgb hold
+ * w * h pixels */
+static void dump_vram(int w, int h, u_short *vram, unsigned char *rgb, const char *name, int log)
 {
-    static u_short vram[1024 * 512];
-    static unsigned char rgb[1024 * 512 * 3];
     const char *dir = getenv("DW1_DUMP_DIR");
     char path[512];
     RECT r;
     FILE *f;
     int i;
 
-    setRECT(&r, 0, 0, 1024, 512);
+    setRECT(&r, 0, 0, w, h);
     DrawSync(0);
     StoreImage(&r, (u_long *)vram);
     DrawSync(0);
-    for (i = 0; i < 1024 * 512; i++) {
+    for (i = 0; i < w * h; i++) {
         rgb[i * 3 + 0] = (unsigned char)((vram[i] & 31) << 3);
         rgb[i * 3 + 1] = (unsigned char)(((vram[i] >> 5) & 31) << 3);
         rgb[i * 3 + 2] = (unsigned char)(((vram[i] >> 10) & 31) << 3);
     }
-    snprintf(path, sizeof(path), "%s%svram_%05ld.ppm", dir ? dir : "", dir ? "/" : "", frame);
+    snprintf(path, sizeof(path), "%s%s%s.ppm", dir ? dir : "", dir ? "/" : "", name);
     f = fopen(path, "wb");
     if (f == NULL) {
         fprintf(stderr, "dw1: cannot write %s\n", path);
         return;
     }
-    fprintf(f, "P6\n1024 512\n255\n");
-    fwrite(rgb, 1, sizeof(rgb), f);
+    fprintf(f, "P6\n%d %d\n255\n", w, h);
+    fwrite(rgb, 1, (size_t)w * h * 3, f);
     fclose(f);
-    fprintf(stderr, "dw1: dumped %s\n", path);
+    if (log)
+        fprintf(stderr, "dw1: dumped %s\n", path);
+}
+
+static void dump(long frame)
+{
+    static u_short vram[1024 * 512];
+    static unsigned char rgb[1024 * 512 * 3];
+    char name[32];
+
+    snprintf(name, sizeof(name), "vram_%05ld", frame);
+    dump_vram(1024, 512, vram, rgb, name, 1);
 }
 
 /* port/src/smoke.c's walk battery: both display buffers (320x480) to
@@ -100,28 +111,8 @@ static void dump_named(const char *name)
 {
     static u_short vram[320 * 480];
     static unsigned char rgb[320 * 480 * 3];
-    const char *dir = getenv("DW1_DUMP_DIR");
-    char path[512];
-    RECT r;
-    FILE *f;
-    int i;
 
-    setRECT(&r, 0, 0, 320, 480);
-    DrawSync(0);
-    StoreImage(&r, (u_long *)vram);
-    DrawSync(0);
-    for (i = 0; i < 320 * 480; i++) {
-        rgb[i * 3 + 0] = (unsigned char)((vram[i] & 31) << 3);
-        rgb[i * 3 + 1] = (unsigned char)(((vram[i] >> 5) & 31) << 3);
-        rgb[i * 3 + 2] = (unsigned char)(((vram[i] >> 10) & 31) << 3);
-    }
-    snprintf(path, sizeof(path), "%s%s%s.ppm", dir ? dir : "", dir ? "/" : "", name);
-    f = fopen(path, "wb");
-    if (f == NULL)
-        return;
-    fprintf(f, "P6\n320 480\n255\n");
-    fwrite(rgb, 1, sizeof(rgb), f);
-    fclose(f);
+    dump_vram(320, 480, vram, rgb, name, 0);
 }
 
 static void shot(long frame)

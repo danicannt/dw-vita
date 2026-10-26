@@ -87,6 +87,12 @@ game/ (decompiled game C, US)          unchanged logic; ~70 changed lines in 16 
 
 ## Enhancements (sdl3_gl renderer)
 
+Each enhancement can be switched on or off in the title screen's **Options**
+menu (`port/game/options_menu.c`), which applies it at once and saves it to
+`options.ini` in the data directory (`ux0:data/dw1/` on the Vita). The
+environment variables below still work and force their option for that run
+(greyed out in the menu); see `port/src/options.c`.
+
 - **Widescreen** (`DW1_WIDE=extra[:scale]`, on by default on the Vita as
   52:2): drawing into a display buffer goes to a canvas `extra` game pixels
   wider on each side, at `scale` resolution, through a `vramOrigin` uniform

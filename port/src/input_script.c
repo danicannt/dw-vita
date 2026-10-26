@@ -19,6 +19,7 @@
 unsigned int __real_PadRead(int id);
 int dw1_smoke_pad(void);
 void dw1_bug_mark_poll(void);
+void dw1_host_input(unsigned int *pad, int id);
 
 enum { MODE_UNSET, MODE_OFF, MODE_RECORD, MODE_REPLAY };
 
@@ -38,6 +39,8 @@ static void read_next(void)
     if (fscanf(script, "%lu %x", &next_call, &next_state) != 2) {
         replay_done = 1;
         tail_end = calls + REPLAY_TAIL;
+        fclose(script);
+        script = NULL;
         fprintf(stderr, "dw1: replay finished at call %lu, real pad active from call %lu\n",
                 calls, tail_end);
     }
@@ -68,12 +71,13 @@ static void init(void)
     }
 }
 
-/* a replay is still feeding the pad (port/src/smoke.c waits for it) */
+/* PadRead calls so far: the clock of recordings, marks and debug scripts */
 unsigned dw1_pad_calls(void)
 {
     return (unsigned)calls;
 }
 
+/* a replay is still feeding the pad (port/src/smoke.c waits for it) */
 int dw1_replay_running(void)
 {
     if (mode == MODE_UNSET)
@@ -104,6 +108,7 @@ unsigned int __wrap_PadRead(int id)
     }
 
     state = __real_PadRead(id);
+    dw1_host_input(&state, id); /* stick and touch, port/src/touch_input.c */
     if (mode == MODE_RECORD && state != last_state) {
         fprintf(script, "%lu %x\n", calls, state);
         fflush(script);

@@ -74,6 +74,10 @@ void renderEvoSequenceLoading(int32_t instanceId)
 
 GARBAGE(getEvoSequenceState, 20);
 
+#ifdef DW1_NATIVE
+int8_t DW1_EVO_RUNNING; /* cleared when evl/evl.c's sequence ends */
+#endif
+
 int32_t getEvoSequenceState(partner, buffer, para, target, isInitialized)
 PartnerEntity *partner;
 void *buffer;
@@ -89,6 +93,16 @@ int16_t isInitialized;
 	if (isInitialized != 0) {
 		return data->timer;
 	}
+#ifdef DW1_NATIVE
+	/* an evolution restarted while one plays (training puts the partner back
+	 * in its normal state mid-sequence and the condition tick triggers it
+	 * again) saved the half-faded CLUTs, hidden entities and evolution camera
+	 * as the ones to restore: black map and no tamer afterwards. The running
+	 * one carries on; its end answers both. */
+	if (DW1_EVO_RUNNING)
+		return (int32_t)buffer;
+	DW1_EVO_RUNNING = 1;
+#endif
 
 	data->timer = 0;
 	data->partner = partner;

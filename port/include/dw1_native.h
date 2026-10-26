@@ -96,10 +96,59 @@ int dw1_wide_margins(int *left, int *right);
 /* an upscaled FMV from <hd dir>/movies when there is one: 1 played to the
  * end, 0 skipped with Start, -1 none (play the original) */
 int dw1_play_hd_movie(int movie_id, int skippable);
+/* the Bonus Try slots cheat as on the PS1: the fair_slots option off, or
+ * DW1_SLOTS_ORIGINAL=1 (default: fair, game/src/trn/trn_slots.c) */
+int dw1_slots_original(void);
+
+/* ---- port options ----------------------------------------------------------
+ * port/src/options.c: each improvement on or off, from the title screen's
+ * Options menu (port/game/options_menu.c), saved in <data dir>/options.ini;
+ * an environment variable forces an option for one run. */
+enum {
+    DW1_OPT_WIDESCREEN,     /* 16:9 */
+    DW1_OPT_HD_BACKGROUNDS, /* <hd dir>/<MAP>.hdm */
+    DW1_OPT_HD_MOVIES,      /* <hd dir>/movies */
+    DW1_OPT_PGXP,           /* no polygon wobble */
+    DW1_OPT_MODEL_DEPTH,    /* depth buffer for the models (with PGXP) */
+    DW1_OPT_TEXTURE_FILTER, /* model textures: 0 nearest, 1 3-point, 2 bilinear */
+    DW1_OPT_FAIR_SLOTS,     /* Bonus Try slots do not cheat (dw1_slots_original) */
+    DW1_OPT_BATTLE_GAINS,   /* battles raise stats by how they went */
+    DW1_OPT_COUNT
+};
+void dw1_options_init(const char *data_dir);
+int dw1_option(int id);
+int dw1_option_count(int id);  /* number of values: 2 (off, on) or 3 */
+int dw1_option_locked(int id); /* forced by its environment variable */
+void dw1_option_set(int id, int value); /* applies it at once */
+int dw1_options_save(void);
+/* the title screen's Options menu, run from main_menu.c */
+void dw1_options_menu_open(void);
+int dw1_options_menu_tick(void); /* 0 once it closes */
+void dw1_options_menu_render(void);
 
 /* ---- file queue ------------------------------------------------------------
  * game/src/main/file_queue.c: let synchronous reads wait for queued ones. */
 void dw1_file_queue_drain(void);
+
+/* ---- touch, stick and quick feeding ----------------------------------------
+ * port/src/touch_input.c reads the host side (stick, touch panel, mouse);
+ * port/game/touch_controls.c acts on it in the overworld.
+ *   DW1_STICK=0      the left stick does not move like the D-pad
+ *   DW1_TOUCH=0      no touch controls (petting, walking to the touch)
+ *   DW1_QUICKFEED=0  L1 does not open the inventory to feed the partner
+ * dw1_touch_state: DW1_TOUCH_DOWN while touched, plus DW1_TOUCH_BEGAN on the
+ * first read of a touch; *x, *y in game screen pixels, (0, 0) the centre
+ * (getEntityScreenPos's space; with widescreen x reaches 160 + extra). */
+#define DW1_TOUCH_DOWN 1
+#define DW1_TOUCH_BEGAN 2
+void dw1_host_input(unsigned int *pad, int id); /* from __wrap_PadRead */
+int dw1_touch_state(int *x, int *y);
+int dw1_pad_manual_move(void);  /* D-pad or stick held on the real pad */
+extern unsigned int dw1_touch_pad; /* bits OR'd into the next PadRead */
+int dw1_quick_feed_enabled(void);
+void dw1_touch_walk_tick(void);    /* game/src/main/tamer.c, walking state */
+int dw1_quick_feed_open(void);     /* tamer.c, on L1: 1 if it opened */
+extern int dw1_quick_feed;         /* the inventory was opened with L1 */
 
 #ifdef __cplusplus
 }

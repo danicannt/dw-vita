@@ -3,7 +3,9 @@
  *   DW1_WIDE=extra[:scale]   widescreen: extra game pixels on each side of
  *                            the 320-wide screen (52 fills 16:9), drawn at
  *                            scale x resolution (default 2). The Vita build
- *                            turns it on with DW1_VITA_WIDE (52:2).
+ *                            turns it on by default (DW1_VITA_WIDE). It is
+ *                            the "widescreen" option (port/src/options.c),
+ *                            like the HD packs and movies below.
  *   DW1_HD_DIR=dir           where <MAP>.hdm background packs are looked
  *                            for (default: <data dir>/hd)
  *
@@ -63,23 +65,17 @@ static int bg_command(const u_long *words, int available, void *userdata)
 
 void dw1_widescreen_init(const char *dir)
 {
-    const char *s = getenv("DW1_WIDE");
-    unsigned extra = 0, scale = 2;
-
-#ifdef DW1_VITA_WIDE
-    extra = 52;
-#endif
-    if (s != NULL) {
-        const char *n = strchr(s, ':');
-
-        extra = (unsigned)atoi(s);
-        if (n != NULL)
-            scale = (unsigned)atoi(n + 1);
-    }
-    if (extra && Psyz_VideoSetWidescreen(extra, scale) == 0)
-        dw1_wide_extra = (int)extra;
     snprintf(data_dir, sizeof(data_dir), "%s", dir[0] ? dir : ".");
     Psyz_GpuRegisterCommandHandler(BG_OPCODE, bg_command, NULL);
+}
+
+/* the widescreen option (port/src/options.c); 0 extra: 4:3 */
+void dw1_widescreen_set(unsigned extra, unsigned scale)
+{
+    if (Psyz_VideoSetWidescreen(extra, scale) == 0)
+        dw1_wide_extra = (int)extra;
+    else
+        dw1_wide_extra = 0;
 }
 
 int dw1_wide_margins(int *left, int *right)
@@ -94,23 +90,33 @@ static unsigned short rd16(const unsigned char *p)
     return (unsigned short)(p[0] | (p[1] << 8));
 }
 
-/* <MAP>.hdm, NULL when there is none or it does not fit the map */
-static const char *hd_dir(char *out, size_t size);
+/* DW1_HD_DIR, or <data dir>/hd */
+static const char *hd_dir(char *out, size_t size)
+{
+    const char *dir = getenv("DW1_HD_DIR");
 
+    if (dir != NULL)
+        snprintf(out, size, "%s", dir);
+    else
+        snprintf(out, size, "%s/hd", data_dir);
+    return out;
+}
+
+/* <MAP>.hdm, NULL when there is none or it does not fit the map */
 static unsigned char *load_pack(const char *name, int w, int h, int *pw, int *ph, int *ext)
 {
-    char path[256];
+    char path[sizeof(data_dir) + 32];
     unsigned char head[20];
     unsigned char *rgba = NULL, *row = NULL;
     FILE *f;
     int scale, i, x, y;
 
     {
-        char d[200];
+        char d[sizeof(data_dir) + 4]; /* <data dir>/hd */
 
         snprintf(path, sizeof(path), "%s/%s.hdm", hd_dir(d, sizeof(d)), name);
     }
-    if ((f = fopen(path, "rb")) == NULL)
+    if (!dw1_option(DW1_OPT_HD_BACKGROUNDS) || (f = fopen(path, "rb")) == NULL)
         return NULL;
     if (fread(head, 1, sizeof(head), f) != sizeof(head) || memcmp(head, "DWHD", 4) != 0 ||
         rd16(head + 4) != 1)
@@ -228,17 +234,6 @@ void *dw1_bg_queue(void *ot_entry, void *work, int x, int y, unsigned clut)
     return p + 1;
 }
 
-static const char *hd_dir(char *out, size_t size)
-{
-    const char *dir = getenv("DW1_HD_DIR");
-
-    if (dir != NULL)
-        snprintf(out, size, "%s", dir);
-    else
-        snprintf(out, size, "%s/hd", data_dir);
-    return out;
-}
-
 static int skip_on_start(void)
 {
     return (PadRead(1) & 0x800) != 0; /* Start, as MOV_playMovie checks */
@@ -247,10 +242,15 @@ static int skip_on_start(void)
 int dw1_play_hd_movie(int movie_id, int skippable)
 {
     static const char *const names[] = {"OP1", "OP2", "ED2", "EDR"};
-    char dir[200], path[256];
+    char dir[sizeof(data_dir) + 4], path[sizeof(data_dir) + 32];
 
-    if (movie_id < 0 || movie_id > 3)
+    if (movie_id < 0 || movie_id > 3 || !dw1_option(DW1_OPT_HD_MOVIES))
         return -1;
     snprintf(path, sizeof(path), "%s/movies/%s.mp4", hd_dir(dir, sizeof(dir)), names[movie_id]);
     return Psyz_VideoPlayMovie(path, skippable ? skip_on_start : NULL);
+}
+
+int dw1_slots_original(void)
+{
+    return !dw1_option(DW1_OPT_FAIR_SLOTS);
 }

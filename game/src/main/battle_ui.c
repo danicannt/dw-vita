@@ -1,3 +1,7 @@
+#ifdef DW1_NATIVE
+#include <stdlib.h>
+#include <string.h>
+#endif
 #include <libgs.h>
 
 #include <dw/combat.h>
@@ -124,6 +128,60 @@ static void *battle_ui_functions[] = {
 	initializeBitText,
 };
 
+#ifdef DW1_NATIVE
+/* Battles that are worth fighting (the battle_gains option off, or
+ * DW1_BATTLE_GAINS=original, keeps the PS1's +1/+2): each stat grows with what the partner did in the fight, scaled by
+ * how strong the strongest enemy was in that stat. A close, well fought
+ * battle gives about half a gym session in the stats it used; much weaker
+ * enemies give next to nothing. The PS1's gain stays when it is larger.
+ *   HP     damage taken            MP     attacks made (techniques cost MP)
+ *   Off    attacks made            Def    blocks, damage taken, heavy hits
+ *   Speed  blocks, heavy hits      Brain  attacks and heavy hits survived */
+static void dw1_battle_gains(void)
+{
+	static const int16_t maxGain[6] = { 40, 40, 10, 10, 10, 10 };
+	PlayerData *pl = &COMBAT_DATA_PTR->player;
+	BaseStats *base = &PARTNER_ENTITY.digimonEntity.stats.base;
+	int32_t lost, perf, ratio, gain, stat, i, enemyStat, partnerStat;
+
+	if (!dw1_option(DW1_OPT_BATTLE_GAINS))
+		return;
+	lost = pl->startingHP - PARTNER_ENTITY.digimonEntity.stats.current.currentHP;
+	if (lost < 0)
+		lost = 0;
+	lost = base->hp > 0 ? lost * 100 / base->hp : 0; /* % of max HP */
+	for (stat = 0; stat < 6; stat++) {
+		switch (stat) { /* performance, 0..100 */
+		case 0: perf = lost; break;
+		case 1:
+		case 2: perf = pl->hitCount * 10; break;
+		case 3: perf = pl->blockedCount * 20 + lost / 2 + pl->unk2 * 10; break;
+		case 4: perf = pl->blockedCount * 20 + pl->unk2 * 15; break;
+		default: perf = pl->hitCount * 6 + pl->unk2 * 15; break;
+		}
+		if (perf > 100)
+			perf = 100;
+		enemyStat = INITIAL_COMBAT_STATS[1][stat];
+		for (i = 1; i <= ENEMY_COUNT; i++)
+			if (enemyStat < INITIAL_COMBAT_STATS[i][stat])
+				enemyStat = INITIAL_COMBAT_STATS[i][stat];
+		partnerStat = INITIAL_COMBAT_STATS[0][stat];
+		if (partnerStat < 1)
+			partnerStat = 1;
+		/* enemy / partner in %, up to 150; squared below 100 so that easy
+		 * fights give little (half as strong: a quarter) */
+		ratio = enemyStat * 100 / partnerStat;
+		if (ratio > 150)
+			ratio = 150;
+		if (ratio < 100)
+			ratio = ratio * ratio / 100;
+		gain = maxGain[stat] * perf / 100 * ratio / 100;
+		if (gain > STATS_GAINS[stat])
+			STATS_GAINS[stat] = (int16_t)gain;
+	}
+}
+#endif
+
 void battleStatsGainsAndDrops(uint8_t *droppedItems)
 {
 	int32_t den;
@@ -189,6 +247,9 @@ void battleStatsGainsAndDrops(uint8_t *droppedItems)
 			STATS_GAINS[i] = 1;
 		}
 	}
+#ifdef DW1_NATIVE
+	dw1_battle_gains();
+#endif
 
 	for (i = 0; i < 3; i++) {
 		if (i < ENEMY_COUNT) {

@@ -511,6 +511,12 @@ void tamerTickOverworld(int16_t instanceId)
 	tickAnimation(&TAMER_ENTITY.entity);
 }
 
+#ifdef DW1_NATIVE
+static int32_t dw1TamerExtraInput(void);
+static void dw1TouchWalkFace(void);
+extern int dw1_quick_feed;
+#endif
+
 void tamerTickWalkingState(void)
 {
 	int16_t rotation;
@@ -539,8 +545,18 @@ void tamerTickWalkingState(void)
 
 		stopGameTime();
 		setPartnerIdling();
+#ifdef DW1_NATIVE
+		dw1_quick_feed = 0;
+#endif
 		return;
 	}
+
+#ifdef DW1_NATIVE
+	/* L1 quick feeding and the touch controls, at the end of this file */
+	if (dw1TamerExtraInput()) {
+		return;
+	}
+#endif
 
 	if (((POLLED_INPUT & 0x1000) != 0) ||
 	    ((POLLED_INPUT & 0x4000) != 0) ||
@@ -587,6 +603,9 @@ void tamerTickWalkingState(void)
 	} else if ((POLLED_INPUT & 0x2000) != 0) {
 		setTamerDirection((int16_t)(rotation + 0xc00));
 	}
+#ifdef DW1_NATIVE
+	dw1TouchWalkFace();
+#endif
 
 	checkItemPickup();
 	checkMapInteraction();
@@ -1877,3 +1896,219 @@ void tamerTickAwardSomething(void)
 		break;
 	}
 }
+
+#ifdef DW1_NATIVE
+/* Controls the PS1 did not have, all from the walking state (port/src/
+ * touch_input.c reads the host side):
+ *
+ *   L1               opens the inventory straight away; Confirm on an item
+ *                    the partner can take feeds it at once (Use in the item
+ *                    menu), Cancel closes everything (game/src/main/
+ *                    inventory.c). DW1_QUICKFEED=0 turns it off.
+ *   touch the partner  praise, as Praise in the Triangle menu
+ *   touch elsewhere  the tamer walks to that spot on the ground (runs when
+ *                    it is far), steering while the finger moves; the D-pad
+ *                    or the stick takes over. DW1_TOUCH=0 turns both off.
+ *
+ * The walk asks for D-pad bits in the next PadRead (dw1_touch_pad), so the
+ * game walks as with the pad, and turns the tamer to the exact angle. */
+#include <stdlib.h>
+
+#define DW1_TOUCH_DOWN 1
+#define DW1_TOUCH_BEGAN 2
+int dw1_touch_state(int *x, int *y);
+int dw1_pad_manual_move(void);
+int dw1_quick_feed_enabled(void);
+unsigned dw1_pad_calls(void);
+extern unsigned int dw1_touch_pad;
+extern int32_t TRIANGLE_MENU_STATE;
+extern uint32_t POLLED_INPUT_PREVIOUS;
+
+int dw1_quick_feed;
+
+static int32_t dw1WalkActive;  /* walking to dw1WalkX/Z */
+static int32_t dw1WalkX, dw1WalkZ;
+static int16_t dw1WalkAngle;
+static int32_t dw1TouchIgnored; /* this touch began on the partner */
+static unsigned dw1LastTick;
+static int32_t dw1StuckX, dw1StuckZ, dw1StuckFrames;
+
+static void dw1ToScreen(int32_t x, int32_t y, int32_t z, float *sx, float *sy)
+{
+	int16_t px, py, pz;
+
+	px = (int16_t)x;
+	py = (int16_t)y;
+	pz = (int16_t)z;
+	worldPosToScreenPos2(&px, &py, &pz);
+	*sx = px;
+	*sy = py;
+}
+
+/* the point on the ground (at the tamer's height) under screen point
+ * tx, ty: Newton steps on the GTE projection, kept near the tamer */
+static void dw1ScreenToGround(int32_t tx, int32_t ty, int32_t *outX, int32_t *outZ)
+{
+	VECTOR *loc = &TAMER_ENTITY.entity.posData->location;
+	float x = loc->vx, z = loc->vz, y = loc->vy;
+	float sx, sy, ax, ay, bx, by, det, dx, dz;
+	int32_t i;
+
+	for (i = 0; i < 4; i++) {
+		dw1ToScreen(x, y, z, &sx, &sy);
+		dw1ToScreen(x + 64, y, z, &ax, &ay);
+		dw1ToScreen(x, y, z + 64, &bx, &by);
+		ax -= sx;
+		ay -= sy;
+		bx -= sx;
+		by -= sy;
+		det = ax * by - ay * bx;
+		if (det > -0.5f && det < 0.5f) {
+			break;
+		}
+		dx = 64 * ((tx - sx) * by - (ty - sy) * bx) / det;
+		dz = 64 * (ax * (ty - sy) - ay * (tx - sx)) / det;
+		if (dx > 2000) dx = 2000;
+		if (dx < -2000) dx = -2000;
+		if (dz > 2000) dz = 2000;
+		if (dz < -2000) dz = -2000;
+		x += dx;
+		z += dz;
+		if (x > loc->vx + 4000) x = loc->vx + 4000;
+		if (x < loc->vx - 4000) x = loc->vx - 4000;
+		if (z > loc->vz + 4000) z = loc->vz + 4000;
+		if (z < loc->vz - 4000) z = loc->vz - 4000;
+		if (dx > -4 && dx < 4 && dz > -4 && dz < 4) {
+			break;
+		}
+	}
+	*outX = (int32_t)x;
+	*outZ = (int32_t)z;
+}
+
+static int32_t dw1TouchOnPartner(int32_t tx, int32_t ty)
+{
+	DVECTOR p;
+
+	if (!PARTNER_ENTITY.digimonEntity.entity.isOnScreen) {
+		return 0;
+	}
+	getEntityScreenPos(&PARTNER_ENTITY.digimonEntity.entity, 1, &p);
+	/* a generous box around the body: fingers are wide */
+	return tx >= p.vx - 36 && tx <= p.vx + 36 &&
+	       ty >= p.vy - 48 && ty <= p.vy + 32;
+}
+
+/* 1 when it changed the tamer's state (walking stops for this tick) */
+static int32_t dw1TamerExtraInput(void)
+{
+	int32_t canMenu, touch, tx, ty;
+	unsigned now;
+
+	canMenu = (IS_SCRIPT_PAUSED == 1) &&
+#if VERSION_EQUAL_OR_NEWER(US)
+	          (FADE_PROTECTION == 0) &&
+#endif
+	          (UI_BOX_DATA[0].state != 1) && (UI_BOX_DATA[0].frame == 0);
+
+	/* L1: the inventory, as Items in the Triangle menu */
+	if (canMenu && dw1_quick_feed_enabled() &&
+	    ((POLLED_INPUT & ~POLLED_INPUT_PREVIOUS) & 4) &&
+	    (TAMER_ITEM.worldItem.type == 0xff)) {
+		dw1WalkActive = 0;
+		addGameMenu();
+		tamerSetState(1);
+		startAnimation(&TAMER_ENTITY.entity, 0);
+		unsetCameraFollowPlayer();
+		copyVector(&STORED_TAMER_POS, &TAMER_ENTITY.entity.posData->location);
+		IS_IN_MENU = 1;
+		stopGameTime();
+		setPartnerIdling();
+		TRIANGLE_MENU_STATE = 2; /* straight to the inventory */
+		dw1_quick_feed = 1;
+		playSound(0, 3);
+		return 1;
+	}
+
+	now = dw1_pad_calls();
+	if (now - dw1LastTick > 2) {
+		dw1WalkActive = 0; /* another map, a menu, a script... */
+	}
+	dw1LastTick = now;
+
+	touch = dw1_touch_state(&tx, &ty);
+	if (dw1_pad_manual_move()) {
+		dw1WalkActive = 0;
+		return 0;
+	}
+	if (!(touch & DW1_TOUCH_DOWN)) {
+		dw1TouchIgnored = 0;
+	} else if (touch & DW1_TOUCH_BEGAN) {
+		dw1TouchIgnored = dw1TouchOnPartner(tx, ty);
+		if (dw1TouchIgnored && canMenu) {
+			/* Praise, as handleGameMenuSelection(4) */
+			dw1WalkActive = 0;
+			tamerSetState(6);
+			startAnimation(&TAMER_ENTITY.entity, 0);
+			unsetCameraFollowPlayer();
+			copyVector(&STORED_TAMER_POS, &TAMER_ENTITY.entity.posData->location);
+			setPartnerIdling();
+			partnerSetState(0xf);
+			return 1;
+		}
+	}
+	if ((touch & DW1_TOUCH_DOWN) && !dw1TouchIgnored && (IS_SCRIPT_PAUSED == 1)) {
+		if (!dw1WalkActive) {
+			dw1StuckX = TAMER_ENTITY.entity.posData->location.vx;
+			dw1StuckZ = TAMER_ENTITY.entity.posData->location.vz;
+			dw1StuckFrames = 0;
+		}
+		dw1ScreenToGround(tx, ty, &dw1WalkX, &dw1WalkZ);
+		dw1WalkActive = 1;
+	}
+
+	if (dw1WalkActive) {
+		VECTOR *loc = &TAMER_ENTITY.entity.posData->location;
+		float sx, sy, gx, gy, ex, ey;
+		uint32_t bits = 0;
+
+		dw1ToScreen(loc->vx, loc->vy, loc->vz, &sx, &sy);
+		dw1ToScreen(dw1WalkX, loc->vy, dw1WalkZ, &gx, &gy);
+		ex = gx - sx;
+		ey = gy - sy;
+		if (ex * ex + ey * ey < 8 * 8) {
+			dw1WalkActive = 0; /* there */
+			return 0;
+		}
+		/* against a wall: give up after half a second without moving */
+		if (abs(loc->vx - dw1StuckX) + abs(loc->vz - dw1StuckZ) > 8) {
+			dw1StuckX = loc->vx;
+			dw1StuckZ = loc->vz;
+			dw1StuckFrames = 0;
+		} else if (++dw1StuckFrames > 30 && !(touch & DW1_TOUCH_DOWN)) {
+			dw1WalkActive = 0;
+			return 0;
+		}
+		/* the D-pad bits nearest the screen direction, for the game's
+		 * walking; dw1TouchWalkFace sets the exact angle */
+		if (ex * 5 >= ey * 2 && ex * 5 >= -ey * 2) bits |= 0x2000;
+		if (-ex * 5 >= ey * 2 && -ex * 5 >= -ey * 2) bits |= 0x8000;
+		if (ey * 5 >= ex * 2 && ey * 5 >= -ex * 2) bits |= 0x4000;
+		if (-ey * 5 >= ex * 2 && -ey * 5 >= -ex * 2) bits |= 0x1000;
+		if (ex * ex + ey * ey > 64 * 64) {
+			bits |= 8; /* R1: run */
+		}
+		dw1_touch_pad = bits;
+		dw1WalkAngle = (int16_t)(_atan(dw1WalkZ - loc->vz, dw1WalkX - loc->vx) & 0xfff);
+	}
+	return 0;
+}
+
+static void dw1TouchWalkFace(void)
+{
+	if (dw1WalkActive && !dw1_pad_manual_move() &&
+	    (POLLED_INPUT & 0xf000)) {
+		setTamerDirection(dw1WalkAngle);
+	}
+}
+#endif

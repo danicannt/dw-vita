@@ -16,6 +16,12 @@
  *                             model and plays the whole sequence
  *   DW1_SMOKE=battles[:a-b]   visit maps a..b like "maps" and fight every
  *                             Digimon on each one (startBattle per entity slot)
+ *   DW1_SMOKE=walk[:a-b]      like "maps", walking a square once the tamer is
+ *                             free and saving walk_<map>_<n>.ppm (DW1_DUMP_DIR)
+ *   DW1_SMOKE=anims[:a-b]     play partner animations a..b (default 0..0x60),
+ *                             saving anim_<id>_<n>.ppm
+ *   DW1_SMOKE=events[:a-b]    on maps a..b, run every section of the map's
+ *                             script in turn ("event <map> <section>")
  *   DW1_SMOKE=death           let the partner die of old age where the replay
  *                             left it and play the death and rebirth scenes
  *                             with X tapped through; logs the partner's
@@ -201,6 +207,22 @@ static int next_map(void)
     return 0;
 }
 
+static void battery_done(void)
+{
+    fprintf(stderr, "dw1: smoke: done\n");
+    exit(0);
+}
+
+/* the next map of the battery, logged as "smoke: <what> N NAME"; exits at the end */
+static void visit_next_map(const char *what)
+{
+    if (!next_map())
+        battery_done();
+    fprintf(stderr, "dw1: smoke: %s %d %.10s\n", what, map_cur, MAP_ENTRIES[map_cur].filename);
+    fflush(stderr);
+    changeMap((short)map_cur, 0);
+}
+
 static int walking; /* SMOKE_WALK: frames since the tamer got free, or 0 */
 void dw1_dump_request(const char *name);
 void callScriptSection(int scriptId, int section, int param);
@@ -210,7 +232,6 @@ void dw1_debug_kill_partner(void);
 int dw1_debug_partner_in_scene(void);
 void dw1_debug_dooa(int *phase, int *frame);
 void dw1_debug_partner_info(int *type, int *state, int *lives);
-extern unsigned short CURRENT_SCREEN_ID;
 extern signed char GAME_STATE;
 
 /* SMOKE_EVENTS state */
@@ -273,10 +294,8 @@ void dw1_smoke_frame(void)
          * never ends (on the PS1 too) */
         if (++map_cur == 62)
             ++map_cur;
-        if (map_cur > map_end) {
-            fprintf(stderr, "dw1: smoke: done\n");
-            exit(0);
-        }
+        if (map_cur > map_end)
+            battery_done();
         visited = 1;
         frame = 0;
         fprintf(stderr, "dw1: smoke: model %d evolution target\n", map_cur);
@@ -305,13 +324,7 @@ void dw1_smoke_frame(void)
         }
         visited = 1;
         frame = 0;
-        if (!next_map()) {
-            fprintf(stderr, "dw1: smoke: done\n");
-            exit(0);
-        }
-        fprintf(stderr, "dw1: smoke: battle %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
-        fflush(stderr);
-        changeMap((short)map_cur, 0);
+        visit_next_map("battle");
         break;
     case SMOKE_ANIMS:
         /* play partner animation map_cur..map_end the way scripts do
@@ -328,10 +341,8 @@ void dw1_smoke_frame(void)
             if (frame < 150)
                 break;
         }
-        if (++map_cur > map_end) {
-            fprintf(stderr, "dw1: smoke: done\n");
-            exit(0);
-        }
+        if (++map_cur > map_end)
+            battery_done();
         visited = 1;
         frame = 0;
         fprintf(stderr, "dw1: smoke: model %d animation\n", map_cur);
@@ -452,13 +463,7 @@ events_next_map:
         ev_running = 0;
         ev_section = 0;
         ev_frames = 0;
-        if (!next_map()) {
-            fprintf(stderr, "dw1: smoke: done\n");
-            exit(0);
-        }
-        fprintf(stderr, "dw1: smoke: map %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
-        fflush(stderr);
-        changeMap((short)map_cur, 0);
+        visit_next_map("map");
         break;
     case SMOKE_WALK:
         /* like maps, but once the tamer is free walk a square (45 frames per
@@ -486,13 +491,7 @@ events_next_map:
         walking = 0;
         visited = 1;
         frame = 0;
-        if (!next_map()) {
-            fprintf(stderr, "dw1: smoke: done\n");
-            exit(0);
-        }
-        fprintf(stderr, "dw1: smoke: map %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
-        fflush(stderr);
-        changeMap((short)map_cur, 0);
+        visit_next_map("map");
         break;
     case SMOKE_MAPS:
         active = 1;
@@ -506,13 +505,7 @@ events_next_map:
             fprintf(stderr, "dw1: smoke: map %d still busy, changing anyway\n", map_cur);
         visited = 1;
         frame = 0;
-        if (!next_map()) {
-            fprintf(stderr, "dw1: smoke: done\n");
-            exit(0);
-        }
-        fprintf(stderr, "dw1: smoke: map %d %.10s\n", map_cur, MAP_ENTRIES[map_cur].filename);
-        fflush(stderr);
-        changeMap((short)map_cur, 0);
+        visit_next_map("map");
         break;
     }
 }

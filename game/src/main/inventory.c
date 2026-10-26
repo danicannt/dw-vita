@@ -66,6 +66,13 @@ void moveItem();
 void selectSorting();
 void selectDropItem();
 void selectOptionMenu();
+#ifdef DW1_NATIVE
+extern int dw1_quick_feed; /* game/src/main/tamer.c */
+extern int32_t IS_IN_MENU;
+void tamerSetState(int32_t state);
+void setCameraFollowPlayer(void);
+void startGameTime(void);
+#endif
 void selectRegularInventory();
 
 void copyItemArray(uint8_t *src, uint8_t *dst, long n);
@@ -384,6 +391,19 @@ void tickInventoryUI(int32_t instanceId)
 
 		case 2:
 			closeInventoryBoxes2();
+#ifdef DW1_NATIVE
+			/* opened with L1: Cancel goes back to walking, as Cancel
+			 * in the Triangle menu (tickGameMenu) */
+			if (dw1_quick_feed && (GAME_STATE == 0) && (UI_BOX_DATA[0].frame == 0)) {
+				dw1_quick_feed = 0;
+				closeTriangleMenu();
+				tamerSetState(0);
+				setCameraFollowPlayer();
+				IS_IN_MENU = 0;
+				startGameTime();
+				break;
+			}
+#endif
 			if ((GAME_STATE == 0) && (UI_BOX_DATA[0].frame == 0)) {
 				closeTriangleMenu();
 				addGameMenu();
@@ -409,6 +429,9 @@ void tickInventoryUI(int32_t instanceId)
 				if (GAME_STATE == 0) {
 					startFeedingItem(INVENTORY.types.array[INVENTORY_POINTER]);
 					INVENTORY_ACTION = 0;
+#ifdef DW1_NATIVE
+					dw1_quick_feed = 0;
+#endif
 				} else if (GAME_STATE == 1) {
 					startThrowingItem();
 					INVENTORY_ACTION = 0;
@@ -940,6 +963,19 @@ void selectRegularInventory(void)
 		if ((INVENTORY_ACTION < 5) && (TAMER_ITEM.worldItem.type == 0xff) &&
 		    (UI_BOX_DATA[1].state == 1)) {
 			INVENTORY_ACTION = 3;
+#ifdef DW1_NATIVE
+			/* opened with L1 (game/src/main/tamer.c): an item the
+			 * partner can take is fed at once, as Use in the item
+			 * menu; any other one still gets the menu */
+			if (dw1_quick_feed && (GAME_STATE == 0) &&
+			    (INVENTORY.types.array[INVENTORY_POINTER] != 0xff)) {
+				Item *item = &ITEM_PARA[INVENTORY.types.array[INVENTORY_POINTER]];
+
+				if ((item->itemColor == 0) || (item->itemColor == 2)) {
+					INVENTORY_ACTION = 5;
+				}
+			}
+#endif
 		}
 	}
 }

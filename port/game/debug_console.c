@@ -454,6 +454,10 @@ static void next_script_line(void)
         script_pending = 1;
         return;
     }
+    if (script_file) {
+        fclose(script_file);
+        script_file = NULL;
+    }
 }
 
 void dw1_debug_frame(void)

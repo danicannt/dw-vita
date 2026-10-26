@@ -3344,7 +3344,13 @@ int32_t drawMoveViewHelpStrings(void)
 		clearTextSubArea(&rect);
 	}
 
+#ifdef DW1_NATIVE
+	/* indexes past STATUS_VIEW_LABELS[8] into TECH_VIEW_LABELS, which the
+	 * PS1 linked right after it; the native layout need not */
+	drawString(TECH_VIEW_LABELS[MENU_SUB_STATE + 1], 0, MENU_SUB_STATE * 0xc + 0x18);
+#else
 	drawString(STATUS_VIEW_LABELS[MENU_SUB_STATE + 9], 0, MENU_SUB_STATE * 0xc + 0x18);
+#endif
 	MENU_SUB_STATE++;
 
 	if (MENU_SUB_STATE == 8) {

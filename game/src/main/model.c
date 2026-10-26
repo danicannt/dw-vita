@@ -2880,6 +2880,9 @@ void initializeDigimonObject(int32_t type, int32_t instanceId,
 
 #ifdef DW1_NATIVE
 #include <stdio.h>
+/* PSY-Z (psyz/video.h): characters get PGXP depth and texture filtering,
+ * scenery keeps the PS1's ordering and textures */
+void Psyz_VideoSetPgxpModel(int on);
 /* DW1_BONECHECK: log bones drawn far from the model's root (a model coming
  * apart), once per type, animation and bone */
 static void dw1_bone_check(Entity *e, int32_t bone, MATRIX *lw)
@@ -2948,6 +2951,9 @@ void renderDigimon(instanceId)
 	}
 	pos = ENTITY_TABLE[instanceId]->posData;
 	boneCount = DIGIMON_DATA[ENTITY_TABLE[instanceId]->type].boneCount;
+#ifdef DW1_NATIVE
+	Psyz_VideoSetPgxpModel(1);
+#endif
 	for (i = 0; i < boneCount; pos++, i++) {
 		if (pos->obj.tmd == NULL) {
 			continue;
@@ -2983,6 +2989,9 @@ void renderDigimon(instanceId)
 		}
 		GsSortObject4J(&pos->obj, ACTIVE_ORDERING_TABLE, 2, getScratchAddr(0));
 	}
+#ifdef DW1_NATIVE
+	Psyz_VideoSetPgxpModel(0);
+#endif
 	if (ENTITY_TABLE[instanceId]->flatSprite != -1) {
 		renderFlatDigimon(ENTITY_TABLE[instanceId]);
 	}

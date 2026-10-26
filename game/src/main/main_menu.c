@@ -2892,6 +2892,12 @@ void drawMainMenuStrings(int32_t menu)
 		DrawSync(0);
 		drawString(TITLE_MENU_ITEMS[2], 0, 0x18);
 		drawString(TITLE_MENU_ITEMS[3], 0, 0x24);
+#ifdef DW1_NATIVE
+		/* the port's Options menu (port/game/options_menu.c) */
+		DrawSync(0);
+		drawString("OPTIONS", 0, 0x30);
+		MENU_HIGHLIGHTS[0].pad[0] = 5;
+#endif
 		break;
 	case 1:
 		drawString(SLOT_ACTION_TITLES[0], 0, 0);
@@ -3316,6 +3322,11 @@ void updateMemoryCardState(void)
 	}
 }
 
+#ifdef DW1_NATIVE
+/* the title menu's Options entry is open (port/game/options_menu.c) */
+static int OPTIONS_MENU_OPEN;
+#endif
+
 void tickMainMenu(void)
 {
 	int32_t view;
@@ -3340,6 +3351,17 @@ void tickMainMenu(void)
 #endif
 
 	updateMemoryCardState();
+#ifdef DW1_NATIVE
+	if (OPTIONS_MENU_OPEN) {
+		if (!dw1_options_menu_tick()) {
+			/* back to the title menu, on Options */
+			OPTIONS_MENU_OPEN = 0;
+			drawMainMenuStrings(0);
+			MENU_HIGHLIGHTS[0].pos = 4;
+		}
+		return;
+	}
+#endif
 	if (TARGET_MENU != CURRENT_MENU) {
 		drawMainMenuStrings(TARGET_MENU);
 	}
@@ -3377,6 +3399,12 @@ void tickMainMenu(void)
 				TARGET_MENU = 0x32;
 				MAIN_MENU_ACTION = 5;
 				break;
+#ifdef DW1_NATIVE
+			case 4:
+				dw1_options_menu_open();
+				OPTIONS_MENU_OPEN = 1;
+				break;
+#endif
 			}
 			break;
 		case 2:
@@ -5154,6 +5182,12 @@ void renderMainMenu(void)
 {
 	int32_t menu;
 
+#ifdef DW1_NATIVE
+	if (OPTIONS_MENU_OPEN) {
+		dw1_options_menu_render();
+		return;
+	}
+#endif
 	if (CURRENT_MENU >= 0) {
 		menu = MENU_VIEWS[CURRENT_MENU];
 		if (menu != -1) {
@@ -5362,7 +5396,13 @@ void renderInitialMenu(void)
 		renderText(cur++, 0x52, 0x43, 0, 0xC, 0xB0, 0x18, 1);
 	}
 	renderText(cur++, 0x52, 0x5B, 0, 0x24, 0xB0, 0xC, 0);
+#ifdef DW1_NATIVE
+	renderText(cur++, 0x52, 0x67, 0, 0x30, 0xB0, 0xC, 0); /* Options */
+	GsSetWorkBase((PACKET *)cur);
+	renderMenuBox(0x48, 0x32, 0xB0, 0x46);
+#else
 	GsSetWorkBase((PACKET *)cur);
 	renderMenuBox(0x48, 0x32, 0xB0, 0x3A);
+#endif
 #endif
 }

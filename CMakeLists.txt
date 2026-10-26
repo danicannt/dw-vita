@@ -94,7 +94,7 @@ function(dw1_game_unit target)
 endfunction()
 
 # port/game: native-only code built like the game units (it uses their headers)
-list(APPEND DW1_MAIN_SRC port/game/debug_console.c)
+list(APPEND DW1_MAIN_SRC port/game/debug_console.c port/game/options_menu.c)
 dw1_game_unit(dw1_resident ${DW1_MAIN_SRC} ${DW1_SHOP_SRC})
 set(DW1_GAME_OBJECTS $<TARGET_OBJECTS:dw1_resident>)
 set(DW1_OVERLAY_LD "SECTIONS\n{\n")

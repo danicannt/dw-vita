@@ -5257,10 +5257,11 @@ int32_t checkCameraMovement(instanceId)
 		return 1;
 	}
 #ifdef DW1_NATIVE
-	/* TODO: find what removes the camera mover early. Waiting for a camera
-	 * move with no 0xfb1 object left to finish it never ends (the script
-	 * that shows the "Drill Tunnel" sign hangs in its SCRIPT_OP_WAIT_FOR_ENTITY
-	 * with the textbox open); force it done instead */
+	/* safeguard: waiting for a camera move with no 0xfb1 object left to
+	 * finish it never ends (the "Drill Tunnel" sign's script hung in its
+	 * SCRIPT_OP_WAIT_FOR_ENTITY with the textbox open). That hang was
+	 * MAP_CLUTS overrunning into CAMERA_REACHED_TARGET (see there); this
+	 * catches any other way to get there and logs it */
 	if (CAMERA_REACHED_TARGET == 0 && !dw1_object_exists(0xfb1)) {
 		fprintf(stderr, "dw1: camera move had no mover, forced done\n");
 		CAMERA_REACHED_TARGET = -1;
