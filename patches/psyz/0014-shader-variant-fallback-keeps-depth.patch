@@ -1,0 +1,54 @@
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index f32ba8e..085b7db 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -398,6 +398,7 @@ static GLuint Init_CompileShaderWith(
+ #define MAIN_FILTER 1
+ #define MAIN_DEPTH 2
+ static GLuint main_programs[4];
++static int main_variant; // the one shader_program is
+ 
+ static GLuint Init_SetupShader(int variant) {
+     GLuint vertShader, fragShader;
+@@ -469,8 +470,11 @@ static GLuint Init_SetupShader(int variant) {
+ // uniforms that are not set before every draw
+ static bool UseMainProgram(int variant) {
+     static bool failed[4];
+-    if (variant != 0 && failed[variant]) {
+-        variant = 0; // that variant did not build: draw without its extras
++    // a variant that did not build: draw without its filter, keeping the
++    // depth buffer if its own variant builds (without its discard,
++    // transparent texels would write depth)
++    while (variant != 0 && failed[variant]) {
++        variant = variant == (MAIN_FILTER | MAIN_DEPTH) ? MAIN_DEPTH : 0;
+     }
+     if (!main_programs[variant]) {
+         main_programs[variant] = Init_SetupShader(variant);
+@@ -478,15 +482,16 @@ static bool UseMainProgram(int variant) {
+             if (variant == 0) {
+                 return false;
+             }
+-            WARNF("shader variant %d unavailable, using the plain one", variant);
++            WARNF("shader variant %d unavailable", variant);
+             failed[variant] = true;
+-            return UseMainProgram(0);
++            return UseMainProgram(variant);
+         }
+     }
+     if (shader_program == main_programs[variant]) {
+         return true;
+     }
+     shader_program = main_programs[variant];
++    main_variant = variant;
+     glUseProgram(shader_program);
+     uniform_resolution = glGetUniformLocation(shader_program, "resolution");
+     uniform_tex_vram = glGetUniformLocation(shader_program, "texVram");
+@@ -3447,7 +3452,7 @@ static bool BeginPgxpDepth(void) {
+     GLuint fbo = GetDrawFbo();
+     DepthTarget* d = NULL;
+     int w, h;
+-    if (!pgxp_video || !pgxp_depth) {
++    if (!pgxp_video || !pgxp_depth || !(main_variant & MAIN_DEPTH)) {
+         return false;
+     }
+     DrawFboSize(&w, &h);
