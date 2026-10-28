@@ -3377,19 +3377,13 @@ static void *main_bss_order[] = {
 };
 
 #ifdef DW1_NATIVE
-/* the pause menu's "Return to title" (port/game/pause_menu.c): fade out and
- * clean up as the trial versions do after their last day, then back to the
- * title without the opening movie */
+/* the pause menu's "Return to title" (port/game/pause_menu.c), which has
+ * faded the screen out: clean up as the trial versions do after their last
+ * day, then back to the title without the opening movie */
 static int DW1_SKIP_OPENING;
 
 static void dw1_leave_to_title(void)
 {
-	int32_t frames;
-
-	fadeToBlack(0x14);
-	for (frames = 0; FADE_OUT_CURRENT < 0x14 && frames < 60; frames++) {
-		gameLoop();
-	}
 	if (CONDITION_BUBBLE_TYPE != -1) {
 		removeConditionBubble(CONDITION_BUBBLE_ID);
 		CONDITION_BUBBLE_TIMER = 0;

@@ -80,6 +80,8 @@ int dw1_quit_to_title(void)
     int q = quit_requested;
 
     quit_requested = 0;
+    if (q) /* the cheats belong to this game, not the next one loaded */
+        dw1_cheat_freeze_time = dw1_cheat_no_aging = 0;
     return q;
 }
 
@@ -101,6 +103,36 @@ static void frame(void (*draw)(void))
     GsSwapDispBuff();
     GsSortClear(0, 0, 0, ACTIVE_ORDERING_TABLE);
     GsDrawOt(ACTIVE_ORDERING_TABLE);
+}
+
+/* the screen darkened by level / 31, as renderFade (game/src/main/fade.c)
+ * does: a flat subtractive quad over everything */
+static int fade_level;
+
+static void draw_fade(void)
+{
+    POLY_F4 *flat = (POLY_F4 *)GsGetWorkBase();
+    DR_TPAGE *mode;
+    int c = fade_level > 31 ? 31 : fade_level;
+
+    setPolyF4(flat);
+    setSemiTrans(flat, 1);
+    setRGB0(flat, c << 3, c << 3, c << 3);
+    setXYWH(flat, -160 - dw1_wide_extra, -120, 320 + 2 * dw1_wide_extra, 240);
+    addPrim(ACTIVE_ORDERING_TABLE->org, flat);
+    mode = (DR_TPAGE *)&flat[1]; /* added after the quad so it runs first */
+    setDrawTPage(mode, 1, 1, GetTPage(0, 2, 896, 448));
+    addPrim(ACTIVE_ORDERING_TABLE->org, mode);
+    GsSetWorkBase((PACKET *)&mode[1]);
+}
+
+/* "Return to title": fade out with the game still frozen (running the game
+ * loop to fade would let the tamer walk into a battle or a door meanwhile);
+ * main() cleans up right after this frame */
+static void fade_out(void)
+{
+    for (fade_level = 4; fade_level <= 32; fade_level += 4)
+        frame(draw_fade);
 }
 
 /* ---- the text area ---------------------------------------------------------
@@ -242,6 +274,7 @@ static void run_pause(void)
                 playSound(0, 3);
                 if (menu.cursor == 1) {
                     quit_requested = 1;
+                    fade_out();
                     return;
                 }
                 confirm = 0;
