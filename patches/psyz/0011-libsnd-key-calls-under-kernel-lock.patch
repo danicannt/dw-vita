@@ -1,0 +1,138 @@
+diff --git a/decomp/src/libsnd/ut_ako.c b/decomp/src/libsnd/ut_ako.c
+index 08c315f..540837a 100644
+--- a/decomp/src/libsnd/ut_ako.c
++++ b/decomp/src/libsnd/ut_ako.c
+@@ -1,4 +1,16 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// The PS1 ran SsSeqCalledTbyT (the sound tick) as an interrupt, so these never
++// found _snd_ev_flag set by it. In PSY-Z the tick runs on the IRQ thread under
++// the kernel lock: without taking it too, a key off that met the tick halfway
++// returned -1 and the voice played on (a looping sound kept over the next map).
++// Each public entry point below runs its PS1 body under that lock.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsUtAllKeyOff SsUtAllKeyOff_ps1
++#endif
+ 
+ void SsUtAllKeyOff(short mode) {
+     short i;
+@@ -20,3 +32,14 @@ void SsUtAllKeyOff(short mode) {
+         _SsVmKeyOffNow(1);
+     }
+ }
++
++#ifdef __psyz
++#undef SsUtAllKeyOff
++void SsUtAllKeyOff_ps1(short mode);
++
++void SsUtAllKeyOff(short mode) {
++    PS1_EnterCriticalSection();
++    SsUtAllKeyOff_ps1(mode);
++    PS1_ExitCriticalSection();
++}
++#endif
+diff --git a/decomp/src/libsnd/ut_key.c b/decomp/src/libsnd/ut_key.c
+index f228e87..1fd89f0 100644
+--- a/decomp/src/libsnd/ut_key.c
++++ b/decomp/src/libsnd/ut_key.c
+@@ -1,4 +1,17 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// The PS1 ran SsSeqCalledTbyT (the sound tick) as an interrupt, so these never
++// found _snd_ev_flag set by it. In PSY-Z the tick runs on the IRQ thread under
++// the kernel lock: without taking it too, a key off that met the tick halfway
++// returned -1 and the voice played on (a looping sound kept over the next map).
++// Each public entry point below runs its PS1 body under that lock.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsUtKeyOn SsUtKeyOn_ps1
++#define SsUtKeyOff SsUtKeyOff_ps1
++#endif
+ 
+ short SsUtKeyOn(short vabId, short prog, short tone, short note, short fine,
+                 short voll, short volr) {
+@@ -97,3 +110,28 @@ short SsUtKeyOff(short voice, short vabId, short prog, short tone, short note) {
+     }
+     return -1;
+ }
++
++#ifdef __psyz
++#undef SsUtKeyOn
++short SsUtKeyOn_ps1(short vabId, short prog, short tone, short note, short fine, short voll, short volr);
++#undef SsUtKeyOff
++short SsUtKeyOff_ps1(short voice, short vabId, short prog, short tone, short note);
++
++short SsUtKeyOn(short vabId, short prog, short tone, short note, short fine, short voll, short volr) {
++    short r;
++
++    PS1_EnterCriticalSection();
++    r = SsUtKeyOn_ps1(vabId, prog, tone, note, fine, voll, volr);
++    PS1_ExitCriticalSection();
++    return r;
++}
++
++short SsUtKeyOff(short voice, short vabId, short prog, short tone, short note) {
++    short r;
++
++    PS1_EnterCriticalSection();
++    r = SsUtKeyOff_ps1(voice, vabId, prog, tone, note);
++    PS1_ExitCriticalSection();
++    return r;
++}
++#endif
+diff --git a/decomp/src/libsnd/ut_keyv.c b/decomp/src/libsnd/ut_keyv.c
+index d64bc04..f87a49e 100644
+--- a/decomp/src/libsnd/ut_keyv.c
++++ b/decomp/src/libsnd/ut_keyv.c
+@@ -1,4 +1,17 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// The PS1 ran SsSeqCalledTbyT (the sound tick) as an interrupt, so these never
++// found _snd_ev_flag set by it. In PSY-Z the tick runs on the IRQ thread under
++// the kernel lock: without taking it too, a key off that met the tick halfway
++// returned -1 and the voice played on (a looping sound kept over the next map).
++// Each public entry point below runs its PS1 body under that lock.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsUtKeyOnV SsUtKeyOnV_ps1
++#define SsUtKeyOffV SsUtKeyOffV_ps1
++#endif
+ 
+ short SsUtKeyOnV(short voice, short vabId, short prog, short tone, short note,
+                  short fine, short voll, short volr) {
+@@ -81,3 +94,28 @@ short SsUtKeyOffV(short voice) {
+     _snd_ev_flag = 0;
+     return -1;
+ }
++
++#ifdef __psyz
++#undef SsUtKeyOnV
++short SsUtKeyOnV_ps1(short voice, short vabId, short prog, short tone, short note, short fine, short voll, short volr);
++#undef SsUtKeyOffV
++short SsUtKeyOffV_ps1(short voice);
++
++short SsUtKeyOnV(short voice, short vabId, short prog, short tone, short note, short fine, short voll, short volr) {
++    short r;
++
++    PS1_EnterCriticalSection();
++    r = SsUtKeyOnV_ps1(voice, vabId, prog, tone, note, fine, voll, volr);
++    PS1_ExitCriticalSection();
++    return r;
++}
++
++short SsUtKeyOffV(short voice) {
++    short r;
++
++    PS1_EnterCriticalSection();
++    r = SsUtKeyOffV_ps1(voice);
++    PS1_ExitCriticalSection();
++    return r;
++}
++#endif

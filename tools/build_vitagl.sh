@@ -7,6 +7,7 @@
 # The library lands in build/vitagl/libvitaGL.a; configure the Vita build with
 #   -DPSYZ_VITAGL_LIB=$PWD/build/vitagl/libvitaGL.a
 # The headers stay the vdpm ones (same commit as the pinned one below).
+# patches/vitagl/*.patch are applied on top.
 set -e
 COMMIT=${VITAGL_COMMIT:-7635e3c}  # 2026-10-16, the version tested on the Vita
 SRC=${VITAGL_SRC:-build/vitagl-src}
@@ -18,6 +19,14 @@ if [ ! -d "$SRC/.git" ]; then
 fi
 git -C "$SRC" fetch -q origin || true
 git -C "$SRC" checkout -q "$COMMIT"
+# our fixes on top (patches/vitagl), each applied once
+for p in "$PWD"/patches/vitagl/*.patch; do
+    [ -f "$p" ] || continue
+    if git -C "$SRC" apply --reverse --check "$p" 2>/dev/null; then
+        continue
+    fi
+    git -C "$SRC" apply "$p"
+done
 make -C "$SRC" clean > /dev/null
 make -C "$SRC" -j"$(nproc)" NO_DEBUG=1 HAVE_SHADER_CACHE=1
 mkdir -p "$OUT"

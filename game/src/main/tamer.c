@@ -915,6 +915,12 @@ void advanceBattleTime(result)
 	if (MINUTE > 59) {
 		++HOUR;
 		MINUTE -= 60;
+#ifdef DW1_NATIVE
+		/* original bug: an hour that passes in a battle did not count
+		 * towards the evolution timer, as tickGameClock's hours do */
+		if (dw1_fix())
+			++PARTNER_PARA.evoTimer;
+#endif
 
 		--PARTNER_PARA.remainingLifetime;
 		if (PARTNER_PARA.remainingLifetime < 0) {
@@ -942,6 +948,14 @@ void advanceBattleTime(result)
 			++DAY;
 			HOUR = 0;
 			CURRENT_FRAME = MINUTE * 20;
+#ifdef DW1_NATIVE
+			/* original bug: nor did a day: the partner did not age and
+			 * the daily events (meat farm, ...) were not reset */
+			if (dw1_fix()) {
+				PARTNER_PARA.age++;
+				dailyPStatTrigger();
+			}
+#endif
 			if (0x1d < DAY) {
 				DAY = 0;
 				++YEAR;
@@ -1211,7 +1225,15 @@ int32_t tickEntityMoveTo(scriptId1, scriptId2, targetX, targetZ, speed,
 				entity->posData->location.vx = targetX;
 				finishedX = 1;
 			}
+#ifdef DW1_NATIVE
+		/* original bug: when the distance is shorter than the step count
+		 * the step is 0 and an entity short of the target never got there,
+		 * freezing the script; with the fix it snaps to it */
+		} else if ((MOVE_TO_DELTA_X == 0 && dw1_fix()) ||
+		           targetX <= entity->posData->location.vx) {
+#else
 		} else if (targetX <= entity->posData->location.vx) {
+#endif
 			entity->posData->location.vx = targetX;
 			finishedX = 1;
 		}
@@ -1221,7 +1243,12 @@ int32_t tickEntityMoveTo(scriptId1, scriptId2, targetX, targetZ, speed,
 				entity->posData->location.vz = targetZ;
 				finishedZ = 1;
 			}
+#ifdef DW1_NATIVE
+		} else if ((MOVE_TO_DELTA_Z == 0 && dw1_fix()) || /* original bug: see X */
+		           entity->posData->location.vz >= targetZ) {
+#else
 		} else if (entity->posData->location.vz >= targetZ) {
+#endif
 			entity->posData->location.vz = targetZ;
 			finishedZ = 1;
 		}
@@ -1288,7 +1315,12 @@ int32_t tickEntityMoveToAxis(scriptId, target, axis, speed, withCamera)
 				PREVIOUS_CAMERA_POS_INITIALIZED = 0;
 				return 1;
 			}
+#ifdef DW1_NATIVE
+		/* original bug: a step of 0 never arrived, as in tickEntityMoveTo */
+		} else if ((MOVE_TO_DELTA_X == 0 && dw1_fix()) || *axisValue >= target) {
+#else
 		} else if (*axisValue >= target) {
+#endif
 			*axisValue = target;
 			PREVIOUS_CAMERA_POS_INITIALIZED = 0;
 			return 1;
@@ -1906,6 +1938,8 @@ void tamerTickAwardSomething(void)
  *                    menu), Cancel closes everything (game/src/main/
  *                    inventory.c). DW1_QUICKFEED=0 turns it off.
  *   touch the partner  praise, as Praise in the Triangle menu
+ *   left stick       walks any way, not only the D-pad's eight
+ *                    (DW1_STICK=0 turns it off)
  *   touch elsewhere  the tamer walks to that spot on the ground (runs when
  *                    it is far), steering while the finger moves; the D-pad
  *                    or the stick takes over. DW1_TOUCH=0 turns both off.
@@ -1918,10 +1952,12 @@ void tamerTickAwardSomething(void)
 #define DW1_TOUCH_BEGAN 2
 int dw1_touch_state(int *x, int *y);
 int dw1_pad_manual_move(void);
+int dw1_stick_dir(int *x, int *y);
 int dw1_quick_feed_enabled(void);
 unsigned dw1_pad_calls(void);
 extern unsigned int dw1_touch_pad;
 extern int32_t TRIANGLE_MENU_STATE;
+void drawInventoryText(void);
 extern uint32_t POLLED_INPUT_PREVIOUS;
 
 int dw1_quick_feed;
@@ -2024,7 +2060,10 @@ static int32_t dw1TamerExtraInput(void)
 		IS_IN_MENU = 1;
 		stopGameTime();
 		setPartnerIdling();
-		TRIANGLE_MENU_STATE = 2; /* straight to the inventory */
+		/* straight to the inventory, as Items (handleGameMenuSelection(1)):
+		 * the item names go to the text area first */
+		TRIANGLE_MENU_STATE = 2;
+		drawInventoryText();
 		dw1_quick_feed = 1;
 		playSound(0, 3);
 		return 1;
@@ -2106,6 +2145,23 @@ static int32_t dw1TamerExtraInput(void)
 
 static void dw1TouchWalkFace(void)
 {
+	int x, y;
+
+	/* the stick walks any way: the D-pad bits it gave set the walk, its
+	 * angle (down the screen 0, left 0x400) turns the tamer, relative to
+	 * the camera quantised as for the D-pad above */
+	if (dw1_stick_dir(&x, &y) && (POLLED_INPUT & 0xf000)) {
+		int16_t rotation = getMapRotation();
+		int16_t quadrant = (int16_t)(rotation / 0x200);
+
+		if ((rotation % 0x200) >= 0x100) {
+			quadrant++;
+		}
+		/* _atan(a, b) is the angle from +a towards +b, plus 0x800
+		 * (game/src/main/math.c): from down (+y) towards left (-x) */
+		setTamerDirection((int16_t)((quadrant * 0x200 + _atan(y / 16, -x / 16) - 0x800) & 0xfff));
+		return;
+	}
 	if (dw1WalkActive && !dw1_pad_manual_move() &&
 	    (POLLED_INPUT & 0xf000)) {
 		setTamerDirection(dw1WalkAngle);

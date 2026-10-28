@@ -93,6 +93,11 @@ menu (`port/game/options_menu.c`), which applies it at once and saves it to
 environment variables below still work and force their option for that run
 (greyed out in the menu); see `port/src/options.c`.
 
+During play, Start opens a pause menu (Continue, Save, Options, Return to
+title) in place of the PS1's "PAUSE" box, and Select a debug menu (freeze
+time, no aging, heal, happiness, bits) when Options > Extras turns it on;
+see `port/game/pause_menu.c`.
+
 - **Widescreen** (`DW1_WIDE=extra[:scale]`, on by default on the Vita as
   52:2): drawing into a display buffer goes to a canvas `extra` game pixels
   wider on each side, at `scale` resolution, through a `vramOrigin` uniform

@@ -1,49 +1,63 @@
-/* The title screen's Options menu (the fifth entry under New Game,
- * Continue, ...): one row per port option (port/src/options.c), drawn like
- * the title menu in game/src/main/main_menu.c, in the game's font and UI box.
+/* The Options menu: the title screen's fifth entry (under New Game,
+ * Continue, ...) and the Start pause menu's Options. One row per port option
+ * (port/src/options.c), grouped in sections, drawn like the title menu
+ * (port/game/port_menu.c).
  *
  *   Up / Down          choose a row
  *   Left / Right / OK  change it (it applies at once)
- *   Cancel, or Back    save the options and return to the title menu
+ *   Cancel, or Back    save the options and close the menu
  *
  * Options forced by their environment variable are greyed out. */
-#include <libgpu.h>
-#include <libgs.h>
-
-#include <dw/font.h>
 #include <dw/input.h>
 #include <dw/sound.h>
 #include <dw/types.h>
 
+#include "port_menu.h"
+
 extern int32_t CHANGED_INPUT;
-extern GsOT *ACTIVE_ORDERING_TABLE;
-void renderText(POLY_FT4 *prim, int32_t x, int32_t y, int32_t u, int32_t v, int32_t w,
-                int32_t h, int32_t textColor);
-void renderMenuBox(int32_t x, int32_t y, int32_t w, int32_t h);
+
+/* the rows: an option, a section title (SECTION) or Back */
+#define SECTION(n) (-1 - (n))
+#define BACK 100
+
+static const char *const sections[] = {"Video", "HD packs", "Gameplay", "Extras"};
+static const int layout[] = {
+    SECTION(0),
+    DW1_OPT_WIDESCREEN,
+    DW1_OPT_PGXP,
+    DW1_OPT_MODEL_DEPTH,
+    DW1_OPT_TEXTURE_FILTER,
+    SECTION(1),
+    DW1_OPT_HD_BACKGROUNDS,
+    DW1_OPT_HD_SPRITES,
+    DW1_OPT_HD_MOVIES,
+    SECTION(2),
+    DW1_OPT_ORIGINAL_FIXES,
+    DW1_OPT_BATTLE_GAINS,
+    DW1_OPT_FAIR_SLOTS,
+    SECTION(3),
+    DW1_OPT_DEBUG_MENU,
+    BACK,
+};
+#define ROWS ((int)(sizeof(layout) / sizeof(layout[0])))
 
 static const char *const labels[DW1_OPT_COUNT] = {
-    "Widescreen 16:9",   "HD backgrounds",    "HD movies",
-    "No polygon wobble", "Model depth fix",   "3D texture filter",
-    "Fair Bonus Try",    "Better battle gains",
+    [DW1_OPT_WIDESCREEN] = "Widescreen 16:9",
+    [DW1_OPT_HD_BACKGROUNDS] = "HD backgrounds",
+    [DW1_OPT_HD_MOVIES] = "HD movies",
+    [DW1_OPT_PGXP] = "No polygon wobble",
+    [DW1_OPT_MODEL_DEPTH] = "Model depth fix",
+    [DW1_OPT_TEXTURE_FILTER] = "3D texture filter",
+    [DW1_OPT_FAIR_SLOTS] = "Fair Bonus Try",
+    [DW1_OPT_BATTLE_GAINS] = "Better battle gains",
+    [DW1_OPT_ORIGINAL_FIXES] = "Original bug fixes",
+    [DW1_OPT_HD_SPRITES] = "HD object sprites",
+    [DW1_OPT_DEBUG_MENU] = "Select: debug menu",
 };
 static const char *const filter_names[3] = {"Off", "3-point", "Bilinear"};
 
-#define ROWS (DW1_OPT_COUNT + 1) /* the options and Back */
-#define ROW_H 12
-#define VALUE_U 0xA8 /* text column of the values (a multiple of 4) */
-#define VALUE_W (0x100 - VALUE_U - 1)
-#define BOX_X 0x18
-#define BOX_W 0x110
-#define BOX_Y 0x28
-#define BOX_H (ROW_H * (ROWS + 1) + 4 + 12)
-#define TEXT_X (BOX_X + 8)
-#define TITLE_Y (BOX_Y + 6)
-#define ROW_Y(i) (TITLE_Y + ROW_H + 4 + ROW_H * (i))
-
-/* text colours of renderText: white, grey, yellow */
-enum { WHITE, GREY, YELLOW };
-
-static int menu_open, cursor, changed;
+static Dw1Menu menu;
+static int menu_open, changed;
 
 static const char *value_text(int id)
 {
@@ -52,111 +66,89 @@ static const char *value_text(int id)
     return dw1_option(id) ? "On" : "Off";
 }
 
-/* the strings go to the text area in VRAM (row i + 1 for option i), as
- * drawMainMenuStrings does for the game's menus */
-static void draw_value(int id)
-{
-    RECT rect;
-
-    setRECT(&rect, VALUE_U, ROW_H * (id + 1), 0x100 - VALUE_U, ROW_H);
-    clearTextSubArea(&rect);
-    drawString(value_text(id), VALUE_U, ROW_H * (id + 1));
-    DrawSync(0);
-}
-
-static void draw_strings(void)
+static void build(void)
 {
     int i;
 
-    clearTextArea();
-    drawString("Options", 0, 0);
-    DrawSync(0);
-    for (i = 0; i < DW1_OPT_COUNT; i++) {
-        drawString(labels[i], 0, ROW_H * (i + 1));
-        DrawSync(0);
-        draw_value(i);
+    menu.title = "Options";
+    menu.count = ROWS;
+    menu.width = 0x110;
+    menu.value_x = 0xA8;
+    for (i = 0; i < ROWS; i++) {
+        Dw1MenuRow *r = &menu.rows[i];
+        int id = layout[i];
+
+        r->value = NULL;
+        r->header = 0;
+        r->color = DW1_MENU_WHITE;
+        if (id == BACK) {
+            r->label = "Back";
+        } else if (id < 0) {
+            r->label = sections[SECTION(id)];
+            r->header = 1;
+            r->color = DW1_MENU_YELLOW;
+        } else {
+            r->label = labels[id];
+            r->value = value_text(id);
+            if (dw1_option_locked(id)) {
+                r->color = r->value_color = DW1_MENU_GREY;
+            } else {
+                r->value_color = dw1_option(id) ? DW1_MENU_YELLOW : DW1_MENU_WHITE;
+            }
+        }
     }
-    drawString("Back", 0, ROW_H * ROWS);
-    DrawSync(0);
 }
 
 void dw1_options_menu_open(void)
 {
     menu_open = 1;
-    cursor = 0;
     changed = 0;
-    draw_strings();
+    build();
+    dw1_menu_cursor_to(&menu, 0);
+    dw1_menu_invalidate();
+    dw1_menu_text(&menu);
 }
 
-static void change(int step)
+static void change(int id, int step)
 {
     int n;
 
-    if (dw1_option_locked(cursor)) {
+    if (dw1_option_locked(id)) {
         playSound(0, 4);
         return;
     }
-    n = dw1_option_count(cursor);
-    dw1_option_set(cursor, (dw1_option(cursor) + step + n) % n);
-    draw_value(cursor);
+    n = dw1_option_count(id);
+    dw1_option_set(id, (dw1_option(id) + step + n) % n);
     changed = 1;
     playSound(0, 3);
+    build();
+    dw1_menu_text(&menu);
 }
 
 int dw1_options_menu_tick(void)
 {
     int input = CHANGED_INPUT & 0xFFFF;
+    int id;
 
     if (!menu_open)
         return 0;
-    if (input == 0x1000) { /* up */
-        cursor = (cursor + ROWS - 1) % ROWS;
-        playSound(0, 2);
-    } else if (input == 0x4000) { /* down */
-        cursor = (cursor + 1) % ROWS;
-        playSound(0, 2);
-    } else if (cursor < DW1_OPT_COUNT && (input == 0x2000 || input == CONFIRM_BUTTON)) {
-        change(1);
-    } else if (cursor < DW1_OPT_COUNT && input == 0x8000) { /* left */
-        change(-1);
-    } else if (input == CANCEL_BUTTON || (cursor == DW1_OPT_COUNT && input == CONFIRM_BUTTON)) {
+    id = layout[menu.cursor];
+    if (dw1_menu_move(&menu, input)) {
+    } else if (id != BACK && (input == DW1_PAD_RIGHT || input == CONFIRM_BUTTON)) {
+        change(id, 1);
+    } else if (id != BACK && input == DW1_PAD_LEFT) {
+        change(id, -1);
+    } else if (input == CANCEL_BUTTON || (id == BACK && input == CONFIRM_BUTTON)) {
         playSound(0, 4);
         if (changed)
             dw1_options_save();
         menu_open = 0;
+        dw1_menu_invalidate();
     }
     return menu_open;
 }
 
 void dw1_options_menu_render(void)
 {
-    LINE_F3 *line = (LINE_F3 *)GsGetWorkBase();
-    POLY_FT4 *text;
-    int x = TEXT_X - 3 - 0xA0, y = ROW_Y(cursor) - 2 - 0x78;
-    int w = BOX_W - 2 * (TEXT_X - BOX_X) + 6, h = ROW_H + 2;
-    int i;
-
-    /* the selection frame, as renderMenuSelector draws it (on top: the
-     * ordering table draws what was added last first) */
-    SetLineF3(line);
-    setRGB0(line, 0xA0, 0xA0, 0);
-    setXY3(line, x, y, x + w, y, x + w, y + h);
-    AddPrim(ACTIVE_ORDERING_TABLE->org, line++);
-    SetLineF3(line);
-    setRGB0(line, 0xA0, 0xA0, 0);
-    setXY3(line, x + w, y + h, x, y + h, x, y);
-    AddPrim(ACTIVE_ORDERING_TABLE->org, line++);
-
-    text = (POLY_FT4 *)line;
-    renderText(text++, TEXT_X, TITLE_Y, 0, 0, 0x60, ROW_H, YELLOW);
-    for (i = 0; i < DW1_OPT_COUNT; i++) {
-        int color = dw1_option_locked(i) ? GREY : WHITE;
-
-        renderText(text++, TEXT_X, ROW_Y(i), 0, ROW_H * (i + 1), VALUE_U, ROW_H, color);
-        renderText(text++, TEXT_X + VALUE_U, ROW_Y(i), VALUE_U, ROW_H * (i + 1), VALUE_W, ROW_H,
-                   color == GREY ? GREY : dw1_option(i) ? YELLOW : WHITE);
-    }
-    renderText(text++, TEXT_X, ROW_Y(DW1_OPT_COUNT), 0, ROW_H * ROWS, VALUE_U, ROW_H, WHITE);
-    GsSetWorkBase((PACKET *)text);
-    renderMenuBox(BOX_X, BOX_Y, BOX_W, BOX_H);
+    dw1_menu_render(&menu);
 }

@@ -1,0 +1,350 @@
+Loads: fewer, larger disc reads, and a slow-frame log
+
+- open_track_at_cd_pos keeps the track's file open and only seeks: every
+  CdRead went through it, closing and reopening the disc image with the
+  audio lock held, a fopen on the Vita's SD card for each file the game
+  loads (maps, menu images) while the audio thread waited.
+- CdRead reads unbuffered, 128 sectors (300 KB) per fread: the Vita's
+  newlib then reads straight into the chunk in one call, where through the
+  64 KB stdio buffer a map change read the card at ~6 MB/s.
+- PSYZ_GL_PERF (always on on the Vita): a frame of 100 ms or more logs a
+  "hitch:" line with its disc reads (CdRead calls, sectors, ms), VRAM
+  operations, HD image uploads and the rest ("other"); a run of frames over
+  20 ms logs one "slow:" line when it ends, with how much of those frames
+  went to the buffer swap ("swap", now timed apart from "present").
+
+diff --git a/psyz/src/internal.h b/psyz/src/internal.h
+index d3f4e2a..03eb494 100644
+--- a/psyz/src/internal.h
++++ b/psyz/src/internal.h
+@@ -61,4 +61,8 @@ void Psyz_PgxpNextFrame(void);
+ int Psyz_PgxpLookupPolygon(int n, const short* sx, const short* sy,
+                            float (*out)[4]);
+ 
++// Disc reads since the renderer last cleared these (libcd.c): CdRead calls,
++// sectors and microseconds spent in them, for the renderer's slow-frame log
++extern unsigned psyz_perf_cd_reads, psyz_perf_cd_sectors, psyz_perf_cd_us;
++
+ #endif
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index 9f59881..c34ca2e 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -1438,7 +1438,7 @@ static bool InitIndexed(void) {
+     return true;
+ }
+ 
+-int Psyz_VideoSetIndexedImage(
++static int SetIndexedImage_impl(
+     unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
+     if (slot >= MAX_INDEXED || !InitPlatform()) {
+         return -1;
+@@ -1897,6 +1897,15 @@ static bool PresentFromVram(const SDL_Rect* src, const SDL_Rect* dst);
+ // number of uploads in a row
+ static bool upload_pending = false;
+ #endif
++static void SwapWindow_impl(void) {
++#if defined(__vita__)
++    vglSwapBuffers(GL_FALSE);
++#else
++    SDL_GL_SwapWindow(sdl3_window);
++#endif
++}
++static void SwapWindow(void); // timed: see PERF_SWAP
++
+ static void PlatformBackend_Present_impl(void) {
+     if (!InitPlatform()) {
+         return;
+@@ -1987,11 +1996,7 @@ static void PlatformBackend_Present_impl(void) {
+     glFinish(); // fix: black screen on Windows+Nvidia
+ #endif
+     finish_time = SDL_GetPerformanceCounter();
+-#if defined(__vita__)
+-    vglSwapBuffers(GL_FALSE);
+-#else
+-    SDL_GL_SwapWindow(sdl3_window);
+-#endif
++    SwapWindow();
+ 
+     BindDrawFbo();
+     glBindTexture(GL_TEXTURE_2D, vram_texture);
+@@ -3403,16 +3408,28 @@ static void Draw_FlushBuffer_impl(void) {
+ // Every 120 presents: calls per second and CPU time per second of each VRAM
+ // operation. Readbacks (StoreImage) and syncs between the draw target and the
+ // sampled VRAM wait for the GPU, so they also show GPU stalls.
++// A frame that takes HITCH_MS or more from one present to the next (a load)
++// gets a "hitch:" line with what it spent its time on: the same operations,
++// the disc reads (CdRead) and HD images (Psyz_VideoSetIndexedImage); "other"
++// is the game's own work and anything not measured. Runs of frames over
++// SLOW_MS (a present per vblank is 16.7 ms) get one "slow:" line when they
++// end, with where those frames waited: "swap" is the part of "present" spent
++// in the buffer swap, which waits for the GPU and the display.
+ enum {
+     PERF_FLUSH, PERF_CLEAR, PERF_LOAD, PERF_STORE, PERF_MOVE,
+-    PERF_SYNC_TO_DRAW, PERF_SYNC_TO_VRAM, PERF_PRESENT, PERF_COUNT
++    PERF_SYNC_TO_DRAW, PERF_SYNC_TO_VRAM, PERF_PRESENT, PERF_SWAP,
++    PERF_INDEXED, PERF_COUNT
+ };
+ static const char* const perf_names[PERF_COUNT] = {
+     "flush", "clear", "load", "store", "move", "sync>draw", "sync>vram",
+-    "present"};
++    "present", "swap", "hd-image"};
++#define HITCH_MS 100
++#define SLOW_MS 20
+ static int perf_on = -1;
+ static Uint64 perf_ticks[PERF_COUNT];
+ static unsigned perf_calls[PERF_COUNT];
++static Uint64 perf_frame_ticks[PERF_COUNT];
++static unsigned perf_frame_calls[PERF_COUNT];
+ 
+ static bool PerfOn(void) {
+     if (perf_on < 0) {
+@@ -3432,8 +3449,11 @@ static bool PerfOn(void) {
+         }                                                                      \
+         Uint64 t0_ = SDL_GetPerformanceCounter();                              \
+         call;                                                                  \
+-        perf_ticks[id] += SDL_GetPerformanceCounter() - t0_;                   \
++        Uint64 dt_ = SDL_GetPerformanceCounter() - t0_;                        \
++        perf_ticks[id] += dt_;                                                 \
+         perf_calls[id]++;                                                      \
++        perf_frame_ticks[id] += dt_;                                           \
++        perf_frame_calls[id]++;                                                \
+     } while (0)
+ 
+ static void SyncNativeVramToScaled(int x, int y, int w, int h) {
+@@ -3455,13 +3475,92 @@ void Draw_MoveImage(PS1_RECT* rect, unsigned int x, unsigned int y) {
+     PERF_WRAP(PERF_MOVE, Draw_MoveImage_impl(rect, x, y));
+ }
+ void Draw_FlushBuffer(void) { PERF_WRAP(PERF_FLUSH, Draw_FlushBuffer_impl()); }
++static void SwapWindow(void) { PERF_WRAP(PERF_SWAP, SwapWindow_impl()); }
++int Psyz_VideoSetIndexedImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    int ret;
++    PERF_WRAP(PERF_INDEXED, ret = SetIndexedImage_impl(slot, w, h, rgba));
++    return ret;
++}
++
++static void PerfHitch(double ms, double freq) {
++    char line[640];
++    double known = psyz_perf_cd_us / 1000.0;
++    int n = SDL_snprintf(line, sizeof(line),
++                         "hitch: %.0f ms | cd %u reads %u sectors %.1f ms", ms,
++                         psyz_perf_cd_reads, psyz_perf_cd_sectors,
++                         psyz_perf_cd_us / 1000.0);
++    for (int i = 0; i < PERF_COUNT && n < (int)sizeof(line); i++) {
++        if (perf_frame_calls[i] == 0) {
++            continue;
++        }
++        double op = perf_frame_ticks[i] * 1000.0 / freq;
++        if (i != PERF_SWAP) { // already in present
++            known += op;
++        }
++        n += SDL_snprintf(line + n, sizeof(line) - n, " | %s %u %.1f ms",
++                          perf_names[i], perf_frame_calls[i], op);
++    }
++    if (n < (int)sizeof(line)) {
++        SDL_snprintf(line + n, sizeof(line) - n, " | other %.1f ms",
++                     ms > known ? ms - known : 0.0);
++    }
++    INFOF("%s", line);
++}
++
++// "hitch:" for a frame of HITCH_MS or more, "slow:" for a run of frames over
++// SLOW_MS once 30 frames in a row are back under it (or after 2 s of it)
++static void PerfFrame(void) {
++    static Uint64 prev, slow_start;
++    static unsigned slow_n, fast_n;
++    static double slow_ms, slow_worst, slow_swap, slow_draw;
++    Uint64 now = SDL_GetPerformanceCounter();
++    double freq = (double)SDL_GetPerformanceFrequency();
++    double ms = prev ? (double)(now - prev) * 1000.0 / freq : 0.0;
++    double swap = perf_frame_ticks[PERF_SWAP] * 1000.0 / freq;
++    prev = now;
++    if (ms >= HITCH_MS) {
++        PerfHitch(ms, freq);
++    } else if (ms > SLOW_MS) {
++        if (slow_n == 0) {
++            slow_start = now;
++            slow_worst = 0.0;
++            slow_ms = slow_swap = slow_draw = 0.0;
++        }
++        slow_n++;
++        slow_ms += ms;
++        slow_swap += swap;
++        slow_draw += perf_frame_ticks[PERF_FLUSH] * 1000.0 / freq;
++        if (ms > slow_worst) {
++            slow_worst = ms;
++        }
++        fast_n = 0;
++    } else if (slow_n) {
++        fast_n++;
++    }
++    if (slow_n && (fast_n >= 30 || (double)(now - slow_start) > 2.0 * freq)) {
++        INFOF("slow: %u frames over %d ms in %.1f s, %.1f ms on average "
++              "(worst %.0f) | swap %.1f ms | draw %.1f ms | other %.1f ms",
++              slow_n, SLOW_MS, (double)(now - slow_start) / freq,
++              slow_ms / slow_n, slow_worst, slow_swap / slow_n,
++              slow_draw / slow_n, (slow_ms - slow_swap - slow_draw) / slow_n);
++        slow_n = fast_n = 0;
++    }
++    SDL_memset(perf_frame_ticks, 0, sizeof(perf_frame_ticks));
++    SDL_memset(perf_frame_calls, 0, sizeof(perf_frame_calls));
++    psyz_perf_cd_reads = psyz_perf_cd_sectors = psyz_perf_cd_us = 0;
++}
+ 
+ static void PlatformBackend_Present(void) {
+     static Uint64 last;
+     PERF_WRAP(PERF_PRESENT, PlatformBackend_Present_impl());
+     Psyz_PgxpNextFrame();
+     pgxp_frame++;
+-    if (!PerfOn() || perf_calls[PERF_PRESENT] < 120) {
++    if (!PerfOn()) {
++        return;
++    }
++    PerfFrame();
++    if (perf_calls[PERF_PRESENT] < 120) {
+         return;
+     }
+     Uint64 now = SDL_GetPerformanceCounter();
+diff --git a/psyz/src/psyz/libcd.c b/psyz/src/psyz/libcd.c
+index 5182e9b..614477c 100644
+--- a/psyz/src/psyz/libcd.c
++++ b/psyz/src/psyz/libcd.c
+@@ -10,9 +10,12 @@
+ #include <limits.h>
+ #include <kernel.h>
+ #include "../internal.h"
++#include "os.h"
+ #include "../../decomp/src/libspu/libspu_private.h"
+ 
+ #define SECTOR_SIZE 2352
++// sectors per read() in CdRead (300 KB)
++#define CD_READ_CHUNK 128
+ #define MAX_TRACKS 99
+ #define MAX_PATH_LEN 512
+ 
+@@ -753,8 +756,16 @@ static int open_track_at_cd_pos(void) {
+         return -1;
+     }
+     Psyz_AudioLock();
+-    close_track_file();
+-    FILE* file = fopen(track->file_path, "rb");
++    // the track's file stays open: every CdRead comes here, and a fopen on
++    // the Vita's SD card, with the audio thread waiting on this lock, made
++    // each one cost milliseconds
++    FILE* file = track_file;
++    if (track != track_file_track || !file) {
++        close_track_file();
++        file = fopen(track->file_path, "rb");
++    }
++    track_file = NULL;
++    track_file_track = NULL;
+     if (!file) {
+         ERRORF("failed to open audio file: %s", track->file_path);
+         Psyz_AudioUnlock();
+@@ -1211,7 +1222,20 @@ int CdReading() {
+ 
+ void ExecCd() { NOT_IMPLEMENTED; }
+ 
++unsigned psyz_perf_cd_reads, psyz_perf_cd_sectors, psyz_perf_cd_us;
++
++static int CdRead_impl(int sectors, u_long* buf, int mode);
++
+ int CdRead(int sectors, u_long* buf, int mode) {
++    uint32_t t0 = Psyz_OsNowUs();
++    int ret = CdRead_impl(sectors, buf, mode);
++    psyz_perf_cd_us += Psyz_OsNowUs() - t0;
++    psyz_perf_cd_reads++;
++    psyz_perf_cd_sectors += sectors > 0 ? (unsigned)sectors : 0;
++    return ret;
++}
++
++static int CdRead_impl(int sectors, u_long* buf, int mode) {
+     if (sectors <= 0 || open_track_at_cd_pos() != 0) {
+         return 0;
+     }
+@@ -1236,13 +1260,19 @@ int CdRead(int sectors, u_long* buf, int mode) {
+     // A file of its own, so the read does not hold the audio lock: the audio
+     // thread shares track_file (CDDA/XA) and would starve for the whole read,
+     // which on a slow card (the Vita's) stutters the sound on every load.
+-    // One seek, then sequential reads through stdio's buffer.
++    // Unbuffered, read CD_READ_CHUNK sectors at a time: the Vita's newlib then
++    // reads straight into the chunk in one call, where through a stdio buffer
++    // it read its card 64 KB at a time (~6 MB/s on a map change).
+     static FILE* data_file;
+     static TrackEntry* data_file_track;
++    static unsigned char* chunk;
+     TrackEntry* track = find_track_for_sector(sector);
+     if (!track) {
+         return 0;
+     }
++    if (!chunk && !(chunk = malloc(CD_READ_CHUNK * SECTOR_SIZE))) {
++        return 0;
++    }
+     if (track != data_file_track || !data_file) {
+         if (data_file) {
+             fclose(data_file);
+@@ -1253,33 +1283,42 @@ int CdRead(int sectors, u_long* buf, int mode) {
+             ERRORF("failed to open data file: %s", track->file_path);
+             return 0;
+         }
+-        setvbuf(data_file, NULL, _IOFBF, 64 * 1024);
++        setvbuf(data_file, NULL, _IONBF, 0);
+     }
+-    if (fseek(data_file, sector * SECTOR_SIZE, SEEK_SET) != 0) {
++    long offset =
++        (long)(sector - track->abs_sector + track->start_sector) * SECTOR_SIZE;
++    if (fseek(data_file, offset, SEEK_SET) != 0) {
+         return 1;
+     }
+-    for (int i = 0; i < sectors; i++) {
+-        unsigned char sector_raw[SECTOR_SIZE];
+-        if (fread(sector_raw, 1, SECTOR_SIZE, data_file) != SECTOR_SIZE) {
+-            break;
++    int user_offset_fixed;
++    switch (mode & (CdlModeSize0 | CdlModeSize1)) {
++    case 0:
++        user_offset_fixed = -1; // Mode 1 or 2 header, from each sector
++        break;
++    case CdlModeSize1:
++        user_offset_fixed = 12; // Skip sync bytes only
++        break;
++    default:
++        user_offset_fixed = 24; // Skip Mode 2 header
++        break;
++    }
++    for (int done = 0; done < sectors;) {
++        int want = sectors - done < CD_READ_CHUNK ? sectors - done
++                                                  : CD_READ_CHUNK;
++        size_t got = fread(chunk, 1, (size_t)want * SECTOR_SIZE, data_file);
++        int whole = (int)(got / SECTOR_SIZE);
++        for (int i = 0; i < whole; i++) {
++            const unsigned char* sector_raw = chunk + (size_t)i * SECTOR_SIZE;
++            int user_offset = user_offset_fixed >= 0 ? user_offset_fixed
++                              : sector_raw[15] == 2  ? 24
++                                                     : 16;
++            memcpy((char*)buf + (size_t)(done + i) * sector_size,
++                   sector_raw + user_offset, sector_size);
+         }
+-        int user_offset;
+-        switch (mode & (CdlModeSize0 | CdlModeSize1)) {
+-        case 0:
+-            // Skip Mode 1 or 2 header
+-            user_offset = (sector_raw[15] == 2) ? 24 : 16;
+-            break;
+-        case CdlModeSize1:
+-            // Skip sync bytes only
+-            user_offset = 12;
+-            break;
+-        default:
+-            // Skip Mode 2 header
+-            user_offset = 24;
++        if (whole < want) {
+             break;
+         }
+-        memcpy((char*)buf + i * sector_size, sector_raw + user_offset,
+-               sector_size);
++        done += want;
+     }
+     return 1;
+ }

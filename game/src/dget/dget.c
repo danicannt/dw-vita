@@ -255,6 +255,15 @@ void buildScheduleEntries(void)
 					strcpy(textPtr, grade);
 					textPtr += gradeLen;
 				}
+#ifdef DW1_NATIVE
+			} else if (VERSION_IS(US) && dw1_fix()) {
+				/* original bug: an empty slot was a full-width space,
+				 * wider than the one-letter grades, so the cups after it
+				 * moved out of their columns; the Vice hack writes an
+				 * invisible (colour 0) "D", as wide as a grade letter */
+				*textPtr++ = '\0';
+				*textPtr++ = 'D';
+#endif
 			} else {
 				*textPtr++ = '\x01';
 				*textPtr++ = '\x81';

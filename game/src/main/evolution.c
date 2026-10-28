@@ -776,6 +776,13 @@ int16_t getRookieEvolutionTarget(int32_t currentDigimon) {
         bestScore = statTotal;
         statTotal = statCount = 0;
       }
+#ifdef DW1_NATIVE
+      /* original bug: the sums were only reset for a new best candidate,
+       * so a candidate that did not win carried its average and count into
+       * the next one and the later candidates were scored wrong */
+      if (dw1_fix())
+        statTotal = statCount = 0;
+#endif
     }
     targetPtr++;
   }
@@ -841,6 +848,10 @@ int16_t getChampionEvolutionTarget(int32_t currentDigimon) {
         bestScore = statTotal;
         statTotal = statCount = 0;
       }
+#ifdef DW1_NATIVE
+      if (dw1_fix()) /* original bug: see getRookieEvolutionTarget */
+        statTotal = statCount = 0;
+#endif
     }
     targetPtr++;
   }

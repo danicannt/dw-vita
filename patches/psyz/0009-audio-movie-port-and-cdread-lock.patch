@@ -1,0 +1,81 @@
+Audio fixes: movie audio port and CdRead without the audio lock
+
+- Vita movies play their audio on the MAIN port: the Vita has one BGM
+  port and SDL opens it for game audio below 48 kHz.
+- CdRead reads through a file of its own instead of holding the audio
+  lock for the whole read (one seek, then sequential reads): on the
+  Vita's card every load starved the audio thread and the sound stuck.
+
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -1638,11 +1638,16 @@
+ 
+ static int MovieAudioThread(SceSize args, void* argp) {
+     (void)args, (void)argp;
+-    int port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_BGM, 1024, 48000,
++    // MAIN, not BGM: the Vita has a single BGM port and SDL takes it for the
++    // game's 44.1 kHz audio; MAIN only plays 48 kHz, which the movies use
++    int port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, 1024, 48000,
+                                    SCE_AUDIO_OUT_MODE_STEREO);
++    if (port < 0) {
++        ERRORF("movie: no audio port: 0x%08X", (unsigned)port);
++    }
+     while (movie_running) {
+         SceAvPlayerFrameInfo frame;
+-        if (sceAvPlayerIsActive(movie_player) &&
++        if (port >= 0 && sceAvPlayerIsActive(movie_player) &&
+             sceAvPlayerGetAudioData(movie_player, &frame)) {
+             sceAudioOutSetConfig(
+                 port, 1024, frame.details.audio.sampleRate,
+diff --git a/psyz/src/psyz/libcd.c b/psyz/src/psyz/libcd.c
+index c783fb2..5182e9b 100644
+--- a/psyz/src/psyz/libcd.c
++++ b/psyz/src/psyz/libcd.c
+@@ -1233,13 +1233,34 @@ int CdRead(int sectors, u_long* buf, int mode) {
+     }
+ 
+     long sector = CdPosToInt(&CD_pos);
+-    Psyz_AudioLock();
+-    for (int i = 0; i < sectors; i++) {
+-        if (fseek(track_file, (sector + i) * SECTOR_SIZE, SEEK_SET) != 0) {
+-            break;
++    // A file of its own, so the read does not hold the audio lock: the audio
++    // thread shares track_file (CDDA/XA) and would starve for the whole read,
++    // which on a slow card (the Vita's) stutters the sound on every load.
++    // One seek, then sequential reads through stdio's buffer.
++    static FILE* data_file;
++    static TrackEntry* data_file_track;
++    TrackEntry* track = find_track_for_sector(sector);
++    if (!track) {
++        return 0;
++    }
++    if (track != data_file_track || !data_file) {
++        if (data_file) {
++            fclose(data_file);
+         }
++        data_file = fopen(track->file_path, "rb");
++        data_file_track = data_file ? track : NULL;
++        if (!data_file) {
++            ERRORF("failed to open data file: %s", track->file_path);
++            return 0;
++        }
++        setvbuf(data_file, NULL, _IOFBF, 64 * 1024);
++    }
++    if (fseek(data_file, sector * SECTOR_SIZE, SEEK_SET) != 0) {
++        return 1;
++    }
++    for (int i = 0; i < sectors; i++) {
+         unsigned char sector_raw[SECTOR_SIZE];
+-        if (fread(sector_raw, 1, SECTOR_SIZE, track_file) != SECTOR_SIZE) {
++        if (fread(sector_raw, 1, SECTOR_SIZE, data_file) != SECTOR_SIZE) {
+             break;
+         }
+         int user_offset;
+@@ -1260,7 +1281,6 @@ int CdRead(int sectors, u_long* buf, int mode) {
+         memcpy((char*)buf + i * sector_size, sector_raw + user_offset,
+                sector_size);
+     }
+-    Psyz_AudioUnlock();
+     return 1;
+ }
+ 

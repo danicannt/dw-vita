@@ -2935,6 +2935,15 @@ uint8_t *padWithSpaces(uint8_t *str, int32_t width, int32_t used)
 			used--;
 		}
 #else
+#ifdef DW1_NATIVE
+	/* original bug: a text longer than the field (Giromon's jukebox has
+	 * song names longer than 12 characters) makes the count negative, and
+	 * the loop below wrote spaces over all of memory until the game froze.
+	 * Here it pads nothing, as the EU version does; this is not behind the
+	 * original-fixes option, since the original behaviour is a crash */
+	if (used < 0)
+		used = 0;
+#endif
 	while (used != 0) {
 		*str++ = 0x81;
 		*str++ = 0x40;

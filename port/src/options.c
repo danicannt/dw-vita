@@ -12,6 +12,9 @@
  *   texture_filter  0 1 2     DW1_TEX3D=0|1|2
  *   fair_slots      0 1       DW1_SLOTS_ORIGINAL=1 (off) / 0 (on)
  *   battle_gains    0 1       DW1_BATTLE_GAINS=original (off) / anything (on)
+ *   original_fixes  0 1       DW1_ORIGINAL_FIXES=0|1
+ *   hd_sprites      0 1       DW1_HD_SPRITES=0|1
+ *   debug_menu      0 1       DW1_DEBUG_MENU=0|1 (Select: port/game/pause_menu.c)
  *
  * An option whose variable is set takes the variable's value for that run and
  * cannot be changed in the menu; the rest start from the file, or from the
@@ -36,6 +39,7 @@ void dw1_widescreen_set(unsigned extra, unsigned scale);
 static const char *const keys[DW1_OPT_COUNT] = {
     "widescreen", "hd_backgrounds", "hd_movies",  "pgxp",
     "model_depth", "texture_filter", "fair_slots", "battle_gains",
+    "original_fixes", "hd_sprites", "debug_menu",
 };
 
 static int value[DW1_OPT_COUNT];
@@ -173,6 +177,9 @@ void dw1_options_init(const char *data_dir)
 #endif
     value[DW1_OPT_MODEL_DEPTH] = 0;
     value[DW1_OPT_TEXTURE_FILTER] = 0;
+    /* HD object sprites start off until they are checked on the Vita */
+    value[DW1_OPT_HD_SPRITES] = 0;
+    value[DW1_OPT_DEBUG_MENU] = 0;
 #ifndef __vita__
     value[DW1_OPT_PGXP] = 0;
 #endif
@@ -208,6 +215,12 @@ void dw1_options_init(const char *data_dir)
         force(DW1_OPT_FAIR_SLOTS, v == 0);
     if ((s = getenv("DW1_BATTLE_GAINS")) != NULL)
         force(DW1_OPT_BATTLE_GAINS, strcmp(s, "original") != 0);
+    if (env_int("DW1_ORIGINAL_FIXES", &v))
+        force(DW1_OPT_ORIGINAL_FIXES, v != 0);
+    if (env_int("DW1_HD_SPRITES", &v))
+        force(DW1_OPT_HD_SPRITES, v != 0);
+    if (env_int("DW1_DEBUG_MENU", &v))
+        force(DW1_OPT_DEBUG_MENU, v != 0);
 
     for (i = 0; i < DW1_OPT_COUNT; i++)
         apply(i);

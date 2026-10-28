@@ -90,6 +90,20 @@ void dw1_widescreen_init(const char *data_dir);
 int dw1_bg_set(const char *name, int tiles_w, int tiles_h, unsigned char *const *tile_images);
 void dw1_bg_clear(void);
 void *dw1_bg_queue(void *ot_entry, void *work, int x, int y, unsigned clut);
+/* HD object sprites: <hd dir>/<MAP>.hdo for the map (1 when there is one and
+ * the option is on); dw1_hdo_sprite_queue queues object `tmpl` at x,y,w,h with
+ * the CLUT of its primitive and returns the next work pointer, or NULL when
+ * the object has no HD sprite (draw the primitive then) */
+int dw1_hdo_load(const char *name);
+void *dw1_hdo_sprite_queue(void *ot_entry, void *work, int tmpl, int x, int y, int w, int h,
+                           unsigned clut);
+/* HD title screens: queue <hd dir>/<name>.hdt ("TITLE256", "TITLE2") over
+ * the whole screen and return the next work pointer, or NULL (draw the TIM);
+ * dw1_title_clear frees it (a map loading does too) */
+void *dw1_title_queue(void *ot_entry, void *work, const char *name);
+/* fade.c: 1 while a fade to black covers the whole screen */
+int dw1_fade_black(void);
+void dw1_title_clear(void);
 /* margins an HD pack adds around the map (original pixels), 0 without one;
  * returns whether a native background is active */
 int dw1_wide_margins(int *left, int *right);
@@ -113,10 +127,16 @@ enum {
     DW1_OPT_TEXTURE_FILTER, /* model textures: 0 nearest, 1 3-point, 2 bilinear */
     DW1_OPT_FAIR_SLOTS,     /* Bonus Try slots do not cheat (dw1_slots_original) */
     DW1_OPT_BATTLE_GAINS,   /* battles raise stats by how they went */
+    DW1_OPT_ORIGINAL_FIXES, /* bugs of the original game fixed (dw1_fix) */
+    DW1_OPT_HD_SPRITES,     /* <hd dir>/<MAP>.hdo: object sprites in HD */
+    DW1_OPT_DEBUG_MENU,     /* Select in the field opens the debug menu */
     DW1_OPT_COUNT
 };
 void dw1_options_init(const char *data_dir);
 int dw1_option(int id);
+/* fixes for bugs of the original game, all behind one option (on by
+ * default): each site is marked "original bug" in game/src */
+#define dw1_fix() dw1_option(DW1_OPT_ORIGINAL_FIXES)
 int dw1_option_count(int id);  /* number of values: 2 (off, on) or 3 */
 int dw1_option_locked(int id); /* forced by its environment variable */
 void dw1_option_set(int id, int value); /* applies it at once */
@@ -125,6 +145,13 @@ int dw1_options_save(void);
 void dw1_options_menu_open(void);
 int dw1_options_menu_tick(void); /* 0 once it closes */
 void dw1_options_menu_render(void);
+/* Start / Select during play (port/game/pause_menu.c), from handlePause:
+ * opens the pause or debug menu for a new press; returns the pad state when
+ * it closes (0: nothing opened) */
+unsigned dw1_pause_menu_poll(unsigned pressed, unsigned held);
+int dw1_quit_to_title(void); /* "Return to title" was chosen; clears it */
+extern int dw1_cheat_freeze_time, dw1_cheat_no_aging; /* debug menu */
+void dw1_cheats_tick(void); /* once a frame: No aging holds lifetime and age */
 
 /* ---- file queue ------------------------------------------------------------
  * game/src/main/file_queue.c: let synchronous reads wait for queued ones. */
@@ -144,6 +171,7 @@ void dw1_file_queue_drain(void);
 void dw1_host_input(unsigned int *pad, int id); /* from __wrap_PadRead */
 int dw1_touch_state(int *x, int *y);
 int dw1_pad_manual_move(void);  /* D-pad or stick held on the real pad */
+int dw1_stick_dir(int *x, int *y); /* the stick's exact direction, if it moved */
 extern unsigned int dw1_touch_pad; /* bits OR'd into the next PadRead */
 int dw1_quick_feed_enabled(void);
 void dw1_touch_walk_tick(void);    /* game/src/main/tamer.c, walking state */

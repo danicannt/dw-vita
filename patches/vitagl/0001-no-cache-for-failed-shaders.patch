@@ -1,0 +1,15 @@
+diff --git a/source/custom_shaders.c b/source/custom_shaders.c
+index 34a39ff..ce53865 100644
+--- a/source/custom_shaders.c
++++ b/source/custom_shaders.c
+@@ -772,6 +772,10 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
+ #endif
+ 	shark_clear_output();
+ #ifdef HAVE_SHADER_CACHE
++	// a shader that failed to compile has no program to keep (serializing it
++	// read through a NULL program and crashed)
++	if (!s->prog)
++		return;
+ 	cache_fname[fname_len - 21] = 0;
+ 	sceIoMkdir(cache_fname, 0777);
+ 	cache_fname[fname_len - 21] = '/';

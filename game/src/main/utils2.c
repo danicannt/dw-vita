@@ -429,6 +429,9 @@ void startMovie(int32_t movieId)
 
 void handlePause(void)
 {
+#ifdef DW1_NATIVE
+	dw1_cheats_tick(); /* the debug menu's No aging */
+#endif
 	if (PAUSE_BOX_VISIBLE != 0) {
 		removePauseBox();
 		PAUSE_BOX_VISIBLE = 0;
@@ -439,6 +442,18 @@ void handlePause(void)
 	if (FADE_PROTECTION == 1) {
 		return;
 	}
+#ifdef DW1_NATIVE
+	/* Start: the port's pause menu (Continue, Save, Options, Return to
+	 * title); Select: its debug menu (port/game/pause_menu.c) */
+	{
+		unsigned held;
+
+		PAUSE_INPUT = PadRead(1);
+		held = dw1_pause_menu_poll(PAUSE_INPUT & ~PAUSE_INPUT_PREVIOUS, PAUSE_INPUT);
+		PAUSE_INPUT_PREVIOUS = held ? held : PAUSE_INPUT;
+		return;
+	}
+#endif
 	PAUSE_INPUT = PadRead(1);
 	if ((PAUSE_INPUT & 0x800) && !(PAUSE_INPUT_PREVIOUS & 0x800)) {
 		PAUSE_STATE = (PAUSE_STATE + 1) & 1;
@@ -561,6 +576,24 @@ void unlearnMove(int32_t move)
 			break;
 		}
 	}
+#ifdef DW1_NATIVE
+	/* original bug: the mask is 16 bits, so clearing one move also cleared
+	 * the 16 moves in the upper half of its 32-bit word, and the paired
+	 * moves that learnMove sets together (0x2c/0x30, 0x37/0x39) were not
+	 * cleared right; with the fix it clears exactly what learnMove set */
+	if (dw1_fix()) {
+		uint32_t bits;
+
+		if (move == 0x2c || move == 0x30)
+			bits = 0x1000 | 0x10000;
+		else if (move == 0x37 || move == 0x39)
+			bits = 0x800000 | 0x2000000;
+		else
+			bits = 1u << (move % 32);
+		PARTNER_ENTITY.learnedMoves[move / 32] &= ~bits;
+		return;
+	}
+#endif
 	if (move == 0x2c || move == 0x30) {
 		mask = 0x1000;
 	} else if (move == 0x37 || move == 0x39) {

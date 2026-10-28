@@ -32,6 +32,7 @@ static int init_done;
 static int stick_on = 1, touch_on = 1, quick_feed_on = 1;
 static int touch_down, touch_began, touch_x, touch_y;
 static int manual_move;
+static int stick_on_pad, stick_x, stick_y; /* the stick drives the D-pad bits */
 
 static int env_off(const char *name)
 {
@@ -82,6 +83,8 @@ static unsigned int stick_bits(void)
     ay = abs(y);
     if (ax < STICK_DEAD && ay < STICK_DEAD)
         return 0;
+    stick_x = x;
+    stick_y = y;
     /* eight ways: a diagonal when the smaller axis is over ~22.5 degrees */
     if (ax * 5 >= ay * 2)
         r |= x < 0 ? PADLleft : PADLright;
@@ -169,8 +172,14 @@ void dw1_host_input(unsigned int *pad, int id)
     if (!init_done)
         init();
     manual = (*pad & DPAD) != 0;
-    if (stick_on && !manual)
-        *pad |= stick_bits();
+    if (stick_on && !manual) {
+        unsigned int bits = stick_bits();
+        *pad |= bits;
+        if (id == 0)
+            stick_on_pad = bits != 0;
+    } else if (id == 0) {
+        stick_on_pad = 0;
+    }
     /* the overworld polls PadRead(0) once a tick (pollInputGame); battles
      * and the pause screen read PadRead(1) and only get the stick */
     if (id != 0)
@@ -201,4 +210,16 @@ int dw1_touch_state(int *x, int *y)
 int dw1_pad_manual_move(void)
 {
     return manual_move;
+}
+
+/* the stick moved the pad in the last PadRead(0): its exact direction, for
+ * the tamer to walk any way and not only the eight of the D-pad bits (x
+ * right, y down, as SDL reports it) */
+int dw1_stick_dir(int *x, int *y)
+{
+    if (!stick_on_pad)
+        return 0;
+    *x = stick_x;
+    *y = stick_y;
+    return 1;
 }

@@ -105,6 +105,11 @@ void tickGameClock(int32_t instanceId)
 	    (IS_GAMETIME_RUNNING == 0)) {
 		return;
 	}
+#ifdef DW1_NATIVE
+	if (dw1_cheat_freeze_time) { /* debug menu */
+		return;
+	}
+#endif
 
 	if ((IS_GAMETIME_RUNNING == 1) &&
 	    (readPStat(PSTAT_TIME_SPEED) == 3)) {

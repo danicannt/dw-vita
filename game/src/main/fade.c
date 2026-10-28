@@ -147,10 +147,60 @@ void renderFadeOut(void)
 	FADE_OUT_CURRENT++;
 }
 
+#ifdef DW1_NATIVE
+/* frames asked about through dw1_fade_black, and that count + 1 when
+ * renderFade last drew the screen fully black (0: never) */
+static unsigned fade_frames, fade_black_frame;
+
+/* 1 while a fade to black covers the whole screen, for what is drawn under
+ * it and need not be: call once per frame. Black means drawn black this frame
+ * or the one before (the order of the two in a frame is not fixed), so once
+ * the fade lifts, at most one frame of its nearly black start misses it. */
+int dw1_fade_black(void)
+{
+	fade_frames++;
+	return fade_black_frame != 0 && fade_frames + 1 - fade_black_frame <= 1;
+}
+#endif
+
 void renderFade(uint8_t progress)
 {
 	POLY_FT4 *prim;
 
+#ifdef DW1_NATIVE
+	/* The PS1 quad samples texels of CLUT index 0, which is 0xffff (white,
+	 * semi-transparent): it blends a flat colour, white scaled by progress.
+	 * Drawn untextured instead, that colour costs one pass of the renderer's
+	 * cheap untextured shader over the screen, where the textured subtractive
+	 * quad took two passes of the full one: on the Vita every fade (map
+	 * changes, menus, the title) ran at 15-20 fps. At progress 0 it blends
+	 * nothing and is skipped. */
+	{
+		POLY_F4 *flat;
+		DR_TPAGE *mode;
+		int c = 31 * progress >> 7; /* the 5-bit texel 31 times progress / 128 */
+		int order = FADE_MODE == 2 ? 1 : 10;
+
+		if (c == 0)
+			return;
+		if (c > 31)
+			c = 31;
+		if (c == 31 && FADE_MODE == 2)
+			fade_black_frame = fade_frames + 1;
+		flat = (POLY_F4 *)GsGetWorkBase();
+		setPolyF4(flat);
+		setSemiTrans(flat, 1);
+		setRGB0(flat, c << 3, c << 3, c << 3);
+		setXYWH(flat, -160 - dw1_wide_extra, -120, 320 + 2 * dw1_wide_extra, 240);
+		addPrim(&ACTIVE_ORDERING_TABLE->org[order], flat);
+		/* blend mode for the untextured quad, added after it so it runs first */
+		mode = (DR_TPAGE *)&flat[1];
+		setDrawTPage(mode, 1, 1, GetTPage(0, FADE_MODE, 896, 448));
+		addPrim(&ACTIVE_ORDERING_TABLE->org[order], mode);
+		GsSetWorkBase((PACKET *)&mode[1]);
+		return;
+	}
+#endif
 	prim = (POLY_FT4 *)GsGetWorkBase();
 
 	SetPolyFT4(prim);

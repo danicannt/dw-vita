@@ -1,0 +1,461 @@
+--- a/psyz/include/psyz/video.h
++++ b/psyz/include/psyz/video.h
+@@ -249,6 +249,35 @@
+     unsigned slot, int x, int y, int w, int h, unsigned clut);
+ 
+ /**
++ * @brief Register (or with rgba NULL, free) a true-colour image in indexed
++ * image `slot`: each pixel 4 bytes RGBA, sampled bilinearly. It is drawn
++ * with Psyz_VideoDrawIndexedImage like an indexed one, but its colours are
++ * used as they are (the CLUT is ignored) and it is opaque: A 0 is black.
++ * For HD artwork that never went through a palette (title screens).
++ * Only sdl3_gl; others -1.
++ */
++int Psyz_VideoSetDirectImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba);
++
++/**
++ * @brief Register (or with rgba NULL, free) an HD object-sprite page: each
++ * pixel 4 bytes, R the index into the CLUT of the primitive that draws it,
++ * A 255 for a texel and 0 for none. Only sdl3_gl; others -1.
++ */
++int Psyz_VideoSetSpritePage(
++    unsigned page, unsigned w, unsigned h, const unsigned char* rgba);
++
++/**
++ * @brief Draw the texels u,v,su,sv (in page pixels) of sprite page `page` over
++ * the rectangle x,y,w,h (primitive coordinates), colours from `clut` (CLUT
++ * word as in a primitive). `semi` makes the STP texels blend as blend mode
++ * `abr` (0-3). Call it from a GP0 command handler, like the indexed images.
++ */
++int Psyz_VideoDrawSpritePage(unsigned page, int x, int y, int w, int h,
++                             unsigned clut, int u, int v, int su, int sv,
++                             int semi, unsigned abr);
++
++/**
+  * @brief Play a video file (MP4) full screen with its audio, keeping its
+  * aspect ratio, until it ends or `skip` (polled every frame, may be NULL)
+  * returns non-zero. The Vita decodes it with sceAvPlayer, other platforms
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -1388,20 +1388,27 @@
+ static struct {
+     GLuint tex;
+     int w, h;
++    bool direct; // RGBA colours, no CLUT (Psyz_VideoSetDirectImage)
+ } indexed[MAX_INDEXED];
+ static GLuint idx_program = 0;
+ static GLint idx_u_clut = -1;
++static GLint idx_u_direct = -1;
+ static const char idx_fragment_body[] = {
+     "VARY vec2 vUV;\n"
+     "uniform sampler2D texVram;\n"
+     "uniform sampler2D texIdx;\n"
+     "uniform vec2 clutPos;\n"
++    "uniform float direct;\n"
+     "void main() {\n"
+     "    vec4 p = TEX2D(texIdx, vUV);\n"
+     "    if (p.a < 0.5) {\n"
+     "        FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
+     "        return;\n"
+     "    }\n"
++    "    if (direct > 0.5) {\n"
++    "        FragColor = vec4(p.rgb, 1.0);\n"
++    "        return;\n"
++    "    }\n"
+     "    float i = floor(p.r * 255.0 + 0.5);\n"
+     "    vec4 c = TEX2D(texVram, (clutPos + vec2(i, 0.0) + 0.5) /\n"
+     "                            vec2(1024.0, 512.0));\n"
+@@ -1448,13 +1455,15 @@
+     glUniform1i(glGetUniformLocation(program, "texVram"), 0);
+     glUniform1i(glGetUniformLocation(program, "texIdx"), 1);
+     idx_u_clut = glGetUniformLocation(program, "clutPos");
++    idx_u_direct = glGetUniformLocation(program, "direct");
++    glUniform1f(idx_u_direct, 0.0f);
+     glUseProgram(shader_program);
+     idx_program = program;
+     return true;
+ }
+ 
+-static int SetIndexedImage_impl(
+-    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++static int SetImageSlot(unsigned slot, unsigned w, unsigned h,
++                        const unsigned char* rgba, bool direct) {
+     if (slot >= MAX_INDEXED || !InitPlatform()) {
+         return -1;
+     }
+@@ -1471,8 +1480,10 @@
+     glGenTextures(1, &indexed[slot].tex);
+     glActiveTexture(GL_TEXTURE0);
+     glBindTexture(GL_TEXTURE_2D, indexed[slot].tex);
+-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    // indices must not be interpolated; true colours scale smoother filtered
++    GLint filter = direct ? GL_LINEAR : GL_NEAREST;
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+@@ -1481,9 +1492,20 @@
+     glBindTexture(GL_TEXTURE_2D, vram_texture);
+     indexed[slot].w = (int)w;
+     indexed[slot].h = (int)h;
++    indexed[slot].direct = direct;
+     return 0;
+ }
+ 
++static int SetIndexedImage_impl(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    return SetImageSlot(slot, w, h, rgba, false);
++}
++
++int Psyz_VideoSetDirectImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    return SetImageSlot(slot, w, h, rgba, true);
++}
++
+ int Psyz_VideoDrawIndexedImage(
+     unsigned slot, int x, int y, int w, int h, unsigned clut) {
+     if (slot >= MAX_INDEXED || !indexed[slot].tex || !InitIndexed()) {
+@@ -1515,6 +1537,7 @@
+     glDisable(GL_BLEND);
+     glUseProgram(idx_program);
+     glUniform2f(idx_u_clut, (float)((clut & 63) * 16), (float)(clut >> 6));
++    glUniform1f(idx_u_direct, indexed[slot].direct ? 1.0f : 0.0f);
+     glActiveTexture(GL_TEXTURE1);
+     glBindTexture(GL_TEXTURE_2D, indexed[slot].tex);
+     glActiveTexture(GL_TEXTURE0);
+@@ -1542,6 +1565,245 @@
+     glEnable(GL_BLEND);
+     glUseProgram(shader_program);
+     return 0;
++}
++
++// ---- HD object sprites (widescreen.c, <MAP>.hdo) ----------------------------
++// A map's object sprites as HD index pages: R = index into the CLUT of the
++// primitive (the same VRAM CLUT as the PS1 draws with), A = 255 where the
++// sprite has a texel and 0 where it has none. Each sprite is one quad over
++// its place on screen, sampling its own rectangle of the page. As the PS1
++// does, a texel whose CLUT colour is 0x0000 is not drawn; with a
++// semi-transparent primitive, the texels whose CLUT entry has the STP bit
++// blend with the destination (the PS1's blend modes 0 to 3), the others are
++// opaque.
++#define MAX_SPRITE_PAGES 32
++static struct {
++    GLuint tex;
++    int w, h;
++} sprite_page[MAX_SPRITE_PAGES];
++static GLuint spr_program = 0;
++static GLint spr_u_clut = -1, spr_u_pass = -1, spr_u_semi = -1, spr_u_alpha = -1;
++static const char spr_fragment_body[] = {
++    "VARY vec2 vUV;\n"
++    "uniform sampler2D texVram;\n"
++    "uniform sampler2D texPage;\n"
++    "uniform vec2 clutPos;\n"
++    "uniform float semi;\n"  // 1 for a semi-transparent primitive
++    "uniform float pass;\n"  // semi: 0 the opaque texels, 1 the STP ones
++    "uniform float alpha;\n" // blend factor of the STP texels (pass 1)
++    "void main() {\n"
++    "    vec4 p = TEX2D(texPage, vUV);\n"
++    "    if (p.a < 0.5) {\n"
++    "        discard;\n"
++    "    }\n"
++    "    float i = floor(p.r * 255.0 + 0.5);\n"
++    "    vec4 c = TEX2D(texVram, (clutPos + vec2(i, 0.0) + 0.5) /\n"
++    "                            vec2(1024.0, 512.0));\n"
++    "    if (c.r == 0.0 && c.g == 0.0 && c.b == 0.0 && c.a == 0.0) {\n"
++    "        discard;\n"
++    "    }\n"
++    "    bool stp = c.a > 0.5;\n"
++    "    if (semi > 0.5 && stp != (pass > 0.5)) {\n"
++    "        discard;\n"
++    "    }\n"
++    "    FragColor = vec4(c.rgb, (semi > 0.5 && pass > 0.5) ? alpha : 1.0);\n"
++    "}\n"};
++
++static bool InitSprites(void) {
++    if (spr_program) {
++        return true;
++    }
++    if (!InitQuad()) {
++        return false;
++    }
++#if defined(__vita__)
++    GLuint vs = Init_CompileShaderWith(
++        float_prologue_vs_vita, quad_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs = Init_CompileShaderWith(
++        float_prologue_fs_vita, spr_fragment_body, GL_FRAGMENT_SHADER);
++#else
++    GLuint vs = Init_CompileShaderWith(
++        float_prologue_vs_core, quad_vertex_body, GL_VERTEX_SHADER);
++    GLuint fs = Init_CompileShaderWith(
++        float_prologue_fs_core, spr_fragment_body, GL_FRAGMENT_SHADER);
++#endif
++    GLuint program = glCreateProgram();
++    glAttachShader(program, vs);
++    glAttachShader(program, fs);
++    glBindAttribLocation(program, 0, "pos");
++    glBindAttribLocation(program, 1, "uv");
++    glLinkProgram(program);
++    glDeleteShader(vs);
++    glDeleteShader(fs);
++    int success = 0;
++    glGetProgramiv(program, GL_LINK_STATUS, &success);
++    if (!success) {
++        ERRORF("sprite shader failed to link");
++        fprintf(stderr, "dw1: sprites: shader link FAILED\n");
++        fflush(stderr);
++        glDeleteProgram(program);
++        return false;
++    }
++    fprintf(stderr, "dw1: sprites: shader linked\n");
++    fflush(stderr);
++    glUseProgram(program);
++    glUniform1i(glGetUniformLocation(program, "texVram"), 0);
++    glUniform1i(glGetUniformLocation(program, "texPage"), 1);
++    spr_u_clut = glGetUniformLocation(program, "clutPos");
++    spr_u_semi = glGetUniformLocation(program, "semi");
++    spr_u_pass = glGetUniformLocation(program, "pass");
++    spr_u_alpha = glGetUniformLocation(program, "alpha");
++    glUseProgram(shader_program);
++    spr_program = program;
++    return true;
++}
++
++int Psyz_VideoSetSpritePage(
++    unsigned page, unsigned w, unsigned h, const unsigned char* rgba) {
++    if (page >= MAX_SPRITE_PAGES || !InitPlatform()) {
++        return -1;
++    }
++    if (sprite_page[page].tex) {
++        glDeleteTextures(1, &sprite_page[page].tex);
++        sprite_page[page].tex = 0;
++    }
++    if (!rgba || !w || !h) {
++        return 0;
++    }
++    if (!InitSprites()) {
++        return -1;
++    }
++    glGenTextures(1, &sprite_page[page].tex);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, sprite_page[page].tex);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)w, (GLsizei)h, 0,
++                 GL_RGBA, GL_UNSIGNED_BYTE, rgba);
++    fprintf(stderr, "dw1: sprites: page %u %ux%u uploaded, gl error %#x\n", page, w, h,
++            (unsigned)glGetError());
++    fflush(stderr);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++    sprite_page[page].w = (int)w;
++    sprite_page[page].h = (int)h;
++    return 0;
++}
++
++// one quad of the sprite page, from the texel rectangle u,v,su,sv
++static void DrawSpriteQuad(float x0, float y0, float x1, float y1,
++                           float u0, float v0, float u1, float v1) {
++    float q[16] = {x0, y0, u0, v0, x1, y0, u1, v0,
++                   x0, y1, u0, v1, x1, y1, u1, v1};
++    for (int i = 0; i < 16; i += 4) {
++        q[i] = q[i] / (VRAM_W / 2.0f) - 1.0f;
++        q[i + 1] = q[i + 1] / (VRAM_H / 2.0f) - 1.0f;
++    }
++#if defined(__vita__)
++    glBindVertexArray(0);
++    glBindBuffer(GL_ARRAY_BUFFER, 0);
++    glEnableVertexAttribArray(0);
++    glEnableVertexAttribArray(1);
++    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), q);
++    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), q + 2);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glDisableVertexAttribArray(0);
++    glDisableVertexAttribArray(1);
++#else
++    glBindVertexArray(quad_vao);
++    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
++    glBufferData(GL_ARRAY_BUFFER, sizeof(q), q, GL_STREAM_DRAW);
++    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
++    glBindVertexArray(0);
++#endif
++}
++
++int Psyz_VideoDrawSpritePage(unsigned page, int x, int y, int w, int h,
++                             unsigned clut, int u, int v, int su, int sv,
++                             int semi, unsigned abr) {
++    float ox = 0, oy = 0, x0, y0, x1, y1, factor;
++    int pass, passes;
++
++    if (page >= MAX_SPRITE_PAGES || !sprite_page[page].tex || !InitSprites()) {
++        return -1;
++    }
++    Draw_FlushBuffer(); // keep the ordering-table order
++    SyncCanvasesSampled();
++    if (active_canvas >= 0) {
++        CanvasOrigin(&canvas[active_canvas], &ox, &oy);
++    }
++    x0 = (float)(x + draw_offset.x) - ox;
++    y0 = (float)(y + draw_offset.y) - oy;
++    x1 = x0 + (float)w;
++    y1 = y0 + (float)h;
++    if (active_canvas >= 0) {
++        SetActiveCanvasViewport();
++        canvas[active_canvas].dirty = true;
++    } else {
++        glViewport(0, 0, VRAM_W * internal_res, VRAM_H * internal_res);
++    }
++    {
++        static unsigned char drawn[MAX_SPRITE_PAGES];
++
++        if (!drawn[page]) {
++            drawn[page] = 1;
++            fprintf(stderr, "dw1: sprites: first draw of page %u (%d,%d %dx%d, clut %u, semi %d abr %u)\n",
++                    page, x, y, w, h, clut, semi, abr);
++            fflush(stderr);
++        }
++    }
++    glUseProgram(spr_program);
++    glUniform2f(spr_u_clut, (float)((clut & 63) * 16), (float)(clut >> 6));
++    glUniform1f(spr_u_semi, semi ? 1.0f : 0.0f);
++    glUniform1f(spr_u_pass, 0.0f);
++    glUniform1f(spr_u_alpha, 1.0f);
++    glActiveTexture(GL_TEXTURE1);
++    glBindTexture(GL_TEXTURE_2D, sprite_page[page].tex);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, vram_texture);
++
++    // texel rectangle of the page (its size in HD pixels)
++    float pw = (float)sprite_page[page].w, ph = (float)sprite_page[page].h;
++    float u0 = (float)u / pw, v0 = (float)v / ph;
++    float u1 = (float)(u + su) / pw, v1 = (float)(v + sv) / ph;
++
++    passes = semi ? 2 : 1;
++    for (pass = 0; pass < passes; pass++) {
++        if (!semi) {
++            glDisable(GL_BLEND);
++        } else if (pass == 0) {
++            glDisable(GL_BLEND);
++            glUniform1f(spr_u_pass, 0.0f);
++        } else {
++            // PS1 blend modes: 0 B/2+F/2, 1 B+F, 2 B-F, 3 B+F/4
++            int mode = (int)(abr & 3);
++
++            factor = (mode == 0) ? 0.5f : (mode == 3) ? 0.25f : 1.0f;
++            glUniform1f(spr_u_pass, 1.0f);
++            glUniform1f(spr_u_alpha, factor);
++            glEnable(GL_BLEND);
++            glBlendEquation(mode == 2 ? GL_FUNC_REVERSE_SUBTRACT : GL_FUNC_ADD);
++            if (mode == 0 || mode == 3) {
++                glBlendFunc(GL_SRC_ALPHA, mode == 0 ? GL_ONE_MINUS_SRC_ALPHA : GL_ONE);
++            } else {
++                glBlendFunc(GL_ONE, GL_ONE);
++            }
++        }
++        DrawSpriteQuad(x0, y0, x1, y1, u0, v0, u1, v1);
++    }
++
++    glActiveTexture(GL_TEXTURE1);
++    glBindTexture(GL_TEXTURE_2D, 0);
++    glActiveTexture(GL_TEXTURE0);
++    /* back to the default mode the renderer's draw loop leaves in place before
++     * its draws (SetBlendMode(BLEND_ADD)), which its cache assumes */
++    glBlendEquation(GL_FUNC_ADD);
++    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
++    glEnable(GL_BLEND);
++    glUseProgram(shader_program);
++    return 0;
+ }
+ 
+ 
+--- a/psyz/src/platform/sdl3_gpu.c
++++ b/psyz/src/platform/sdl3_gpu.c
+@@ -796,6 +796,26 @@
+     return -1;
+ }
+ 
++int Psyz_VideoSetDirectImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)slot, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoSetSpritePage(
++    unsigned page, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)page, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoDrawSpritePage(unsigned page, int x, int y, int w, int h,
++                             unsigned clut, int u, int v, int su, int sv,
++                             int semi, unsigned abr) {
++    (void)page, (void)x, (void)y, (void)w, (void)h, (void)clut;
++    (void)u, (void)v, (void)su, (void)sv, (void)semi, (void)abr;
++    return -1;
++}
++
+ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+     (void)path, (void)skip;
+     return -1;
+--- a/psyz/src/psp/psp_gpu.c
++++ b/psyz/src/psp/psp_gpu.c
+@@ -1055,6 +1055,26 @@
+     return -1;
+ }
+ 
++int Psyz_VideoSetDirectImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)slot, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoSetSpritePage(
++    unsigned page, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)page, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoDrawSpritePage(unsigned page, int x, int y, int w, int h,
++                             unsigned clut, int u, int v, int su, int sv,
++                             int semi, unsigned abr) {
++    (void)page, (void)x, (void)y, (void)w, (void)h, (void)clut;
++    (void)u, (void)v, (void)su, (void)sv, (void)semi, (void)abr;
++    return -1;
++}
++
+ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+     (void)path, (void)skip;
+     return -1;
+--- a/psyz/src/platform/sdl3_soft.c
++++ b/psyz/src/platform/sdl3_soft.c
+@@ -330,6 +330,26 @@
+     return -1;
+ }
+ 
++int Psyz_VideoSetDirectImage(
++    unsigned slot, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)slot, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoSetSpritePage(
++    unsigned page, unsigned w, unsigned h, const unsigned char* rgba) {
++    (void)page, (void)w, (void)h, (void)rgba;
++    return -1;
++}
++
++int Psyz_VideoDrawSpritePage(unsigned page, int x, int y, int w, int h,
++                             unsigned clut, int u, int v, int su, int sv,
++                             int semi, unsigned abr) {
++    (void)page, (void)x, (void)y, (void)w, (void)h, (void)clut;
++    (void)u, (void)v, (void)su, (void)sv, (void)semi, (void)abr;
++    return -1;
++}
++
+ int Psyz_VideoPlayMovie(const char* path, int (*skip)(void)) {
+     (void)path, (void)skip;
+     return -1;

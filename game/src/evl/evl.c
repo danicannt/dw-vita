@@ -1364,8 +1364,18 @@ void EVL_applyEvolution(Entity *entity, Stats *stats, PartnerPara *para, int16_t
 	newId = gains->targetDigimon;
 	oldLevel = DIGIMON_DATA[PARTNER_ENTITY.digimonEntity.entity.type].level;
 	level = DIGIMON_DATA[digimonId].level;
+#ifdef DW1_NATIVE
+	/* original bug: every evolution of Sukamon (0x27) took the special
+	 * path meant for turning back into the Digimon it was before (kept in
+	 * PStat 5), so its natural evolutions got no stat gains */
+	if (digimonId == 0x0b || digimonId == 0x27 || digimonId == 0x35 || digimonId == 6 ||
+	    (PARTNER_ENTITY.digimonEntity.entity.type == 0x27L &&
+	     (!dw1_fix() || readPStat(5) == digimonId)) ||
+	    level < 3) {
+#else
 	if (digimonId == 0x0b || digimonId == 0x27 || digimonId == 0x35 || digimonId == 6 ||
 	    PARTNER_ENTITY.digimonEntity.entity.type == 0x27L || level < 3) {
+#endif
 		EVL_scaleBaseStats(stats, (int8_t)gains->brains, digimonId);
 		newId = gains->targetDigimon;
 	} else {
@@ -1500,6 +1510,12 @@ void EVL_applyEvolution(Entity *entity, Stats *stats, PartnerPara *para, int16_t
 	if (oldLevel != DIGIMON_DATA[newId].level) {
 		para->evoTimer = 0;
 	}
+#ifdef DW1_NATIVE
+	/* original bug: the flag an evolution item sets was only cleared when
+	 * the game started, so every later evolution skipped its stat gains */
+	if (dw1_fix())
+		HAS_USED_EVOITEM = 0;
+#endif
 }
 
 void EVL_scaleBaseStats(Stats *stats, int16_t pct, int16_t unused)

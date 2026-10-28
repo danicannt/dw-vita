@@ -726,7 +726,14 @@ int32_t drawString2(uint8_t *str, int16_t x, int16_t y, int32_t flag)
 			break;
 		case 0x1c:
 			str++;
+#ifdef DW1_NATIVE
+			/* original bug: this tab to column 0x64 cleared 0x64 pixels
+			 * from the cursor, wiping the next text (the bank's list of
+			 * items went blank after scrolling); the Vice hack clears 0x1c */
+			setRECT(&rect, x + pos, y, dw1_fix() ? 0x1c : 0x64, 0xc);
+#else
 			setRECT(&rect, x + pos, y, 0x64, 0xc);
+#endif
 			clearTextSubArea(&rect);
 			pos = 0x64;
 			break;
@@ -1046,6 +1053,23 @@ void scriptShowSelection(void)
 
 	SCRIPT_POINTER += 2;
 	DIALOGUE_SELECTION.endPointer = SCRIPT_POINTER;
+#ifdef DW1_NATIVE
+	/* original bug: Triangle cancels a choice by resuming the script right
+	 * after it, but when the first option's code starts at or before that
+	 * point, resuming there runs into an option's code and the script can
+	 * lock up. With the fix the cancel resumes at the first 0xfe (close the
+	 * textbox, end the script) after the choice, as the Vice hack does. */
+	if (dw1_fix() &&
+	    ACTIVE_SCRIPT + *(int16_t *)DIALOGUE_SELECTION.pointer - SCRIPT_POINTER < 1) {
+		uint8_t *p = SCRIPT_POINTER;
+		int n;
+
+		for (n = 0; n < 0x2000 && *(int16_t *)(p + 2) != 0xfe; n++)
+			p += 2;
+		if (n < 0x2000)
+			DIALOGUE_SELECTION.endPointer = p + 2;
+	}
+#endif
 
 	if (CURRENT_DIALOGUE_OWNER != 0xff) {
 		DIALOGUE_SELECTION.cursorOffsetY = 0xd;

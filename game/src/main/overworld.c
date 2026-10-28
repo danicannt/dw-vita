@@ -473,6 +473,9 @@ void renderMapOverlays(LocalMapObjectInstance *instances, int16_t screenX,
 	GsOT_TAG *org;
 	int32_t i;
 	int16_t startFrame;
+#ifdef DW1_NATIVE
+	void *hdNext;
+#endif
 
 	if (!MAP_LAYER_ENABLED) {
 		return;
@@ -519,9 +522,20 @@ void renderMapOverlays(LocalMapObjectInstance *instances, int16_t screenX,
 					                    screenX, screenY, 0);
 				}
 
-				AddPrim(&org[instances->orderValue], prim);
-				prim++;
-				GsSetWorkBase((PACKET *)prim);
+#ifdef DW1_NATIVE
+				/* HD object sprite of this object, when the map has one */
+				hdNext = dw1_hdo_sprite_queue(&org[instances->orderValue], prim,
+							      obj - LOCAL_MAP_OBJECTS, prim->x0, prim->y0,
+							      prim->x1 - prim->x0, prim->y2 - prim->y0, prim->clut);
+				if (hdNext != NULL) {
+					GsSetWorkBase((PACKET *)hdNext);
+				} else
+#endif
+				{
+					AddPrim(&org[instances->orderValue], prim);
+					prim++;
+					GsSetWorkBase((PACKET *)prim);
+				}
 			}
 			instances->timer++;
 			if (instances->timer == instances->animTimes[startFrame]) {
@@ -1530,7 +1544,14 @@ int32_t rotateEntity(SVECTOR *rotation, int16_t *targetAngle, int16_t *ccDiff,
 				rotation->vy = target;
 				return 1;
 			}
+#ifdef DW1_NATIVE
+		/* original bug: a turn of exactly 180 degrees (cc == cw) took
+		 * neither way and never finished, freezing the script waiting
+		 * on it */
+		} else if (cw < cc || dw1_fix()) {
+#else
 		} else if (cw < cc) {
+#endif
 			rotation->vy += speed;
 			if (target < rotation->vy) {
 				rotation->vy = target;
@@ -1544,7 +1565,11 @@ int32_t rotateEntity(SVECTOR *rotation, int16_t *targetAngle, int16_t *ccDiff,
 				rotation->vy = target;
 				return 1;
 			}
+#ifdef DW1_NATIVE
+		} else if (cw < cc || dw1_fix()) { /* original bug: see above */
+#else
 		} else if (cw < cc) {
+#endif
 			rotation->vy += speed;
 			if ((target + 4096) < rotation->vy) {
 				rotation->vy = target;

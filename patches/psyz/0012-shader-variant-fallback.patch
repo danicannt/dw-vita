@@ -1,0 +1,56 @@
+diff --git a/psyz/src/platform/gl_float_shaders.h b/psyz/src/platform/gl_float_shaders.h
+index c829a54..2da2989 100644
+--- a/psyz/src/platform/gl_float_shaders.h
++++ b/psyz/src/platform/gl_float_shaders.h
+@@ -215,10 +215,12 @@ static const char float_fragment_shader_body[] = {
+     // is per component and if() then takes any of them, so every texel
+     // with alpha (STP) 0, nearly all of a PS1 palette, was dropped
+     // (with the depth buffer, discard: nothing reaches it; without, a
+-    // transparent colour, as discard is slow on the Vita's GPU)
++    // transparent colour, as discard is slow on the Vita's GPU. The filter
++    // variant discards too: with the early return the Vita's compiler
++    // rejected it, and the depth one, which discards, builds)
+     "    if (texColor.r == 0.0 && texColor.g == 0.0 && texColor.b == 0.0 &&\n"
+     "        texColor.a == 0.0) {\n"
+-    "#if PSYZ_DEPTH\n"
++    "#if PSYZ_DEPTH || PSYZ_FILTER\n"
+     "        discard;\n"
+     "#else\n"
+     "        FragColor = vec4(0.0);\n"
+diff --git a/psyz/src/platform/sdl3_gl.c b/psyz/src/platform/sdl3_gl.c
+index c34ca2e..f9f2b85 100644
+--- a/psyz/src/platform/sdl3_gl.c
++++ b/psyz/src/platform/sdl3_gl.c
+@@ -456,16 +456,31 @@ static GLuint Init_SetupShader(int variant) {
+     }
+     glDeleteShader(vertShader);
+     glDeleteShader(fragShader);
++    if (!success && variant != 0) {
++        // a variant the Vita's compiler rejects (out of memory, or a Cg
++        // quirk): the caller falls back to the plain program
++        glDeleteProgram(program);
++        return 0;
++    }
+     return program;
+ }
+ 
+ // makes the variant (MAIN_FILTER, MAIN_DEPTH) the main program, with the
+ // uniforms that are not set before every draw
+ static bool UseMainProgram(int variant) {
++    static bool failed[4];
++    if (variant != 0 && failed[variant]) {
++        variant = 0; // that variant did not build: draw without its extras
++    }
+     if (!main_programs[variant]) {
+         main_programs[variant] = Init_SetupShader(variant);
+         if (!main_programs[variant]) {
+-            return false;
++            if (variant == 0) {
++                return false;
++            }
++            WARNF("shader variant %d unavailable, using the plain one", variant);
++            failed[variant] = true;
++            return UseMainProgram(0);
+         }
+     }
+     if (shader_program == main_programs[variant]) {

@@ -4131,6 +4131,10 @@ void loadMap(int16_t mapId)
 			       GENERAL_BUFFER_PTR + objectOffset, mapId);
 	}
 
+#ifdef DW1_NATIVE
+	/* HD object sprites of this map (<hd dir>/<MAP>.hdo), if the option is on */
+	dw1_hdo_load(MAP_ENTRIES[mapId].filename);
+#endif
 	entityOffset = *offsets++;
 
 	clearMapDigimon();

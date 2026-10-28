@@ -698,8 +698,21 @@ void setFoodTimer(int16_t type)
 #else
 		for (i = 0; i < 8; i++) {
 			if (HOUR <= PARTNER_PARA.nextHungerHour) {
+#ifdef DW1_NATIVE
+				/* original bug: with a stale nextHungerHour (one left
+				 * from before the partner slept) this took the next
+				 * time after it, which could be more than 12 hours
+				 * away, and the partner showed no hunger for a day; with
+				 * the fix such a time is skipped, so the search below
+				 * takes the next time after the current hour */
+				if (PARTNER_PARA.nextHungerHour <
+				    RAISE_DATA[type].hungerTimes[i] &&
+				    (!dw1_fix() ||
+				     RAISE_DATA[type].hungerTimes[i] - HOUR < 13)) {
+#else
 				if (PARTNER_PARA.nextHungerHour <
 				    RAISE_DATA[type].hungerTimes[i]) {
+#endif
 					PARTNER_PARA.nextHungerHour =
 						RAISE_DATA[type].hungerTimes[i];
 					goto calculateTimer;
@@ -1349,7 +1362,15 @@ void sleepRegen(void)
 	int16_t hoursAsleepDefault;
 
 	hoursAsleepDefault = PARTNER_PARA.hoursAsleepDefault;
+#ifdef DW1_NATIVE
+	/* original bug: going to sleep at the wake-up hour counted 24 hours
+	 * slept, and the regeneration overflowed the HP of a partner with more
+	 * than 9000 */
+	if (HOUR < PARTNER_PARA.wakeupHour ||
+	    (dw1_fix() && HOUR == PARTNER_PARA.wakeupHour))
+#else
 	if (HOUR < PARTNER_PARA.wakeupHour)
+#endif
 		hoursSlept = PARTNER_PARA.wakeupHour - HOUR;
 	else
 		hoursSlept = PARTNER_PARA.wakeupHour + (24 - HOUR);
@@ -1468,6 +1489,16 @@ int32_t partnerWillRefuseItem(void)
 		} else if ((item == 0x7D) || (item == 0x7F)) {
 			if (DIGIMON_DATA[PARTNER_ENTITY.digimonEntity.entity.type].level != 4)
 				return 1;
+#ifdef DW1_NATIVE
+		/* original bug: only a partner one level above, at or two below
+		 * the item's evolution was refused, so Fresh and In-Training
+		 * partners ate evolution items and lost them without evolving;
+		 * with the fix anything but the level just below refuses it */
+		} else if (dw1_fix() &&
+			   DIGIMON_DATA[PARTNER_ENTITY.digimonEntity.entity.type].level + 1 !=
+			   DIGIMON_DATA[ITEM_EVOLUTION_TARGET(item)].level) {
+			return 1;
+#endif
 		} else if ((DIGIMON_DATA[PARTNER_ENTITY.digimonEntity.entity.type].level ==
 			    DIGIMON_DATA[ITEM_EVOLUTION_TARGET(item)].level) ||
 			   (DIGIMON_DATA[PARTNER_ENTITY.digimonEntity.entity.type].level + 2 ==

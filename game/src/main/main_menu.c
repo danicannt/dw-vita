@@ -3643,6 +3643,18 @@ void tickMainMenu(void)
 		_strncpy(SAVE_FILE.title + 0x1c,
 			 DIGIMON_NAME(SAVE_FILE.saves[0].partnerType),
 			 0x11);
+#ifdef DW1_NATIVE
+		/* original bug: the species name stops at its end and leaves the
+		 * rest of the title's field as it was, so the card showed a
+		 * garbled species name; with the fix the rest of this last field
+		 * is cleared */
+		if (dw1_fix()) {
+			char *end = _strncpy(SAVE_FILE.title + 0x1c,
+					     DIGIMON_NAME(SAVE_FILE.saves[0].partnerType), 0x11);
+
+			memset(end, 0, SAVE_FILE.title + 0x1c + 0x11 - end);
+		}
+#endif
 		memcpy(SAVE_FILE.reserved, SAVE_TITLE_RESERVED, 0x1C);
 #endif
 		SAVE_FILE.saves[0].checksum = createSavegameChecksum(0);

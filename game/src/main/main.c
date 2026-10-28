@@ -64,7 +64,7 @@ extern int32_t CURRENT_MENU;
 extern int32_t TARGET_MENU;
 extern int32_t IS_SCRIPT_PAUSED;
 extern int16_t FADE_OUT_CURRENT;
-#if VERSION_IS(JP_TRIAL) || VERSION_IS(JP_BOMBOM)
+#if VERSION_IS(JP_TRIAL) || VERSION_IS(JP_BOMBOM) || defined(DW1_NATIVE)
 extern int32_t HAS_BUTTERFLY;
 extern int32_t BUTTERFLY_ID;
 extern int32_t CONDITION_BUBBLE_TYPE;
@@ -3376,6 +3376,38 @@ static void *main_bss_order[] = {
 #endif
 };
 
+#ifdef DW1_NATIVE
+/* the pause menu's "Return to title" (port/game/pause_menu.c): fade out and
+ * clean up as the trial versions do after their last day, then back to the
+ * title without the opening movie */
+static int DW1_SKIP_OPENING;
+
+static void dw1_leave_to_title(void)
+{
+	int32_t frames;
+
+	fadeToBlack(0x14);
+	for (frames = 0; FADE_OUT_CURRENT < 0x14 && frames < 60; frames++) {
+		gameLoop();
+	}
+	if (CONDITION_BUBBLE_TYPE != -1) {
+		removeConditionBubble(CONDITION_BUBBLE_ID);
+		CONDITION_BUBBLE_TIMER = 0;
+		CONDITION_BUBBLE_TYPE = -1;
+	}
+	if (HAS_BUTTERFLY == 0) {
+		unsetButterfly(BUTTERFLY_ID);
+		HAS_BUTTERFLY = -1;
+	}
+	unloadMapParts();
+	clearDroppedItems();
+	checkFishingMap(0, 0);
+	cleanupGame();
+	finalizeMusic();
+	DW1_SKIP_OPENING = 1;
+}
+#endif
+
 int32_t main(void)
 {
 	int32_t partnerId;
@@ -3432,7 +3464,15 @@ int32_t main(void)
 			}
 			showDemo = (showDemo + 1) & 1;
 #else
+#ifdef DW1_NATIVE
+			if (DW1_SKIP_OPENING)
+				initializeFramebuffer(); /* as after the movie */
+			else
+#endif
 			playMovie(0, 1);
+#endif
+#ifdef DW1_NATIVE
+			DW1_SKIP_OPENING = 0;
 #endif
 			initializeMusic();
 			runLandingScreen();
@@ -3529,7 +3569,18 @@ int32_t main(void)
 #endif
 		while (MAIN_STATE != 3) {
 			gameLoop();
+#ifdef DW1_NATIVE
+			if (dw1_quit_to_title()) {
+				break;
+			}
+#endif
 		}
+#ifdef DW1_NATIVE
+		if (MAIN_STATE != 3) {
+			dw1_leave_to_title();
+			continue;
+		}
+#endif
 		cleanupGame();
 		finalizeMusic();
 		playMovie(3, 1);
@@ -4109,6 +4160,12 @@ void renderPressStartToContinue(void)
 	}
 
 	FIRST_SCREEN_FRAME_COUNTER = FIRST_SCREEN_FRAME_COUNTER % 0x3c;
+#ifdef DW1_NATIVE
+	/* hidden under a fade to black (loading a save), after the blink count:
+	 * see renderMainMenuBackground */
+	if (dw1_fade_black())
+		return;
+#endif
 
 	if (FIRST_SCREEN_FRAME_COUNTER < 0x1e) {
 		SetPolyFT4(prim);
@@ -4150,6 +4207,17 @@ void renderPressStartToContinue(void)
 		AddPrim(ot + 30, prim++);
 	}
 
+#ifdef DW1_NATIVE
+	{
+		/* the HD title background (<hd dir>/TITLE256.hdt) in place of the TIM */
+		void *next = dw1_title_queue(ot + 30, prim, "TITLE256");
+
+		if (next != NULL) {
+			GsSetWorkBase((PACKET *)next);
+			return;
+		}
+	}
+#endif
 	SetPolyFT4(prim);
 	setXYWH(prim, -0xa0, -0x78, 256, 240);
 	setUVWH(prim, 0, 0, 255, 240);
@@ -4176,6 +4244,21 @@ void renderMainMenuBackground(void)
 	ot = ACTIVE_ORDERING_TABLE->org;
 	prim = (POLY_FT4 *)GsGetWorkBase();
 
+#ifdef DW1_NATIVE
+	/* hidden under a fade to black: a full-screen pass the Vita's GPU would
+	 * spend for nothing on every frame of it */
+	if (dw1_fade_black())
+		return;
+	{
+		/* the HD title background (<hd dir>/TITLE2.hdt) in place of the TIM */
+		void *next = dw1_title_queue(ot + 30, prim, "TITLE2");
+
+		if (next != NULL) {
+			GsSetWorkBase((PACKET *)next);
+			return;
+		}
+	}
+#endif
 	SetPolyFT4(prim);
 	setXYWH(prim, -0xa0, -0x78, 256, 240);
 	setUVWH(prim, 0, 0, 255, 240);
@@ -4388,6 +4471,20 @@ void handleBuffDisks(type)
 			stats = stats;
 		} else {
 			stats = stats;
+		}
+#endif
+#ifdef DW1_NATIVE
+		/* original bug: the Omni Disk added 20 to each stat ignoring the
+		 * battle boost limit (130% of the starting stat) that the single
+		 * disks above respect */
+		if (dw1_fix()) {
+			gain = stats->off + 20 > offLimit ? offLimit - stats->off : 20;
+			BTL_buffStats(ENTITY_TABLE[1], 0, gain, &stats->off, 0xb, 3);
+			gain = stats->def + 20 > defLimit ? defLimit - stats->def : 20;
+			BTL_buffStats(ENTITY_TABLE[1], 0, gain, &stats->def, 0xb, 4);
+			gain = stats->speed + 20 > speedLimit ? speedLimit - stats->speed : 20;
+			BTL_buffStats(ENTITY_TABLE[1], 0, gain, &stats->speed, 0xb, 5);
+			break;
 		}
 #endif
 		BTL_buffStats(ENTITY_TABLE[1], 0, 20, &stats->off, 0xb, 3);
