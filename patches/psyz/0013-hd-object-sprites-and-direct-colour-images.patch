@@ -126,7 +126,7 @@
      glActiveTexture(GL_TEXTURE1);
      glBindTexture(GL_TEXTURE_2D, indexed[slot].tex);
      glActiveTexture(GL_TEXTURE0);
-@@ -1542,6 +1565,245 @@
+@@ -1542,6 +1565,234 @@
      glEnable(GL_BLEND);
      glUseProgram(shader_program);
      return 0;
@@ -153,25 +153,23 @@
 +    "uniform sampler2D texVram;\n"
 +    "uniform sampler2D texPage;\n"
 +    "uniform vec2 clutPos;\n"
-+    "uniform float semi;\n"  // 1 for a semi-transparent primitive
-+    "uniform float pass;\n"  // semi: 0 the opaque texels, 1 the STP ones
-+    "uniform float alpha;\n" // blend factor of the STP texels (pass 1)
++    "uniform float sprSemi;\n"  // 1 for a semi-transparent primitive
++    "uniform float sprPass;\n"  // semi: 0 the opaque texels, 1 the STP ones
++    "uniform float sprAlpha;\n" // blend factor of the STP texels (pass 1)
++    // no discard, and no Cg keywords as names (vitaGL compiles GLSL as Cg,
++    // where "pass" is reserved: linking crashed): a texel that is
++    // not drawn comes out with alpha 0 and colour 0, which the blend leaves alone
 +    "void main() {\n"
 +    "    vec4 p = TEX2D(texPage, vUV);\n"
-+    "    if (p.a < 0.5) {\n"
-+    "        discard;\n"
-+    "    }\n"
 +    "    float i = floor(p.r * 255.0 + 0.5);\n"
 +    "    vec4 c = TEX2D(texVram, (clutPos + vec2(i, 0.0) + 0.5) /\n"
 +    "                            vec2(1024.0, 512.0));\n"
-+    "    if (c.r == 0.0 && c.g == 0.0 && c.b == 0.0 && c.a == 0.0) {\n"
-+    "        discard;\n"
-+    "    }\n"
-+    "    bool stp = c.a > 0.5;\n"
-+    "    if (semi > 0.5 && stp != (pass > 0.5)) {\n"
-+    "        discard;\n"
-+    "    }\n"
-+    "    FragColor = vec4(c.rgb, (semi > 0.5 && pass > 0.5) ? alpha : 1.0);\n"
++    "    float visible = (p.a >= 0.5 && c.r + c.g + c.b + c.a > 0.0) ? 1.0 : 0.0;\n"
++    "    float stp = step(0.5, c.a);\n"
++    "    float wanted = (sprSemi < 0.5 || abs(stp - sprPass) < 0.5) ? 1.0 : 0.0;\n"
++    "    float on = visible * wanted;\n"
++    "    float a = (sprSemi > 0.5 && sprPass > 0.5) ? sprAlpha : 1.0;\n"
++    "    FragColor = vec4(c.rgb * on, a * on);\n"
 +    "}\n"};
 +
 +static bool InitSprites(void) {
@@ -192,6 +190,11 @@
 +    GLuint fs = Init_CompileShaderWith(
 +        float_prologue_fs_core, spr_fragment_body, GL_FRAGMENT_SHADER);
 +#endif
++    if (vs == 0 || fs == 0) {
++        fprintf(stderr, "dw1: sprites: shader compile FAILED\n");
++        fflush(stderr);
++        return false;
++    }
 +    GLuint program = glCreateProgram();
 +    glAttachShader(program, vs);
 +    glAttachShader(program, fs);
@@ -209,15 +212,13 @@
 +        glDeleteProgram(program);
 +        return false;
 +    }
-+    fprintf(stderr, "dw1: sprites: shader linked\n");
-+    fflush(stderr);
 +    glUseProgram(program);
 +    glUniform1i(glGetUniformLocation(program, "texVram"), 0);
 +    glUniform1i(glGetUniformLocation(program, "texPage"), 1);
 +    spr_u_clut = glGetUniformLocation(program, "clutPos");
-+    spr_u_semi = glGetUniformLocation(program, "semi");
-+    spr_u_pass = glGetUniformLocation(program, "pass");
-+    spr_u_alpha = glGetUniformLocation(program, "alpha");
++    spr_u_semi = glGetUniformLocation(program, "sprSemi");
++    spr_u_pass = glGetUniformLocation(program, "sprPass");
++    spr_u_alpha = glGetUniformLocation(program, "sprAlpha");
 +    glUseProgram(shader_program);
 +    spr_program = program;
 +    return true;
@@ -248,9 +249,6 @@
 +    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 +    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, (GLsizei)w, (GLsizei)h, 0,
 +                 GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-+    fprintf(stderr, "dw1: sprites: page %u %ux%u uploaded, gl error %#x\n", page, w, h,
-+            (unsigned)glGetError());
-+    fflush(stderr);
 +    glBindTexture(GL_TEXTURE_2D, vram_texture);
 +    sprite_page[page].w = (int)w;
 +    sprite_page[page].h = (int)h;
@@ -309,16 +307,6 @@
 +    } else {
 +        glViewport(0, 0, VRAM_W * internal_res, VRAM_H * internal_res);
 +    }
-+    {
-+        static unsigned char drawn[MAX_SPRITE_PAGES];
-+
-+        if (!drawn[page]) {
-+            drawn[page] = 1;
-+            fprintf(stderr, "dw1: sprites: first draw of page %u (%d,%d %dx%d, clut %u, semi %d abr %u)\n",
-+                    page, x, y, w, h, clut, semi, abr);
-+            fflush(stderr);
-+        }
-+    }
 +    glUseProgram(spr_program);
 +    glUniform2f(spr_u_clut, (float)((clut & 63) * 16), (float)(clut >> 6));
 +    glUniform1f(spr_u_semi, semi ? 1.0f : 0.0f);
@@ -336,10 +324,11 @@
 +
 +    passes = semi ? 2 : 1;
 +    for (pass = 0; pass < passes; pass++) {
-+        if (!semi) {
-+            glDisable(GL_BLEND);
-+        } else if (pass == 0) {
-+            glDisable(GL_BLEND);
++        if (!semi || pass == 0) {
++            // opaque texels: alpha 1 replaces the destination, the rest keeps it
++            glEnable(GL_BLEND);
++            glBlendEquation(GL_FUNC_ADD);
++            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 +            glUniform1f(spr_u_pass, 0.0f);
 +        } else {
 +            // PS1 blend modes: 0 B/2+F/2, 1 B+F, 2 B-F, 3 B+F/4

@@ -252,8 +252,6 @@ int dw1_hdo_load(const char *name)
     snprintf(path, sizeof(path), "%s/%s.hdo", hd_dir(d, sizeof(d)), clean);
     if ((f = fopen(path, "rb")) == NULL)
         return 0;
-    fprintf(stderr, "dw1: object sprites %s: opened %s\n", clean, path);
-    fflush(stderr);
     if (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) < 12 || fseek(f, 0, SEEK_SET) != 0 ||
         (file = malloc((size_t)size)) == NULL || fread(file, 1, (size_t)size, f) != (size_t)size)
         goto bad;
@@ -264,9 +262,7 @@ int dw1_hdo_load(const char *name)
     scale = rd16(file + 6);
     npage = rd16(file + 8);
     ntmpl = rd16(file + 10);
-    fprintf(stderr, "dw1: object sprites %s: header x%d, %d pages, %d objects, %ld bytes\n",
-            clean, scale, npage, ntmpl, size);
-    fflush(stderr);
+
     if ((scale != 2 && scale != 4) || npage > HDO_MAX_PAGES ||
         12 + 20 * (long)npage + 12 * (long)ntmpl > size)
         goto bad;
@@ -291,8 +287,6 @@ int dw1_hdo_load(const char *name)
             rgba[4 * k + 1] = rgba[4 * k + 2] = 0;
             rgba[4 * k + 3] = file[off + n + k];   /* 0 or 255 */
         }
-        fprintf(stderr, "dw1: object sprites %s: page %d %dx%d\n", clean, i, w, h);
-        fflush(stderr);
         if (Psyz_VideoSetSpritePage((unsigned)i, (unsigned)w, (unsigned)h, rgba) != 0) {
             free(rgba);
             rgba = NULL;
@@ -317,7 +311,6 @@ int dw1_hdo_load(const char *name)
     hdo_ntmpl = ntmpl;
     hdo_scale = scale;
     hdo_active = 1;
-    fflush(stderr);
     fprintf(stderr, "dw1: object sprites %s: HD x%d, %d pages, %d objects\n", clean, scale, npage, ntmpl);
     free(file);
     return 1;
