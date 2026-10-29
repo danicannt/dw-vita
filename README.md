@@ -12,10 +12,19 @@ Target: **PS Vita** (ARMv7, 32-bit). Development happens on 32-bit Linux
 first, where debugging is easy, and on 32-bit ARM under qemu to catch
 ARM-specific problems.
 
-> **Status: early.** Everything compiles and links, and the game boots through
-> its whole initialisation to the title-screen loop on x86 and ARM. It has not
-> been run against a real disc yet, and there is no Vita build yet. See
-> [doc/PORTING.md](doc/PORTING.md) for the state of every piece and the plan.
+> **Status: playable test build.** The game runs on the PS Vita and on Linux
+> with widescreen, HD backgrounds and movies, and other optional improvements.
+> See [doc/PORTING.md](doc/PORTING.md) for the state of every piece.
+
+## Why this exists
+
+This port is a labour of love: a fan's attempt to bring a game that meant a
+lot to us back to life on hardware we still enjoy, more than twenty years
+after its release. It is free and non-commercial, it is not affiliated with
+or endorsed by Bandai Namco, and it will never be sold.
+
+If the rights holders ask for this repository to be taken down, we will
+remove it without argument: just open an issue on this repository.
 
 **You need your own copy of the game.** This repository contains no game
 data: the port reads everything from your disc image at run time.
