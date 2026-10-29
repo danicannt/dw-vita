@@ -9,7 +9,7 @@
  *   Return to title  after a confirmation, without saving; main() in
  *                    game/src/main/main.c then cleans up as after the ending
  *
- * Select opens the debug menu when its option is on (Options > Extras):
+ * Select opens the debug menu when its option is on (Options > Sound and extras):
  *   Freeze time      the clock stops (game/src/main/clock.c)
  *   No aging         lifetime and age stop (dw1_cheats_tick)
  *   Heal partner     HP and MP full, no injury, sickness or tiredness

@@ -1,0 +1,131 @@
+spu: optional Catmull-Rom voice interpolation
+
+Psyz_SpuSetInterp(PSYZ_SPU_INTERP_GAUSS | PSYZ_SPU_INTERP_CUBIC) swaps the
+4-tap weight table used by spu_voice_step; gauss (the console table) stays
+the default. If nobody calls it, the first pull reads PSYZ_SPU_INTERP.
+
+--- a/psyz/src/psyz/spu_voice.h	2026-10-29 18:37:34.393736537 +0100
++++ b/psyz/src/psyz/spu_voice.h	2026-10-29 18:27:59.772226073 +0100
+@@ -6,6 +6,32 @@
+ #include "../../decomp/src/libspu/libspu_private.h"
+ #include "spu_gauss.h"
+ 
++// Voice interpolation weights, 256 phases x 4 taps, oldest sample first, Q15.
++// Gauss is the table measured on the console (default); Catmull-Rom keeps
++// more of the 4-16 kHz band at the same cost (PSYZ_SPU_INTERP=cubic).
++static short spu_cubic_tbl[1024];
++static const short* spu_interp_tbl = spu_gauss_tbl;
++
++static inline short spu_q15(double w) {
++    int q = (int)(w * 32768.0 + (w < 0 ? -0.5 : 0.5));
++    return q > 32767 ? 32767 : q < -32768 ? -32768 : q;
++}
++
++static inline void spu_voice_set_interp(int mode) {
++    if (mode != PSYZ_SPU_INTERP_CUBIC) {
++        spu_interp_tbl = spu_gauss_tbl;
++        return;
++    }
++    for (int p = 0; p < 256; p++) {
++        double t = p / 256.0, t2 = t * t, t3 = t2 * t;
++        spu_cubic_tbl[p * 4 + 0] = spu_q15(0.5 * (-t3 + 2 * t2 - t));
++        spu_cubic_tbl[p * 4 + 1] = spu_q15(0.5 * (3 * t3 - 5 * t2 + 2));
++        spu_cubic_tbl[p * 4 + 2] = spu_q15(0.5 * (-3 * t3 + 4 * t2 + t));
++        spu_cubic_tbl[p * 4 + 3] = spu_q15(0.5 * (t3 - t2));
++    }
++    spu_interp_tbl = spu_cubic_tbl;
++}
++
+ // One ADPCM block decodes to 28 samples
+ #define ADPCM_BLOCK_BYTES 16
+ #define ADPCM_BLOCK_SAMPLES 28
+@@ -162,7 +188,7 @@
+ }
+ 
+ // Advance the voice by one output-rate tick (44.1 kHz) and return its
+-// pitch-resampled, gauss-interpolated short sample.
++// pitch-resampled, interpolated (gauss or cubic) short sample.
+ static inline short spu_voice_step(
+     VoiceState* vs, unsigned pitch_reg, const u8* ram) {
+     // for pitch changes during voice on, enable vibrato or bends
+@@ -182,16 +208,17 @@
+         vs->spos -= 0x10000;
+     }
+ 
+-    // GAUSS interpolation
++    // 4-tap interpolation (gauss by default)
++    const short* tbl = spu_interp_tbl;
+     int vl = (vs->spos >> 6) & ~3;
+     int g0 = vs->gwin[vs->gpos & 3];
+     int g1 = vs->gwin[(vs->gpos + 1) & 3];
+     int g2 = vs->gwin[(vs->gpos + 2) & 3];
+     int g3 = vs->gwin[(vs->gpos + 3) & 3];
+-    int acc = (spu_gauss_tbl[vl + 0] * g0) >> 14;
+-    acc += (spu_gauss_tbl[vl + 1] * g1) >> 14;
+-    acc += (spu_gauss_tbl[vl + 2] * g2) >> 14;
+-    acc += (spu_gauss_tbl[vl + 3] * g3) >> 14;
++    int acc = (tbl[vl + 0] * g0) >> 14;
++    acc += (tbl[vl + 1] * g1) >> 14;
++    acc += (tbl[vl + 2] * g2) >> 14;
++    acc += (tbl[vl + 3] * g3) >> 14;
+     vs->spos += pitch << 4;
+     return clamp16(acc >> 1);
+ }
+--- a/psyz/include/psyz/spu.h	2026-10-29 18:37:34.380736508 +0100
++++ b/psyz/include/psyz/spu.h	2026-10-29 18:27:59.772587067 +0100
+@@ -20,6 +20,9 @@
+ #define PSYZ_SPU_NUM_VOICES 24         /**< match PS1 voice count */
+ #define PSYZ_SPU_SAMPLE_RATE 44100     /**< match fixed PS1 sample rate */
+ 
++#define PSYZ_SPU_INTERP_GAUSS 0 /**< 4-tap gauss table of the console */
++#define PSYZ_SPU_INTERP_CUBIC 1 /**< 4-tap Catmull-Rom, brighter */
++
+ /**
+  * @brief Initialize SPU emulation state
+  *
+@@ -36,6 +39,14 @@
+ void Psyz_SpuReset(int hot);
+ 
+ /**
++ * @brief Select the voice interpolation (PSYZ_SPU_INTERP_GAUSS or _CUBIC)
++ *
++ * Can be called at any time. If it is never called, the first pull reads
++ * the PSYZ_SPU_INTERP environment variable ("gauss" or "cubic").
++ */
++void Psyz_SpuSetInterp(int mode);
++
++/**
+  * @brief Write one 16-bit value into the SPU register file
+  *
+  * Certain registers can trigger a side-effect. Please refer to psxspx docs for
+--- a/psyz/src/psyz/psyz_spu.c	2026-10-29 18:37:34.452232756 +0100
++++ b/psyz/src/psyz/psyz_spu.c	2026-10-29 18:28:07.637679210 +0100
+@@ -1,6 +1,7 @@
+ #include <psyz.h>
+ #include <psyz/log.h>
+ #include <assert.h>
++#include <stdlib.h>
+ #include <string.h>
+ #include "spu_voice.h"
+ 
+@@ -411,7 +412,20 @@
+     }
+ }
+ 
++static u8 interp_chosen;
++
++void Psyz_SpuSetInterp(int mode) {
++    spu_voice_set_interp(mode);
++    interp_chosen = 1;
++}
++
+ void Psyz_SpuPullSamples(short* out, int num_frames) {
++    if (!interp_chosen) {
++        const char* e = getenv("PSYZ_SPU_INTERP");
++        int cubic = e && !strcmp(e, "cubic");
++        Psyz_SpuSetInterp(cubic ? PSYZ_SPU_INTERP_CUBIC : PSYZ_SPU_INTERP_GAUSS);
++        INFOF("SPU interpolation: %s", cubic ? "cubic" : "gauss");
++    }
+     if (!spu.initialized) {
+         memset(out, 0, num_frames * 2 * sizeof(short));
+         return;

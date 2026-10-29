@@ -130,6 +130,7 @@ enum {
     DW1_OPT_ORIGINAL_FIXES, /* bugs of the original game fixed (dw1_fix) */
     DW1_OPT_HD_SPRITES,     /* <hd dir>/<MAP>.hdo: object sprites in HD */
     DW1_OPT_DEBUG_MENU,     /* Select in the field opens the debug menu */
+    DW1_OPT_AUDIO,          /* SPU interpolation: 0 the console's gauss, 1 cubic */
     DW1_OPT_COUNT
 };
 void dw1_options_init(const char *data_dir);

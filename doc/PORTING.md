@@ -95,7 +95,7 @@ environment variables below still work and force their option for that run
 
 During play, Start opens a pause menu (Continue, Save, Options, Return to
 title) in place of the PS1's "PAUSE" box, and Select a debug menu (freeze
-time, no aging, heal, happiness, bits) when Options > Extras turns it on;
+time, no aging, heal, happiness, bits) when Options > Sound and extras turns it on;
 see `port/game/pause_menu.c`.
 
 - **Widescreen** (`DW1_WIDE=extra[:scale]`, on by default on the Vita as
@@ -118,6 +118,11 @@ see `port/game/pause_menu.c`.
   the original movie plays.
 - **Music**: PSY-Z had no libsnd SEQ interpreter (`_SsSeqPlay` was a stub),
   so no music ever played; `psyz/src/psyz/libsnd_seq.c` implements it.
+- **Audio** (`PSYZ_SPU_INTERP=gauss|cubic`, "Improved" = cubic by default):
+  the SPU's 4-tap gauss table, which muffles 4-16 kHz, can be swapped for
+  Catmull-Rom weights at the same cost (`Psyz_SpuSetInterp`). Output stays at
+  44.1 kHz: rendered offline, cubic at 44.1 and 48 kHz match up to 16 kHz.
+  `patches/psyz/0015-spu-cubic-interpolation.patch`.
 - **PGXP** (`DW1_PGXP=1`, on by default on the Vita): the GTE keeps each
   projected vertex's exact x, y and depth, and the renderer draws 3D
   polygons with them: no wobble, perspective-correct textures.

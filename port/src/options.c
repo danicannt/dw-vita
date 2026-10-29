@@ -15,6 +15,8 @@
  *   original_fixes  0 1       DW1_ORIGINAL_FIXES=0|1
  *   hd_sprites      0 1       DW1_HD_SPRITES=0|1
  *   debug_menu      0 1       DW1_DEBUG_MENU=0|1 (Select: port/game/pause_menu.c)
+ *   audio           0 1       PSYZ_SPU_INTERP=gauss (0) | cubic (1): the SPU's
+ *                             voice interpolation, the console's or brighter
  *
  * An option whose variable is set takes the variable's value for that run and
  * cannot be changed in the menu; the rest start from the file, or from the
@@ -30,6 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <psyz/spu.h>
 #include <psyz/video.h>
 
 #include "dw1_native.h"
@@ -39,7 +42,7 @@ void dw1_widescreen_set(unsigned extra, unsigned scale);
 static const char *const keys[DW1_OPT_COUNT] = {
     "widescreen", "hd_backgrounds", "hd_movies",  "pgxp",
     "model_depth", "texture_filter", "fair_slots", "battle_gains",
-    "original_fixes", "hd_sprites", "debug_menu",
+    "original_fixes", "hd_sprites", "debug_menu", "audio",
 };
 
 static int value[DW1_OPT_COUNT];
@@ -81,6 +84,9 @@ static void apply(int id)
         break;
     case DW1_OPT_TEXTURE_FILTER:
         Psyz_VideoSetModelFilter(value[id]);
+        break;
+    case DW1_OPT_AUDIO: /* takes effect from the next sample */
+        Psyz_SpuSetInterp(value[id] ? PSYZ_SPU_INTERP_CUBIC : PSYZ_SPU_INTERP_GAUSS);
         break;
     }
 }
@@ -219,6 +225,8 @@ void dw1_options_init(const char *data_dir)
         force(DW1_OPT_ORIGINAL_FIXES, v != 0);
     if (env_int("DW1_HD_SPRITES", &v))
         force(DW1_OPT_HD_SPRITES, v != 0);
+    if ((s = getenv("PSYZ_SPU_INTERP")) != NULL)
+        force(DW1_OPT_AUDIO, strcmp(s, "gauss") != 0);
     if (env_int("DW1_DEBUG_MENU", &v))
         force(DW1_OPT_DEBUG_MENU, v != 0);
 

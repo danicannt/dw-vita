@@ -20,7 +20,7 @@ extern int32_t CHANGED_INPUT;
 #define SECTION(n) (-1 - (n))
 #define BACK 100
 
-static const char *const sections[] = {"Video", "HD packs", "Gameplay", "Extras"};
+static const char *const sections[] = {"Video", "HD packs", "Gameplay", "Sound and extras"};
 static const int layout[] = {
     SECTION(0),
     DW1_OPT_WIDESCREEN,
@@ -36,6 +36,7 @@ static const int layout[] = {
     DW1_OPT_BATTLE_GAINS,
     DW1_OPT_FAIR_SLOTS,
     SECTION(3),
+    DW1_OPT_AUDIO,
     DW1_OPT_DEBUG_MENU,
     BACK,
 };
@@ -53,8 +54,10 @@ static const char *const labels[DW1_OPT_COUNT] = {
     [DW1_OPT_ORIGINAL_FIXES] = "Original bug fixes",
     [DW1_OPT_HD_SPRITES] = "HD object sprites",
     [DW1_OPT_DEBUG_MENU] = "Select: debug menu",
+    [DW1_OPT_AUDIO] = "Audio",
 };
 static const char *const filter_names[3] = {"Off", "3-point", "Bilinear"};
+static const char *const audio_names[2] = {"Original", "Improved"};
 
 static Dw1Menu menu;
 static int menu_open, changed;
@@ -63,6 +66,8 @@ static const char *value_text(int id)
 {
     if (id == DW1_OPT_TEXTURE_FILTER)
         return filter_names[dw1_option(id)];
+    if (id == DW1_OPT_AUDIO)
+        return audio_names[dw1_option(id)];
     return dw1_option(id) ? "On" : "Off";
 }
 
