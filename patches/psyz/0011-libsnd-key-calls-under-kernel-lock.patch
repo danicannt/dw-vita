@@ -1,3 +1,181 @@
+diff --git a/decomp/src/libsnd/ssclose.c b/decomp/src/libsnd/ssclose.c
+index fa7df21..6bcb078 100644
+--- a/decomp/src/libsnd/ssclose.c
++++ b/decomp/src/libsnd/ssclose.c
+@@ -1,4 +1,15 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// Main-thread entry point run under the kernel lock, like ut_keyv.c: the sound
++// tick (SsSeqCalledTbyT, an interrupt on the PS1) runs on the IRQ thread and
++// flushes _svm_okof/_svm_okon; a key off queued here while it flushed was
++// lost and the note kept playing over the next map.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsSeqClose SsSeqClose_ps1
++#endif
+ 
+ void _SsClose(s16 seq_sep_num) {
+     s32 seq_num;
+@@ -26,3 +37,14 @@ void _SsClose(s16 seq_sep_num) {
+ void SsSeqClose(short seq_access_num) { _SsClose(seq_access_num); }
+ 
+ void SsSepClose(short sep_access_num) { _SsClose(sep_access_num); }
++
++#ifdef __psyz
++#undef SsSeqClose
++void SsSeqClose_ps1(short seq_access_num);
++
++void SsSeqClose(short seq_access_num) {
++    PS1_EnterCriticalSection();
++    SsSeqClose_ps1(seq_access_num);
++    PS1_ExitCriticalSection();
++}
++#endif
+diff --git a/decomp/src/libsnd/ssopenq.c b/decomp/src/libsnd/ssopenq.c
+index d9fa67c..99a01e0 100644
+--- a/decomp/src/libsnd/ssopenq.c
++++ b/decomp/src/libsnd/ssopenq.c
+@@ -1,4 +1,15 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// Main-thread entry point run under the kernel lock, like ut_keyv.c: the sound
++// tick (SsSeqCalledTbyT, an interrupt on the PS1) runs on the IRQ thread and
++// flushes _svm_okof/_svm_okon; a key off queued here while it flushed was
++// lost and the note kept playing over the next map.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsSeqOpen SsSeqOpen_ps1
++#endif
+ 
+ short SsSeqOpen(u_long* addr, short vab_id) {
+     short bit;
+@@ -66,3 +77,17 @@ short SsSeqOpen(u_long* addr, short vab_id) {
+     }
+     return flag;
+ }
++
++#ifdef __psyz
++#undef SsSeqOpen
++short SsSeqOpen_ps1(u_long* addr, short vab_id);
++
++short SsSeqOpen(u_long* addr, short vab_id) {
++    short r;
++
++    PS1_EnterCriticalSection();
++    r = SsSeqOpen_ps1(addr, vab_id);
++    PS1_ExitCriticalSection();
++    return r;
++}
++#endif
+diff --git a/decomp/src/libsnd/ssplay.c b/decomp/src/libsnd/ssplay.c
+index cb7db32..bf0eb1b 100644
+--- a/decomp/src/libsnd/ssplay.c
++++ b/decomp/src/libsnd/ssplay.c
+@@ -1,4 +1,15 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// Main-thread entry point run under the kernel lock, like ut_keyv.c: the sound
++// tick (SsSeqCalledTbyT, an interrupt on the PS1) runs on the IRQ thread and
++// flushes _svm_okof/_svm_okon; a key off queued here while it flushed was
++// lost and the note kept playing over the next map.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsSeqPlay SsSeqPlay_ps1
++#endif
+ 
+ void SsSeqPlay(short seq_access_num, char play_mode, short l_count) {
+     Snd_SetPlayMode(seq_access_num, 0, play_mode, l_count);
+@@ -8,3 +19,14 @@ void SsSepPlay(
+     short sep_access_num, short seq_num, char play_mode, short l_count) {
+     Snd_SetPlayMode(sep_access_num, seq_num, play_mode, l_count);
+ }
++
++#ifdef __psyz
++#undef SsSeqPlay
++void SsSeqPlay_ps1(short seq_access_num, char play_mode, short l_count);
++
++void SsSeqPlay(short seq_access_num, char play_mode, short l_count) {
++    PS1_EnterCriticalSection();
++    SsSeqPlay_ps1(seq_access_num, play_mode, l_count);
++    PS1_ExitCriticalSection();
++}
++#endif
+diff --git a/decomp/src/libsnd/ssstop.c b/decomp/src/libsnd/ssstop.c
+index 09a6620..a08d4c2 100644
+--- a/decomp/src/libsnd/ssstop.c
++++ b/decomp/src/libsnd/ssstop.c
+@@ -1,4 +1,15 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// Main-thread entry point run under the kernel lock, like ut_keyv.c: the sound
++// tick (SsSeqCalledTbyT, an interrupt on the PS1) runs on the IRQ thread and
++// flushes _svm_okof/_svm_okon; a key off queued here while it flushed was
++// lost and the note kept playing over the next map.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsSeqStop SsSeqStop_ps1
++#endif
+ 
+ void _SsSndStop(short sep_access_num, short seq_num) {
+     struct SeqStruct* score;
+@@ -47,3 +58,14 @@ void SsSeqStop(short seq_access_num) { _SsSndStop(seq_access_num, 0); }
+ void SsSepStop(short sep_access_num, short seq_num) {
+     _SsSndStop(sep_access_num, seq_num);
+ }
++
++#ifdef __psyz
++#undef SsSeqStop
++void SsSeqStop_ps1(short seq_access_num);
++
++void SsSeqStop(short seq_access_num) {
++    PS1_EnterCriticalSection();
++    SsSeqStop_ps1(seq_access_num);
++    PS1_ExitCriticalSection();
++}
++#endif
+diff --git a/decomp/src/libsnd/ssvol.c b/decomp/src/libsnd/ssvol.c
+index 9aaf5a6..03872a1 100644
+--- a/decomp/src/libsnd/ssvol.c
++++ b/decomp/src/libsnd/ssvol.c
+@@ -1,4 +1,15 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// Main-thread entry point run under the kernel lock, like ut_keyv.c: the sound
++// tick (SsSeqCalledTbyT, an interrupt on the PS1) runs on the IRQ thread and
++// flushes _svm_okof/_svm_okon; a key off queued here while it flushed was
++// lost and the note kept playing over the next map.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsSeqSetVol SsSeqSetVol_ps1
++#endif
+ 
+ void _SsSndSetVol(short sep_access_num, short seq_num, short voll, short volr) {
+     _SsVmSetSeqVol(sep_access_num | (seq_num << 8), voll, volr, 0);
+@@ -15,3 +26,14 @@ void SsSepSetVol(short sep_access_num, short seq_num, short voll, short volr) {
+ void SsSeqGetVol(short access_num, short seq_num, short* voll, short* volr) {
+     _SsVmGetSeqVol(access_num | (seq_num << 8), voll, volr);
+ }
++
++#ifdef __psyz
++#undef SsSeqSetVol
++void SsSeqSetVol_ps1(short seq_access_num, short voll, short volr);
++
++void SsSeqSetVol(short seq_access_num, short voll, short volr) {
++    PS1_EnterCriticalSection();
++    SsSeqSetVol_ps1(seq_access_num, voll, volr);
++    PS1_ExitCriticalSection();
++}
++#endif
 diff --git a/decomp/src/libsnd/ut_ako.c b/decomp/src/libsnd/ut_ako.c
 index 08c315f..540837a 100644
 --- a/decomp/src/libsnd/ut_ako.c
@@ -32,6 +210,46 @@ index 08c315f..540837a 100644
 +    PS1_EnterCriticalSection();
 +    SsUtAllKeyOff_ps1(mode);
 +    PS1_ExitCriticalSection();
++}
++#endif
+diff --git a/decomp/src/libsnd/ut_autov.c b/decomp/src/libsnd/ut_autov.c
+index 45b61b4..12a0058 100644
+--- a/decomp/src/libsnd/ut_autov.c
++++ b/decomp/src/libsnd/ut_autov.c
+@@ -1,4 +1,15 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// Main-thread entry point run under the kernel lock, like ut_keyv.c: the sound
++// tick (SsSeqCalledTbyT, an interrupt on the PS1) runs on the IRQ thread and
++// flushes _svm_okof/_svm_okon; a key off queued here while it flushed was
++// lost and the note kept playing over the next map.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsUtAutoVol SsUtAutoVol_ps1
++#endif
+ 
+ short SsUtAutoVol(
+     short voice, short start_vol, short end_vol, short delta_time) {
+@@ -8,4 +19,17 @@ short SsUtAutoVol(
+         return 0;
+     }
+     return -1;
+-}
+\ No newline at end of file
++}
++#ifdef __psyz
++#undef SsUtAutoVol
++short SsUtAutoVol_ps1(short voice, short start_vol, short end_vol, short delta_time);
++
++short SsUtAutoVol(short voice, short start_vol, short end_vol, short delta_time) {
++    short r;
++
++    PS1_EnterCriticalSection();
++    r = SsUtAutoVol_ps1(voice, start_vol, end_vol, delta_time);
++    PS1_ExitCriticalSection();
++    return r;
 +}
 +#endif
 diff --git a/decomp/src/libsnd/ut_key.c b/decomp/src/libsnd/ut_key.c
@@ -134,5 +352,40 @@ index d64bc04..f87a49e 100644
 +    r = SsUtKeyOffV_ps1(voice);
 +    PS1_ExitCriticalSection();
 +    return r;
++}
++#endif
+diff --git a/decomp/src/libsnd/vs_vab.c b/decomp/src/libsnd/vs_vab.c
+index 936d2a2..296a853 100644
+--- a/decomp/src/libsnd/vs_vab.c
++++ b/decomp/src/libsnd/vs_vab.c
+@@ -1,4 +1,15 @@
+ #include "libsnd_private.h"
++#ifdef __psyz
++// Main-thread entry point run under the kernel lock, like ut_keyv.c: the sound
++// tick (SsSeqCalledTbyT, an interrupt on the PS1) runs on the IRQ thread and
++// flushes _svm_okof/_svm_okon; a key off queued here while it flushed was
++// lost and the note kept playing over the next map.
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++#endif
++#ifdef __psyz
++#define SsVabClose SsVabClose_ps1
++#endif
+ 
+ void SsVabClose(short vab_id) {
+     if (vab_id >= 0 && vab_id < NUM_VAB) {
+@@ -9,3 +20,14 @@ void SsVabClose(short vab_id) {
+         }
+     }
+ }
++
++#ifdef __psyz
++#undef SsVabClose
++void SsVabClose_ps1(short vab_id);
++
++void SsVabClose(short vab_id) {
++    PS1_EnterCriticalSection();
++    SsVabClose_ps1(vab_id);
++    PS1_ExitCriticalSection();
 +}
 +#endif

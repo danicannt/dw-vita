@@ -1,0 +1,422 @@
+diff --git a/psyz/include/psyz/audio.h b/psyz/include/psyz/audio.h
+index e5ae669..cac5b23 100644
+--- a/psyz/include/psyz/audio.h
++++ b/psyz/include/psyz/audio.h
+@@ -67,6 +67,16 @@ void Psyz_AudioLock(void);
+  */
+ void Psyz_AudioUnlock(void);
+ 
++/**
++ * @brief Cuts notes left sounding from before an SPU tick count
++ *
++ * Voices keyed on before `since` (Psyz_SpuTicks) that are still sounding and
++ * belong to no playing sequence are keyed off and logged: notes whose key off
++ * was lost. Returns how many were cut.
++ */
++int Psyz_SndCutStuckVoices(unsigned since);
++unsigned Psyz_SpuTicks(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/psyz/src/platform/sdl3_audio.c b/psyz/src/platform/sdl3_audio.c
+index 54f9cc8..c16bd7f 100644
+--- a/psyz/src/platform/sdl3_audio.c
++++ b/psyz/src/platform/sdl3_audio.c
+@@ -21,6 +21,17 @@ static void SDLCALL audio_callback(void* userdata, SDL_AudioStream* stream,
+ 
+     int num_frames = additional_amount / (N_CHANNELS * SAMPLE_SIZE);
+     short buf[4096] = {0};
++    {
++        // a long gap between pulls means the output ran dry and repeated
++        // (heard as a stuck sound)
++        static Uint64 last_ns;
++        Uint64 now_ns = SDL_GetTicksNS();
++        if (last_ns && now_ns - last_ns > 100000000) {
++            WARNF("audio callback late by %d ms",
++                  (int)((now_ns - last_ns) / 1000000));
++        }
++        last_ns = now_ns;
++    }
+     // PSYZ_SOFT_PERF=1 (always on on the Vita): log how much of real time
+     // the SPU emulation takes, every 5 s of audio
+     static int perf = -1;
+@@ -51,9 +62,12 @@ static void SDLCALL audio_callback(void* userdata, SDL_AudioStream* stream,
+         if (spu_frames >= 44100 * 5) {
+             double ms = spu_time * 1000.0 / (double)SDL_GetPerformanceFrequency();
+             extern unsigned psyz_spu_key_ons;
++            extern int psyz_spu_describe_voices(char* out, int size);
++            char voices[320];
++            psyz_spu_describe_voices(voices, sizeof(voices));
+             INFOF("perf: SPU %.1f%% of one core (%.1f ms per 5 s of audio), "
+-                  "%u notes",
+-                  ms / 50.0, ms, psyz_spu_key_ons);
++                  "%u notes | voices%s",
++                  ms / 50.0, ms, psyz_spu_key_ons, voices);
+             psyz_spu_key_ons = 0;
+             spu_time = spu_frames = 0;
+         }
+diff --git a/psyz/src/psyz/kernel.c b/psyz/src/psyz/kernel.c
+index e7852ad..0e360cb 100644
+--- a/psyz/src/psyz/kernel.c
++++ b/psyz/src/psyz/kernel.c
+@@ -529,6 +529,10 @@ static int ServiceTimers(uint32_t* deadline_us) {
+             continue;
+         }
+         if ((int32_t)(now - c->next_us) > MAX_CATCHUP_US) {
++            // the interrupt thread did not run for that long: the sound
++            // sequencer (SS_TICK) stalled, holding its notes
++            WARNF("root counter %d late by %d ms, ticks dropped", i,
++                  (int)((now - c->next_us) / 1000));
+             CounterRestart(c, now);
+         }
+         while (IsDue(c->next_us, now)) {
+diff --git a/psyz/src/psyz/libsnd_seq.c b/psyz/src/psyz/libsnd_seq.c
+index 2b0d271..95727d4 100644
+--- a/psyz/src/psyz/libsnd_seq.c
++++ b/psyz/src/psyz/libsnd_seq.c
+@@ -15,6 +15,9 @@
+ #include <libsnd.h>
+ #include <libspu.h>
+ #include <psyz/log.h>
++#include <stddef.h>
++#include <stdlib.h>
++#include <stdio.h>
+ #include <string.h>
+ #include "../../decomp/src/libspu/libspu_private.h"
+ #include "../../decomp/src/libsnd/libsnd_private.h"
+@@ -34,6 +37,8 @@ typedef struct {
+     u8 nrpn[16];         // last CC99 value per channel
+     u8 expr[16];         // CC11
+     u8 bend[16];         // pitch bend MSB, 64 = centre
++    unsigned pos;        // song time played, delta units (ticks * 10)
++    unsigned max_note;   // the score's longest note, delta units
+ } SeqExtra;
+ 
+ static SeqExtra extra[N_SEQ][N_SEP];
+@@ -43,7 +48,10 @@ static struct SeqStruct* score_of(short seq, short sep) {
+ }
+ 
+ static void reset_extra(SeqExtra* x) {
++    unsigned pos = x->pos, max_note = x->max_note; // song-wide, kept over loops
+     memset(x, 0, sizeof(*x));
++    x->pos = pos;
++    x->max_note = max_note;
+     x->loop_count = 127;
+     for (int i = 0; i < 16; i++) {
+         x->expr[i] = 127;
+@@ -136,11 +144,131 @@ static void refresh_channel(short seq, short sep, int ch, int pitch_too) {
+     }
+ }
+ 
++// the score channel each voice was keyed on from (-1: none), so a note off
++// finds its voice by score, channel and note alone. Matching the channel's
++// program and the in-use flag (unk1b) missed voices: a program change before
++// the note off, or _SsVmFlush taking a just-started voice for silent (the SPU
++// here runs in audio-callback batches, its envelope reads 0 for a while)
++// left the note looping.
++// score, channel and note each voice was keyed on with, kept here because
++// libsnd's own _svm_voice entry can change under a sounding note (voice
++// stealing between the score's notes, sound effects): a note off that
++// matched on it missed and the voice looped on under the next music
++static short voice_seq[NUM_VOICES];
++static short voice_note[NUM_VOICES];
++static signed char voice_channel[NUM_VOICES] = {
++    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
++};
++
++#define NO_POS 0xFFFFFFFFu
++int Psyz_SpuVoiceSustaining(int v);
++static unsigned voice_pos[NUM_VOICES] = { // song time of the key on
++    NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS,
++    NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS,
++    NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS, NO_POS,
++};
++
++// The score's longest note in delta units, from the first event (read_pos):
++// the stuck-note guard below lets no note of this song sound longer.
++static unsigned longest_note(const u8* p, const u8* end) {
++    unsigned t = 0, longest = 0;
++    static unsigned on_at[16][128]; // static: runs on the IRQ thread, under the kernel lock
++    static u8 on[16][128];
++    u8 rs = 0;
++    memset(on, 0, sizeof(on));
++    while (p < end) {
++        u8 st = *p;
++        if (st & 0x80) {
++            rs = st;
++            p++;
++        }
++        st = rs;
++        if (st == 0xFF) { // PsyQ metas carry no length byte
++            u8 type = *p++;
++            if (type == 0x51) {
++                p += 3; // tempo
++            } else {
++                break; // 2F end of track, or unknown
++            }
++        } else {
++            u8 hi = st & 0xF0, ch = st & 0x0F;
++            if (hi == 0x80 || hi == 0x90) {
++                u8 n = p[0] & 0x7F, vel = p[1] & 0x7F;
++                p += 2;
++                if (hi == 0x90 && vel) {
++                    on[ch][n] = 1;
++                    on_at[ch][n] = t;
++                } else if (on[ch][n]) {
++                    on[ch][n] = 0;
++                    if (t - on_at[ch][n] > longest) {
++                        longest = t - on_at[ch][n];
++                    }
++                }
++            } else if (hi == 0xA0 || hi == 0xB0 || hi == 0xE0) {
++                p += 2;
++            } else if (hi == 0xC0 || hi == 0xD0) {
++                p += 1;
++            } else {
++                break;
++            }
++        }
++        unsigned d = 0; // next delta
++        u8 b;
++        do {
++            if (p >= end) {
++                return longest * 10;
++            }
++            b = *p++;
++            d = (d << 7) | (b & 0x7F);
++        } while (b & 0x80);
++        t += d;
++    }
++    return longest * 10;
++}
++
++static void force_off(int v) {
++    _svm_cur.voice = v;
++    _SsVmKeyOffNow(0);
++    Psyz_SpuWrite(offsetof(SPU_RXX, voice[v].adsr[1]), 0x4000);
++    Psyz_SpuWrite(v < 16 ? offsetof(SPU_RXX, key_off[0])
++                         : offsetof(SPU_RXX, key_off[1]),
++                  (unsigned short)(1u << (v & 15)));
++    voice_channel[v] = -1;
++}
++
++// Notes of this score held longer than its longest note (plus a margin) lost
++// their note off (how is still open: voice reuse between the score's notes);
++// they are let go here instead of looping on.
++static void release_overdue(short seq, short sep) {
++    SeqExtra* x = &extra[seq][sep];
++    short seq_sep_no = seq | (sep << 8);
++    unsigned limit = x->max_note + x->max_note / 2 + 4800; // + 480 ticks
++    if (!x->max_note) {
++        return;
++    }
++    for (int v = 0; v < _SsVmMaxVoice; v++) {
++        // by the SPU's state: the key off of these got lost on the way, the
++        // score already let them go (voice_channel -1)
++        if (voice_seq[v] == seq_sep_no && voice_pos[v] != NO_POS &&
++            (u16)_svm_voice[v].seq_sep_no != 0x21 &&
++            x->pos - voice_pos[v] > limit && Psyz_SpuVoiceSustaining(v)) {
++            WARNF("note %d (ch %d, voice %d) held past the song's longest "
++                  "note: released", voice_note[v], voice_channel[v], v);
++            force_off(v);
++            voice_pos[v] = NO_POS;
++        }
++    }
++}
++
+ static void key_off(short seq, short sep, int ch, int note) {
+-    FOR_CHANNEL_VOICES(seq, sep, ch, i) {
+-        if (_svm_voice[i].note == note) {
++    short seq_sep_no = seq | (sep << 8);
++    for (int i = 0; i < _SsVmMaxVoice; i++) {
++        if (voice_seq[i] == seq_sep_no && voice_channel[i] == ch &&
++            voice_note[i] == note) {
+             _svm_cur.voice = i;
+             _SsVmKeyOffNow(0);
++            voice_channel[i] = -1;
+         }
+     }
+ }
+@@ -188,6 +316,10 @@ static void key_on(short seq, short sep, int ch, int note, int vel) {
+         // a stolen voice still sounding for someone else is cut first
+         _svm_cur.voice = voice;
+         _svm_voice[voice].seq_sep_no = seq_sep_no;
++        voice_channel[voice] = (signed char)ch;
++        voice_seq[voice] = seq_sep_no;
++        voice_note[voice] = note;
++        voice_pos[voice] = extra[seq][sep].pos;
+         _svm_voice[voice].vabId = ss->vab_id;
+         _svm_voice[voice].fake_program = _svm_cur.fake_program;
+         _svm_voice[voice].prog = prog;
+@@ -456,15 +588,67 @@ void _SsSeqPlay(short seq, short sep) {
+     }
+     if (ss->seq_ptr == ss->read_pos && ss->delta_value == ss->unk84) {
+         // fresh start (open, stop or replay): channel state back to defaults
++        x->pos = 0;
++        x->max_note = longest_note(ss->read_pos, ss->read_pos + 0x10000);
++        for (int v = 0; v < NUM_VOICES; v++) {
++            if (voice_seq[v] == (short)(seq | (sep << 8))) {
++                voice_pos[v] = NO_POS; // times of the previous play
++            }
++        }
+         reset_extra(x);
+         ss->unk94 = ss->tempo;
+     }
+     unsigned den = VBLANK_MINUS * 60;
+     x->tick_frac += (unsigned)ss->resolution * ss->unk94 * 10;
+     ss->delta_value -= x->tick_frac / den;
++    x->pos += x->tick_frac / den;
+     x->tick_frac %= den;
++    release_overdue(seq, sep);
+     // guard against corrupt data looping forever inside one tick
+     for (int n = 0; n < 1024 && ss->delta_value <= 0 && (ss->flags & SEQ_FLAG_1); n++) {
+         _SsGetSeqData(seq, sep);
+     }
+ }
++
++// ---------------------------------------------------------------- watchdog
++
++void PS1_EnterCriticalSection(void);
++void PS1_ExitCriticalSection(void);
++unsigned Psyz_SpuTicks(void);
++int Psyz_SpuVoiceHeldSince(int v, unsigned since);
++
++// Cuts the voices still sounding from before `since` (an SPU tick count) that
++// no playing sequence owns: a note whose key off got lost (a looping sound kept
++// over the next map). The port calls it shortly after a map change; the
++// sequence still playing across maps of one area keeps its voices.
++int Psyz_SndCutStuckVoices(unsigned since) {
++    int cut = 0;
++    PS1_EnterCriticalSection();
++    for (int v = 0; v < NUM_VOICES; v++) {
++        if (!Psyz_SpuVoiceHeldSince(v, since)) {
++            continue;
++        }
++        short owner = _svm_voice[v].seq_sep_no;
++        int seq = owner & 0xFF, sep = (owner >> 8) & 0xFF;
++        INFOF("held over map change: voice %d owner 0x%x note %d ch %d "
++              "sample 0x%x", v, (unsigned short)owner, _svm_voice[v].note,
++              voice_channel[v], Psyz_SpuRead(offsetof(SPU_RXX, voice[v].addr)));
++        if (owner != 0x21 && seq < _snd_seq_s_max && sep < _snd_seq_t_max &&
++            (_snd_openflag & (1 << seq)) && _ss_score[seq] &&
++            _ss_score[seq][sep].play_mode == SSPLAY_PLAY) {
++            continue; // the music still playing
++        }
++        WARNF("stuck voice %d cut (owner 0x%x, sample 0x%x)", v,
++              (unsigned short)owner, Psyz_SpuRead(offsetof(SPU_RXX, voice[v].addr)));
++        _svm_cur.voice = v;
++        _SsVmKeyOffNow(0);
++        // fastest linear release, as SsUtAllKeyOff, then the key off
++        Psyz_SpuWrite(offsetof(SPU_RXX, voice[v].adsr[1]), 0x4000);
++        Psyz_SpuWrite(v < 16 ? offsetof(SPU_RXX, key_off[0])
++                             : offsetof(SPU_RXX, key_off[1]),
++                      (unsigned short)(1u << (v & 15)));
++        cut++;
++    }
++    PS1_ExitCriticalSection();
++    return cut;
++}
+diff --git a/psyz/src/psyz/psyz_spu.c b/psyz/src/psyz/psyz_spu.c
+index c2b9876..528fb0b 100644
+--- a/psyz/src/psyz/psyz_spu.c
++++ b/psyz/src/psyz/psyz_spu.c
+@@ -1,4 +1,5 @@
+ #include <psyz.h>
++#include <stdio.h>
+ #include <psyz/log.h>
+ #include <assert.h>
+ #include <stdlib.h>
+@@ -122,11 +123,55 @@ void Psyz_SpuMemWrite(unsigned int offset, const void* src, unsigned int size) {
+ }
+ 
+ unsigned psyz_spu_key_ons; // notes started, for sdl3_audio's perf line
++
++// the voices still sounding, for sdl3_audio's perf line: voice:phase:start
++// address (8-byte units), phase a(ttack) d(ecay) s(ustain) r(elease); a voice
++// held in sustain across map changes is a note nobody keyed off
++int psyz_spu_describe_voices(char* out, int size) {
++    static const char phase[] = "adsr";
++    int n = 0;
++    out[0] = '\0';
++    for (int v = 0; v < PSYZ_SPU_NUM_VOICES && n < size - 24; v++) {
++        const VoiceState* vs = &spu.voice[v];
++        if (!vs->active || vs->env_state == ADSR_OFF || vs->env_vol <= 0) {
++            continue;
++        }
++        n += snprintf(out + n, size - n, " %d:%c:%x", v,
++                      phase[vs->env_state & 3],
++                      _spu_RXX->rxx.voice[v].addr);
++    }
++    return n;
++}
++static unsigned key_on_at[PSYZ_SPU_NUM_VOICES]; // spu.ticks at the key on
++
++unsigned Psyz_SpuTicks(void) { return spu.ticks; }
++
++// a voice keyed on before `since` that is still sounding (a slow release
++// counts: it is heard)
++int Psyz_SpuVoiceHeldSince(int v, unsigned since) {
++    const VoiceState* vs = &spu.voice[v];
++    return vs->active && vs->env_state != ADSR_OFF && vs->env_vol > 0 &&
++           (int)(key_on_at[v] - since) < 0;
++}
++
++// sounding and not yet releasing: no key off reached it
++int Psyz_SpuVoiceSustaining(int v) {
++    const VoiceState* vs = &spu.voice[v];
++    return vs->active && vs->env_state < ADSR_RELEASE && vs->env_vol > 0;
++}
++
+ static void spu_key_on_voice(int v) {
+     psyz_spu_key_ons++;
++    key_on_at[v] = spu.ticks;
+     VoiceState* vs = &spu.voice[v];
+     unsigned wait = spu.ticks & 1;
+     spu_voice_key_on(vs, &_spu_RXX->rxx.voice[v], spu.ram);
++    // ENVX starts rising right after the key on on the hardware; here the
++    // voice only runs in the next audio batch (tens of ms), and libsnd read
++    // the 0 meanwhile as a free voice: _SsVmAlloc handed a sounding note's
++    // voice to the next note and the first one never got its key off
++    // (chords left looping under the battle music)
++    _spu_RXX->rxx.voice[v].volumex = 1;
+     vs->hold_ticks += wait;
+     vs->delay_ticks += wait;
+     vs->env_counter = spu.ticks + ENV_CLOCK_PHASE;
+@@ -145,6 +190,18 @@ void Psyz_SpuWrite(unsigned int reg_offset, unsigned short value) {
+         return;
+     }
+     _spu_RXX->raw[reg_offset >> 1] = value;
++    // the envelope reads ADSR live, as the hardware does: SsUtAllKeyOff
++    // writes the fastest release into voices already playing, and a release
++    // latched at the key on kept slow notes sounding over the next maps
++    if (reg_offset < sizeof(SPU_VOICE_REG) * PSYZ_SPU_NUM_VOICES) {
++        unsigned v = reg_offset / sizeof(SPU_VOICE_REG);
++        unsigned field = reg_offset % sizeof(SPU_VOICE_REG);
++        if (field == offsetof(SPU_VOICE_REG, adsr[0])) {
++            spu.voice[v].adsr_lo = value;
++        } else if (field == offsetof(SPU_VOICE_REG, adsr[1])) {
++            spu.voice[v].adsr_hi = value;
++        }
++    }
+     if (reg_offset == offsetof(SPU_RXX, key_on[0])) { // voices 0..15
+         for (int v = 0; v < 16; v++) {
+             if (value & (1u << v))
+@@ -381,8 +438,14 @@ static void spu_tick(short* out) {
+ 
+     reverb_tick(clamp16(reverb_input_left >> 1),
+                 clamp16(reverb_input_right >> 1), reverb_output);
+-    left_sum += (reverb_output[0] * spu_s16(rxx->rev_vol.left)) >> 14;
+-    right_sum += (reverb_output[1] * spu_s16(rxx->rev_vol.right)) >> 14;
++    // With the reverb master off the work area is no longer written, so
++    // what it still held (the echo of the last notes: Jijimon's house chord,
++    // the gym's crickets) went round and round under every later sound
++    // (SsUtReverbOff, at each music stop, only clears this bit). Off: no echo.
++    if (spucnt & SPU_CTRL_MASK_REVERB_MASTER_ENABLE) {
++        left_sum += (reverb_output[0] * spu_s16(rxx->rev_vol.left)) >> 14;
++        right_sum += (reverb_output[1] * spu_s16(rxx->rev_vol.right)) >> 14;
++    }
+ 
+     // Mix CD audio per SPUCNT and cd_vol registers.
+     if (spucnt & SPU_CTRL_MASK_CD_AUDIO_ENABLE) {

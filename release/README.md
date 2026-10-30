@@ -30,18 +30,24 @@ memory-card format: you can bring saves from DuckStation/ePSXe and back.
 ## Options
 
 Pick **OPTIONS** on the title screen (below New Game / Continue). Choices are
-saved in `ux0:data/dw1/options.ini`:
+saved in `ux0:data/dw1/options.ini`.
 
-| Option | Default | What it does |
-|---|---|---|
-| Widescreen | on | 16:9, HUD at the screen edges |
-| HD backgrounds | on | uses an HD background pack in `ux0:data/dw1/hd/` if present (not included in this release) |
-| HD movies | on | uses upscaled FMVs in `ux0:data/dw1/hd/movies/` if present (not included) |
-| PGXP | on | no wobbly polygons, no texture warping |
-| Model depth | off | depth buffer for 3D models (shows some original model overlaps; costs performance) |
-| Texture filter | off | smooth textures on 3D models |
-| Fair slots | on | Bonus Try slots without the hidden rigging, at half speed |
-| Battle gains | on | battles raise stats according to how your Digimon fought |
+| Section | Option | Default | What it does |
+|---|---|---|---|
+| Video | Widescreen 16:9 | on | HUD at the screen edges |
+| Video | No polygon wobble | on | PGXP: no wobbly polygons or warping textures |
+| Video | Model depth fix | off | depth buffer for 3D models (slower; shows some overlaps of the original models) |
+| Video | 3D texture filter | off | smooth textures on 3D models (slower) |
+| HD packs | HD backgrounds | on | uses an HD background pack in `ux0:data/dw1/hd/` if present |
+| HD packs | HD object sprites | off | HD map objects (experimental) |
+| HD packs | HD movies | on | uses upscaled FMVs in `ux0:data/dw1/hd/movies/` if present |
+| Gameplay | Fair Bonus Try | on | gym slots without the hidden rigging, at half speed |
+| Gameplay | Better battle gains | on | battles raise stats according to how your Digimon fought |
+| Gameplay | Original bug fixes | on | fixes for bugs of the original game |
+| Sound and extras | Audio | Improved | smoother sample interpolation, or Original |
+| Sound and extras | Select: debug menu | off | |
+
+In game, Start opens a pause menu (save, return to title).
 
 ## Controls
 
@@ -55,8 +61,9 @@ you were doing, and a screenshot if possible.
 
 ## Known issues
 
-- The HD intro movie may not play yet; the original one plays instead.
-- Some maps can drop below 60 fps with "Model depth" on.
+- Changing area can freeze the game for about a second while HD graphics
+  load.
+- "Model depth fix" and "3D texture filter" can drop the frame rate.
 - Not every part of the game has been played through on this port: expect
   bugs, and keep backups of your saves.
 

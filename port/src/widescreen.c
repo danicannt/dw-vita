@@ -41,6 +41,7 @@
 #include <libgpu.h>
 #include <psyz/audio.h>
 #include <psyz/gpu.h>
+#include <psyz/audio.h>
 #include <psyz/video.h>
 
 #include "dw1_native.h"
@@ -351,8 +352,15 @@ void *dw1_hdo_sprite_queue(void *ot_entry, void *work, int tmpl, int x, int y, i
     return p + 1;
 }
 
+/* stuck-note watchdog: notes still sounding 2 s after a map change that no
+ * playing music owns lost their key off (Psyz_SndCutStuckVoices) */
+static unsigned map_change_tick;
+static int stuck_check_frames;
+
 int dw1_bg_set(const char *name, int tiles_w, int tiles_h, unsigned char *const *tile_images)
 {
+    map_change_tick = Psyz_SpuTicks();
+    stuck_check_frames = 120;
     int w = tiles_w * 128, h = tiles_h * 128;
     int pw = w, ph = h, ext[4] = {0, 0, 0, 0};
     unsigned char *rgba;
@@ -417,6 +425,9 @@ void *dw1_bg_queue(void *ot_entry, void *work, int x, int y, unsigned clut)
 {
     BgPacket *p = work;
 
+    if (stuck_check_frames > 0 && --stuck_check_frames == 0) {
+        Psyz_SndCutStuckVoices(map_change_tick);
+    }
     if (!bg_active)
         return NULL;
     x -= bg_ext[0];

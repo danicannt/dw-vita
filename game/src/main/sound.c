@@ -1,3 +1,6 @@
+#ifdef DW1_NATIVE
+#include <stdio.h>
+#endif
 #include <libetc.h>
 #include <libsnd.h>
 #include <libspu.h>
@@ -759,6 +762,10 @@ int32_t playMusic(int32_t font, int32_t track)
 	if ((font == CURRENT_SEQ_FONT) && (track == CURRENT_SEQ_TRACK)) {
 		return 1;
 	}
+#ifdef DW1_NATIVE
+	fprintf(stderr, "dw1: music %d/%d -> %d/%d\n", CURRENT_SEQ_FONT,
+		CURRENT_SEQ_TRACK, font, track);
+#endif
 
 	seqStop();
 	seqClose();
