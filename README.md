@@ -109,6 +109,7 @@ The game uses these assets when compatible files are present.
 - **Model depth fix** and **3D texture filter** can reduce the frame rate.
 - Some areas and gameplay sequences may not have been fully tested.
 - Visual glitches, crashes and other bugs may still occur.
+- When digievolution happens, backgrounds dissapear, save game and exit to menu to reload.
 
 Back up your saves regularly and report any issues you encounter.
 
