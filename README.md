@@ -1,6 +1,12 @@
-# Digimon World — PS Vita Port (Test Build)
+Digimon World — PS Vita Port (Test Build)
 
-A native port of **Digimon World** (PlayStation, 1999 — US version) for PS Vita and PS TV.
+A native port of Digimon World (PlayStation, 1999 — US version) for PS Vita and PS TV.
+
+This project started as a love letter to one of my all-time favorite games, one that I spent countless hours replaying back in the day. I'm developing it on my own, with help from Claude, driven by the desire to bring this classic to hardware I still love.
+
+This is a test build, and there's still plenty of work to do. I'm just one person working on this in my spare time, so please keep in mind that new features, fixes and improvements take time. Getting the game playable in its current state has already taken me two weeks of testing, rebuilding, debugging and patching.
+
+I'm sharing it now because I want other fans to be able to experience it, try it out and help me find issues I might have missed. It's a work in progress, but I hope you'll enjoy playing it as much as I've enjoyed bringing it to life.
 
 This is not an emulator. The game's code runs natively on the device, with optional widescreen support, enhanced graphics, quality-of-life improvements and bug fixes.
 
@@ -90,7 +96,7 @@ Select **OPTIONS** on the title screen, below New Game / Continue. Your settings
 | HD packs | HD movies | On | Loads upscaled FMVs if available. |
 | Gameplay | Fair Bonus Try | On | Removes hidden slot-machine rigging and runs the gym slots at half speed. |
 | Gameplay | Better battle gains | On | Adjusts stat gains according to how your Digimon fought. |
-| Gameplay | Original bug fixes | On | Applies fixes for bugs in the original game. |
+| Gameplay | Original bug fixes | On | Applies fixes for bugs in the original game from Vice hackrom. |
 | Sound and extras | Audio | Improved | Uses smoother sample interpolation. The original audio mode is also available. |
 | Sound and extras | Select: debug menu | Off | Enables the debug menu through Select. |
 
@@ -110,6 +116,7 @@ The game uses these assets when compatible files are present.
 - Some areas and gameplay sequences may not have been fully tested.
 - Visual glitches, crashes and other bugs may still occur.
 - When digievolution happens, backgrounds dissapear, save game and exit to menu to reload.
+- Working on the championships as they are still broken.
 
 Back up your saves regularly and report any issues you encounter.
 
