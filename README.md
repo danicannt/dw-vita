@@ -1,110 +1,142 @@
-# Digimon World native port (PS Vita / PC)
+# Digimon World — PS Vita Port (Test Build)
+
+A native port of **Digimon World** (PlayStation, 1999 — US version) for PS Vita and PS TV.
+
+This is not an emulator. The game's code runs natively on the device, with optional widescreen support, enhanced graphics, quality-of-life improvements and bug fixes.
+
+> **Test build:** This port is playable, but it is still under development. Bugs, performance issues and incomplete features are possible.
 
 <p align="center">
-  <img src="doc/2026-10-30-012211.jpg" width="49%">
-  <img src="doc/2026-10-24-005434.jpg" width="49%">
-  <img src="doc/2026-10-28-174707.jpg" width="49%">
-  <img src="doc/2026-10-23-213903.jpg" width="49%">
+  <img src="../doc/2026-10-30-012211.jpg" width="49%">
+  <img src="../doc/2026-10-24-005434.jpg" width="49%">
+  <img src="../doc/2026-10-28-174707.jpg" width="49%">
+  <img src="../doc/2026-10-23-213903.jpg" width="49%">
 </p>
 
-**PS Vita test build:** [`release/dw1-vita.vpk`](release/dw1-vita.vpk) — how to install and play: [`release/README.md`](release/README.md).
+**Important:** This is a free, non-commercial fan project. It is not affiliated with or endorsed by Bandai Namco. No game data is included. You must provide your own copy of the game.
 
-A native port of *Digimon World* (PlayStation, 1999, USA `SLUS-01032`) built from
-the [Digimon World decompilation](https://github.com/jype0/dw_decomp). The game's
-own C code is compiled for the target machine and the PlayStation libraries
-are replaced by [PSY-Z](https://github.com/Xeeynamo/psyz) plus a port layer.
-It is not an emulator.
+## Requirements
 
-Target: **PS Vita** (ARMv7, 32-bit). Development happens on 32-bit Linux
-first, where debugging is easy, and on 32-bit ARM under qemu to catch
-ARM-specific problems.
+- A PS Vita or PS TV running HENkaku/Ensō.
+- VitaShell to install the VPK and transfer files.
+- Your own dump of **Digimon World (USA, SLUS-01032)**, in `.bin` + `.cue` format using raw 2352-byte sectors.
 
-> **Status: playable test build.** The game runs on the PS Vita and on Linux
-> with widescreen, HD backgrounds and movies, and other optional improvements.
-> See [doc/PORTING.md](doc/PORTING.md) for the state of every piece.
+## Installation
 
-## Why this exists
+### 1. Install the game
 
-This port is a labour of love: a fan's attempt to bring a game that meant a
-lot to us back to life on hardware we still enjoy, more than twenty years
-after its release. It is free and non-commercial, it is not affiliated with
-or endorsed by Bandai Namco, and it will never be sold.
+1. Download `dw1-vita.vpk` from the release files.
+2. Transfer the VPK to your PS Vita.
+3. Open VitaShell and install the VPK.
 
-If the rights holders ask for this repository to be taken down, we will
-remove it without argument: just open an issue on this repository.
+### 2. Add your game files
 
-**You need your own copy of the game.** This repository contains no game
-data: the port reads everything from your disc image at run time.
+Create the following directory on your PS Vita:
 
-## Layout
+`ux0:data/dw1/`
 
-```
-external/dw_decomp   the decompilation (git submodule, upstream, untouched)
-external/psyz        PSY-Z: PSY-Q replacement + SDL3 platform (git submodule)
-game/                the US game sources, copied from the decomp by
-                     tools/import_decomp.py; native fixes are marked DW1_NATIVE
-port/                what the port adds: libgs, memory card, overlays, PS1 RAM,
-                     GTE/libsnd/libpress pieces PSY-Z lacks
-host/                entry point
-tests/               unit tests that run without the disc
-cmake/               generated source lists, toolchains
-doc/PORTING.md       architecture, status, backlog
+Copy your own game dump into this directory, using these exact filenames:
+
+```text
+ux0:data/dw1/
+├── Digimon World (USA).bin
+└── Digimon World (USA).cue
 ```
 
-## Building (Linux, 32-bit)
+Make sure the `FILE` entry inside the `.cue` file matches the actual `.bin` filename.
 
-Requirements: CMake 3.21+, Ninja, a multilib GCC (`gcc-multilib g++-multilib`),
-Python 3 with PyYAML, and SDL3's build dependencies (X11 or Wayland, audio).
+### 3. Launch the game
 
-```sh
-git clone --recursive <this repo>
-cd dw1-port
-git -C external/psyz submodule update --init external/SDL
+Launch **Digimon World** from the LiveArea bubble.
 
-tools/configure_linux32.sh          # HEADLESS=1 for a build without video/audio drivers
-ninja -C build/linux32 dw1
-(cd build/linux32 && ctest)         # unit tests
-```
+The game reads its data from `ux0:data/dw1/`.
 
-PSY-Z draws with SDL_GPU (Vulkan) by default; add `-DPSYZ_RENDERER=sdl3_gl` to
-the configure line for OpenGL.
+## Save files
 
-## Running
+Memory cards are stored at:
 
-```sh
-build/linux32/dw1 "path/to/Digimon World (USA).cue"
-```
+- `ux0:data/dw1/card1.mcd`
+- `ux0:data/dw1/card2.mcd`
 
-Use a raw dump (`.cue` + `.bin`, 2352-byte sectors). Memory cards are
-`card1.mcd` / `card2.mcd` in the working directory, in the raw 128 KB format
-that DuckStation, PCSX-Redux and ePSXe use, so saves move both ways.
+They use the raw 128 KB memory-card format, allowing saves to be transferred between this port and compatible emulators such as DuckStation and ePSXe.
 
-## ARM check (no Vita needed)
+**Tip:** Keep backups of your memory-card files, especially when testing new builds.
 
-On Ubuntu the ARM cross compilers and `gcc-multilib` cannot be installed
-together (apt removes one for the other); use separate machines or containers,
-as the CI does.
+## Controls
 
-```sh
-sudo apt install gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf qemu-user
-cmake -S . -B build/armhf -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-linux-gnueabihf.cmake \
-  -DSDL_UNIX_CONSOLE_BUILD=ON
-ninja -C build/armhf && (cd build/armhf && ctest)
-```
+The game uses the original PlayStation button layout mapped to the PS Vita controls.
 
-## Updating the game sources
+Additional controls:
 
-`tools/import_decomp.py` overwrites `game/` with the decomp's US sources.
-Commit first, re-import, then re-apply the port's changes with git: they are
-all marked `DW1_NATIVE`.
+- **Left stick:** Move, as an alternative to the D-pad.
+- **Touchscreen:** Walk and pet your Digimon.
+- **L1:** Quick feeding.
+- **Start:** Open the in-game pause menu to save or return to the title screen.
+
+## Options and enhancements
+
+Select **OPTIONS** on the title screen, below New Game / Continue. Your settings are saved to:
+
+`ux0:data/dw1/options.ini`
+
+| Section | Option | Default | Description |
+|---|---|---|---|
+| Video | Widescreen 16:9 | On | Widescreen presentation with HUD elements positioned near the screen edges. |
+| Video | No polygon wobble | On | PGXP correction to reduce polygon wobble and texture warping. |
+| Video | Model depth fix | Off | Adds depth-buffer support for 3D models. May reduce performance and reveal original model overlaps. |
+| Video | 3D texture filter | Off | Smooths textures on 3D models. May reduce performance. |
+| HD packs | HD backgrounds | On | Loads an HD background pack if available. |
+| HD packs | HD object sprites | Off | Experimental HD map objects. |
+| HD packs | HD movies | On | Loads upscaled FMVs if available. |
+| Gameplay | Fair Bonus Try | On | Removes hidden slot-machine rigging and runs the gym slots at half speed. |
+| Gameplay | Better battle gains | On | Adjusts stat gains according to how your Digimon fought. |
+| Gameplay | Original bug fixes | On | Applies fixes for bugs in the original game. |
+| Sound and extras | Audio | Improved | Uses smoother sample interpolation. The original audio mode is also available. |
+| Sound and extras | Select: debug menu | Off | Enables the debug menu through Select. |
+
+### Optional HD packs
+
+HD assets are optional and are not included in the VPK.
+
+- **HD backgrounds:** `ux0:data/dw1/hd/`
+- **HD movies:** `ux0:data/dw1/hd/movies/`
+
+The game uses these assets when compatible files are present.
+
+## Known issues
+
+- Area transitions may freeze for approximately one second while HD graphics load.
+- **Model depth fix** and **3D texture filter** can reduce the frame rate.
+- Some areas and gameplay sequences may not have been fully tested.
+- Visual glitches, crashes and other bugs may still occur.
+
+Back up your saves regularly and report any issues you encounter.
+
+## Reporting bugs
+
+When reporting an issue, please include:
+
+1. What you were doing when the issue occurred.
+2. The area or gameplay sequence where it happened.
+3. A screenshot or a description of the issue, if possible.
+4. The log file generated by the game:
+
+   `ux0:data/dw1/log.txt`
+
+The log is overwritten each time the game launches, so copy it immediately after reproducing the issue.
+
+Please also mention whether you were using HD packs or any non-default graphics options.
 
 ## Credits
 
-- [jype0/dw_decomp](https://github.com/jype0/dw_decomp) (MIT) and the reverse
-  engineering by [SydMontague](https://github.com/SydMontague/DW1-Code) it builds on
-- [PSY-Z](https://github.com/Xeeynamo/psyz) (MIT) by Xeeynamo and contributors
-- [DW2-PC](https://github.com/Wyrelade/DW2-PC) (CC0), whose overlay and
-  memory-layout approach this port follows
+- [jype0/dw_decomp](https://github.com/jype0/dw_decomp) (MIT) and [SydMontague](https://github.com/SydMontague/DW1-Code) for the decompilation and reverse-engineering work.
+- [PSY-Z](https://github.com/Xeeynamo/psyz) (MIT), by Xeeynamo and contributors.
+- [vitaGL](https://github.com/Rinnegatamante/vitaGL).
+- [DW2-PC](https://github.com/Wyrelade/DW2-PC) (CC0), for ideas and approaches to overlays and memory layout.
 
-*Digimon World* and its data belong to their owners.
+## Disclaimer
+
+*Digimon World* and all associated game assets and trademarks belong to their respective rights holders.
+
+This is an unofficial, free, non-commercial fan project. It is not affiliated with or endorsed by Bandai Namco. No copyrighted game data is distributed with this project.
+
