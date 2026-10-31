@@ -121,7 +121,7 @@ The game uses these assets when compatible files are present.
 - Some areas and gameplay sequences may not have been fully tested.
 - Visual glitches, crashes and other bugs may still occur.
 - When digievolution happens, backgrounds dissapear, save game and exit to menu to reload.
-- Working on the championships as they are still broken.
+- Championships: the crash in the opening camera and the black arena are fixed in v0.1.1-test. Please report anything that still goes wrong in a cup.
 
 Back up your saves regularly and report any issues you encounter.
 
