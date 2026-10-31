@@ -102,17 +102,50 @@ Select **OPTIONS** on the title screen, below New Game / Continue. Your settings
 
 ### Optional HD packs
 
-HD assets are optional and are not included in the VPK: they are made from the
-game's own images, so you build them yourself from your disc with
-**[tools/hd-pack](tools/hd-pack/README.md)** (Windows, Linux and macOS; an NVIDIA
-GPU makes it much faster). On Windows, run `setup_windows.bat`, then drag your
-`.cue` onto `make_hd_pack.bat`, and copy the resulting `hd` folder to `ux0:data/dw1/`.
+The HD backgrounds, HD object sprites and HD intro movie are not inside the
+VPK. They are separate downloads in the release, locked with data from the
+original disc: **they only work with your own copy of the game.**
 
-- **HD backgrounds:** `ux0:data/dw1/hd/<MAP>.hdm`
-- **HD object sprites:** `ux0:data/dw1/hd/<MAP>.hdo`
-- **HD movies:** `ux0:data/dw1/hd/movies/`
+| File | What it adds | Option |
+|---|---|---|
+| `dw1-hd-backgrounds.dw1hd` (177 MB) | HD widescreen backgrounds for every area, with day, dusk and night | HD backgrounds (on) |
+| `dw1-hd-objects.dw1hd` (24 MB) | HD doors, water, torches and other animated map objects | HD object sprites (off, experimental) |
+| `dw1-hd-movies.dw1hd` (28 MB) | HD intro movie | HD movies (on) |
 
-The game uses these assets when compatible files are present.
+**How to install them (about one minute, done on your PC):**
+
+1. Install **Python 3** from [python.org](https://www.python.org/downloads/).
+   On Windows, tick **"Add python.exe to PATH"** in the installer.
+2. Download **`dw1-hd-unlocker.zip`** and the `.dw1hd` packs you want from the
+   [release](https://github.com/danicannt/dw-vita/releases/latest).
+3. Unzip `dw1-hd-unlocker.zip` and put the `.dw1hd` files inside the
+   `dw1-hd-unlocker` folder.
+4. **Windows:** drag your `Digimon World (USA).cue` onto
+   **`unlock_hd_pack.bat`**.
+   **Linux / macOS:** `python3 unlock_hd_pack.py "path/to/Digimon World (USA).cue"`
+5. An **`hd`** folder appears next to it. Copy that whole folder to
+   **`ux0:data/dw1/`** on your Vita, so it looks like this:
+
+```text
+ux0:data/dw1/
+├── Digimon World (USA).bin
+├── Digimon World (USA).cue
+└── hd/
+    ├── MAYO01.hdm   (and the other .hdm / .hdo files)
+    └── movies/
+        └── OP1.mp4
+```
+
+6. Start the game. The HD packs are switched on and off in **OPTIONS > HD packs**.
+
+If the unlocker says that files **do not match**, your disc image is not the
+standard dump: it has to be Digimon World (USA), SLUS-01032, as a raw
+`.bin` + `.cue` with 2352-byte sectors (the Redump dump).
+
+**Prefer to make them yourself?** [tools/hd-pack](tools/hd-pack/README.md) has
+the whole AI pipeline that made these packs (upscaling, widescreen extension,
+movies). It builds them from your disc on your own PC; an NVIDIA GPU is
+recommended, and it takes several hours.
 
 ## Known issues
 

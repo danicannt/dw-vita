@@ -20,8 +20,9 @@ they only work with your copy of the game.
 
 1. Install **Python 3** ([python.org](https://www.python.org/downloads/); on
    Windows tick *Add python.exe to PATH*). Nothing else is needed.
-2. Download this folder (`tools/hd-pack`, or the repository as a zip) and put
-   the `.dw1hd` files you want next to `unlock_hd_pack.py`.
+2. From the [release](https://github.com/danicannt/dw-vita/releases/latest),
+   download `dw1-hd-unlocker.zip` and the `.dw1hd` files you want. Unzip it
+   and put the `.dw1hd` files inside the `dw1-hd-unlocker` folder.
 3. **Windows:** drag your `Digimon World (USA).cue` onto `unlock_hd_pack.bat`.
    **Linux / macOS:** `python3 unlock_hd_pack.py "path/to/Digimon World (USA).cue"`
 4. Copy the `hd` folder it creates to **`ux0:data/dw1/`** on the Vita.
