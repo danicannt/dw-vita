@@ -102,9 +102,14 @@ Select **OPTIONS** on the title screen, below New Game / Continue. Your settings
 
 ### Optional HD packs
 
-HD assets are optional and are not included in the VPK.
+HD assets are optional and are not included in the VPK: they are made from the
+game's own images, so you build them yourself from your disc with
+**[tools/hd-pack](tools/hd-pack/README.md)** (Windows, Linux and macOS; an NVIDIA
+GPU makes it much faster). On Windows, run `setup_windows.bat`, then drag your
+`.cue` onto `make_hd_pack.bat`, and copy the resulting `hd` folder to `ux0:data/dw1/`.
 
-- **HD backgrounds:** `ux0:data/dw1/hd/`
+- **HD backgrounds:** `ux0:data/dw1/hd/<MAP>.hdm`
+- **HD object sprites:** `ux0:data/dw1/hd/<MAP>.hdo`
 - **HD movies:** `ux0:data/dw1/hd/movies/`
 
 The game uses these assets when compatible files are present.

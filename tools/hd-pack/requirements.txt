@@ -1,0 +1,9 @@
+# PyTorch is installed first by setup_windows.bat / setup_linux.sh (CUDA build for NVIDIA GPUs)
+numpy>=1.26
+pillow>=10
+spandrel==0.4.2
+safetensors>=0.4
+diffusers==0.35.2
+transformers==4.57.1
+accelerate==1.10.1
+imageio-ffmpeg>=0.5

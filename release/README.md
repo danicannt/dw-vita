@@ -49,6 +49,10 @@ saved in `ux0:data/dw1/options.ini`.
 
 In game, Start opens a pause menu (save, return to title).
 
+The HD packs are not in the VPK: build them from your own disc with
+[`tools/hd-pack`](../tools/hd-pack/README.md) and copy its `hd` folder to
+`ux0:data/dw1/`.
+
 ## Controls
 
 PS1 layout on the Vita buttons. Also: left stick moves like the D-pad, touch
