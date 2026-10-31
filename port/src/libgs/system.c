@@ -140,6 +140,7 @@ void GsSetOrign(long x, long y)
 
 void GsSwapDispBuff(void)
 {
+    gs_split_pieces = 0;
     /* show the buffer drawn during the last frame, draw into the other one */
     GsDISPENV.disp.x = PSDOFSX[PSDIDX];
     GsDISPENV.disp.y = PSDOFSY[PSDIDX];
@@ -197,13 +198,19 @@ GsOT *GsSortOt(GsOT *src, GsOT *dst)
     u_long point = src->point;
     u_long last = (1u << dst->length) - 1;
     GsOT_TAG *slot;
+    GsOT_TAG *end;
 
     if (point > last)
         point = last;
     slot = &dst->org[point];
-    /* src is drawn from src->tag down to src->org[0]; splice it in front of
-     * whatever slot pointed to */
-    setaddr(&src->org[0], getaddr(slot));
+    /* src is drawn from src->tag down to src->org[0] and then the primitives
+     * of org[0], which end in the node ClearOTagR ends every table with. That
+     * node is shared, so splice src in front of whatever slot pointed to from
+     * the entry before it */
+    end = &src->org[0];
+    while (!isendprim(end) && !isendprim((GsOT_TAG *)nextPrim(end)))
+        end = nextPrim(end);
+    setaddr(end, getaddr(slot));
     setaddr(slot, src->tag);
     return dst;
 }

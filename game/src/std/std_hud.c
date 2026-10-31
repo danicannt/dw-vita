@@ -1059,7 +1059,7 @@ void STD_renderFighterStatusBars(id)
 			}
 			y0 = -0x64;
 			cur = *hpPtr;
-			fill = *hpPtr * 50 / maxHp;
+			fill = dw1_div(*hpPtr * 50, maxHp); /* DW1_NATIVE: maxHp can be 0 */
 		} else {
 			if (id == 0) {
 				x0 = -0x8c;
@@ -1068,7 +1068,7 @@ void STD_renderFighterStatusBars(id)
 			}
 			y0 = -0x58;
 			cur = *mpPtr;
-			fill = *mpPtr * 50 / maxMp;
+			fill = dw1_div(*mpPtr * 50, maxMp); /* DW1_NATIVE: maxMp can be 0 */
 		}
 		STD_renderNumber(0, 4, x0 + 0x49, y0 - 3, cur, 8);
 		prim = (POLY_FT4 *)GsGetWorkBase();

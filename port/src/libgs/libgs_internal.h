@@ -22,4 +22,6 @@ void gs_init_3d(void);
         }                                                                      \
     } while (0)
 
+extern int gs_split_pieces; /* object.c: polygons subdivided this frame */
+
 #endif

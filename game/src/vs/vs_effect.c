@@ -2226,7 +2226,12 @@ void VS_renderScreenOverlay(void)
 	layer = EFE_POP1(int32_t);
 
 	p = (POLY_F4 *)GsGetWorkBase();
+#ifdef DW1_NATIVE
+	/* widescreen: the whole wider screen */
+	setXYWH(p, -0xa0 - dw1_wide_extra, -0x78, 320 + 2 * dw1_wide_extra, 240);
+#else
 	setXYWH(p, -0xa0, -0x78, 320, 240);
+#endif
 	setRGB0(p, col->red, col->green, col->blue);
 	setPolyF4(p);
 	setSemiTrans(p, mode >> 2);

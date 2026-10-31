@@ -165,6 +165,43 @@ GCAN04_2 y se añade GIAS09).
 
 ## Arreglados en esta tanda
 
+### Crash en la cámara de presentación del torneo y del versus
+
+`STD_D_8007B9EC[4]` + `STD_D_8007B9FC[18]` y `STD_D_8007BA9C[4]` +
+`STD_D_8007BAAC[18]` (y sus copias `VS_D_*`) son en realidad arrays de 22
+valores que la descompilación partió en dos: `*_startCameraIntro` los recorre
+enteros. En PS1 estaban seguidos; en nativo el enlazador los ordena de otra
+forma y el bucle pisaba `target`, `entity`, los contadores de la cámara y
+`*_ARENA_OBJECTS`. Volcado de la Vita del 30-10-2026: `calculateBoneMatrix(NULL)`
+en `STD_tournamentMain`. Ahora son un solo array de 22 en nativo, y
+`*_tickCameraIntro` lee `target` por su nombre en vez de `p[6]`, que también
+salía del array y dependía del orden de la PS1.
+
+### División por cero en las barras de vida del torneo y del versus
+
+`STD_/VS_renderFighterStatusBars` dividen por la vida y la energía máximas,
+que valen 0 en algún fotograma de la copa (`DW1_SMOKE=tournament`). En PS1 el
+`div` no salta; en la Vita la barra salía con otro valor. Ahora usan
+`dw1_div`, como ya hacía `battle_hud.c`.
+
+### Arena del torneo y del versus en negro
+
+`GsSortOt` empalmaba la tabla auxiliar escribiendo en `org[0]`, y con eso
+perdía los polígonos de esa entrada: con `shift` 12 y 4 entradas, casi todos
+los de la arena (suelo, gradas, valla). Ahora empalma en el último nodo antes
+del final de la lista, que es un nodo compartido por las tablas y no se puede
+reenlazar. `DW1_SMOKE=tournament` juega una copa sin mando.
+
+### Bandas negras con la cámara cerca del suelo o de la valla
+
+`draw_prim` tiraba los polígonos que cruzan el plano cercano o son demasiado
+grandes para la GPU, y la arena tiene muchos. Ahora `clip_start` los recorta en
+espacio de vista y parte en dos los trozos visibles hasta que caben; lo que
+queda fuera de pantalla se descarta. El gasto está limitado a 300 trozos por
+fotograma (`CLIP_PIECES`) porque `GS_WORK_BASES` son 80 KB: un primer intento
+con subdivisión uniforme y límite por objeto lo desbordaba y corrompía las
+tablas de orden.
+
 ### Bocadillo de caca con textura basura
 - **Causa:** `GsSortSprite` del port dibuja un sprite escalado como polígono
   con el borde derecho en `u + w`. El último fotograma de la caca está en

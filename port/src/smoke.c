@@ -22,6 +22,7 @@
  *                             saving anim_<id>_<n>.ppm
  *   DW1_SMOKE=events[:a-b]    on maps a..b, run every section of the map's
  *                             script in turn ("event <map> <section>")
+ *   DW1_SMOKE=tournament      run a cup, tapping X through it
  *   DW1_SMOKE=death           let the partner die of old age where the replay
  *                             left it and play the death and rebirth scenes
  *                             with X tapped through; logs the partner's
@@ -65,7 +66,7 @@ extern short EVOLUTION_TARGET;
 int dw1_file_queue_idle(void);
 extern void *ENTITY_TABLE[];
 
-enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES, SMOKE_WALK, SMOKE_ANIMS, SMOKE_EVENTS, SMOKE_DEATH };
+enum { SMOKE_OFF, SMOKE_WARP, SMOKE_MAPS, SMOKE_EVOS, SMOKE_BATTLES, SMOKE_WALK, SMOKE_ANIMS, SMOKE_EVENTS, SMOKE_DEATH, SMOKE_TOURNAMENT };
 
 static int mode = -1;
 static int warp_map, warp_exit;
@@ -153,6 +154,10 @@ static void parse(void)
             mode = SMOKE_EVENTS;
             n = 6;
             map_end = 254;
+        } else if (strncmp(s, "tournament", 10) == 0) {
+            mode = SMOKE_TOURNAMENT;
+            n = 10;
+            map_end = 0;
         } else if (strncmp(s, "death", 5) == 0) {
             mode = SMOKE_DEATH;
             n = 5;
@@ -253,6 +258,9 @@ int dw1_smoke_pad(void)
 }
 
 void dw1_debug_frame(void);
+short STD_tournamentMain(unsigned char *arg);
+void stopBGM(void);
+void loadDynamicLibrary(int lib, unsigned char *isComplete, unsigned char isAsync, void *a, void *b);
 
 void dw1_smoke_frame(void)
 {
@@ -267,6 +275,22 @@ void dw1_smoke_frame(void)
         return;
 
     switch (mode) {
+    case SMOKE_TOURNAMENT:
+        fprintf(stderr, "dw1: smoke: tournament\n");
+        fflush(stderr);
+        mode = SMOKE_OFF;
+        active = 1;
+        {
+            /* the cup data comes from a script only the arena's map loads */
+            static unsigned char cup[8] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+            unsigned char complete;
+
+            stopBGM();
+            loadDynamicLibrary(2 /* STD_REL */, &complete, 0, NULL, NULL);
+            STD_tournamentMain(cup); /* runs its own loop */
+        }
+        battery_done();
+        break;
     case SMOKE_WARP:
         fprintf(stderr, "dw1: warp: map %d exit %d\n", warp_map, warp_exit);
         mode = SMOKE_OFF;

@@ -2796,7 +2796,12 @@ void STD_tickCameraIntro(void)
 	rot = MAIN_D_80134840;
 	rot.vy = STD_D_8007B9BC[7];
 	STD_D_8007B9BC[8] = processSomeArenaArrays(0x16, p[0], STD_D_8007A41C, STD_D_8007B9EC, STD_D_8007BA44);
+#ifdef DW1_NATIVE
+	/* p[6] ran past the array into the next symbol on the PS1 */
+	STD_setViewpointFromBone(STD_D_8007B9D0.target, &off, &rot, STD_D_8007B9BC[8]);
+#else
 	STD_setViewpointFromBone(*(Entity **)&p[6], &off, &rot, STD_D_8007B9BC[8]);
+#endif
 	GS_VIEWPOINT.vry = (-DIGIMON_DATA[STD_D_8007B9D0.target->type].height * 2) / 3;
 	GS_VIEWPOINT.vpy = -processSomeArenaArrays(0x16, p[0], STD_D_8007A41C, STD_D_8007BA9C, STD_D_8007BA44);
 	p[0]++;
@@ -3327,10 +3332,18 @@ void STD_drawBracket(void)
 	GsSetWorkBase((PACKET *)prim);
 
 	box.attribute = 0x40000000;
+#ifdef DW1_NATIVE
+	/* widescreen: the whole wider screen */
+	box.x = -0xa0 - dw1_wide_extra;
+	box.y = -0x78;
+	box.r = box.g = box.b = 0x20;
+	setWH(&box, 0x140 + 2 * dw1_wide_extra, 0xf0);
+#else
 	box.x = -0xa0;
 	box.y = -0x78;
 	box.r = box.g = box.b = 0x20;
 	setWH(&box, 0x140, 0xf0);
+#endif
 	GsSortBoxFill(&box, ACTIVE_ORDERING_TABLE, 5);
 }
 

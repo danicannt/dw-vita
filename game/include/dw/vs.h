@@ -143,11 +143,25 @@ extern GsCOORDINATE2Raw VS_ARENA_COORDS[];
 extern GsDOBJ2 VS_ARENA_OBJECTS[];
 extern int16_t VS_D_80071A0C[];
 extern Entity *VS_D_80071A18[];
+#ifdef DW1_NATIVE
+/* 22 values split in two by the decomp: the code runs through both, and
+ * only the PS1 layout keeps them together */
+extern int32_t VS_D_80071A30[22];
+#define VS_D_80071A40 (VS_D_80071A30 + 4)
+#else
 extern int32_t VS_D_80071A30[4];
 extern int32_t VS_D_80071A40[];
+#endif
 extern int32_t VS_D_80071A88[22];
+#ifdef DW1_NATIVE
+/* 22 values split in two by the decomp: the code runs through both, and
+ * only the PS1 layout keeps them together */
+extern int32_t VS_D_80071AE0[22];
+#define VS_D_80071AF0 (VS_D_80071AE0 + 4)
+#else
 extern int32_t VS_D_80071AE0[4];
 extern int32_t VS_D_80071AF0[];
+#endif
 extern uint8_t VS_BATTLE_START_TEXT_PIECES[155][20];
 extern PositionDataRaw VS_VERSUS_MODEL_OBJECTS[4];
 extern int16_t VS_RESULT_ROTATION_X[];

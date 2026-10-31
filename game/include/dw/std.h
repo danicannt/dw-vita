@@ -78,11 +78,25 @@ extern int16_t STD_INTRO_STATS_DATA[6];
 #define STD_INTRO_STATS_DATA STD_D_8007B9BC
 #endif
 extern StdUnkB9D0 STD_D_8007B9D0;
+#ifdef DW1_NATIVE
+/* 22 values split in two by the decomp: the code runs through both, and
+ * only the PS1 layout keeps them together */
+extern int32_t STD_D_8007B9EC[22];
+#define STD_D_8007B9FC (STD_D_8007B9EC + 4)
+#else
 extern int32_t STD_D_8007B9EC[4];
 extern int32_t STD_D_8007B9FC[];
+#endif
 extern int32_t STD_D_8007BA44[];
+#ifdef DW1_NATIVE
+/* 22 values split in two by the decomp: the code runs through both, and
+ * only the PS1 layout keeps them together */
+extern int32_t STD_D_8007BA9C[22];
+#define STD_D_8007BAAC (STD_D_8007BA9C + 4)
+#else
 extern int32_t STD_D_8007BA9C[4];
 extern int32_t STD_D_8007BAAC[];
+#endif
 extern StdUnkBAF4 STD_BRACKET_SLOTS[8];
 extern StdUnkBB64 STD_BRACKET_PROJECTILES[8];
 extern uint8_t STD_BATTLE_START_TEXT_PIECES[155][20];

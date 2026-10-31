@@ -1494,8 +1494,15 @@ void STD_renderLoseScene(void)
 	for (i = 0; i < 0x20; i++) {
 		box.attribute = 0x40000000;
 		box.r = box.g = box.b = 0;
+#ifdef DW1_NATIVE
+		/* widescreen: the 32 strips share the whole wider screen */
+		box.x = (i * (320 + 2 * dw1_wide_extra)) / 32 - 0xa0 - dw1_wide_extra;
+		setWH(&box, ((i + 1) * (320 + 2 * dw1_wide_extra)) / 32 - 0xa0 - dw1_wide_extra - box.x,
+		      STD_LOSE_WIPE_HEIGHTS[i]);
+#else
 		setWH(&box, 0xa, STD_LOSE_WIPE_HEIGHTS[i]);
 		box.x = (box.w * i) - 0xa0;
+#endif
 		box.y = -0x78;
 		GsSortBoxFill(&box, ACTIVE_ORDERING_TABLE, 5);
 	}
@@ -2643,7 +2650,12 @@ void STD_renderScreenOverlay(void)
 	layer = EFE_POP1(int32_t);
 
 	p = (POLY_F4 *)GsGetWorkBase();
+#ifdef DW1_NATIVE
+	/* widescreen: the whole wider screen */
+	setXYWH(p, -0xa0 - dw1_wide_extra, -0x78, 320 + 2 * dw1_wide_extra, 240);
+#else
 	setXYWH(p, -0xa0, -0x78, 320, 240);
+#endif
 	setRGB0(p, col->red, col->green, col->blue);
 	setPolyF4(p);
 	setSemiTrans(p, mode >> 2);

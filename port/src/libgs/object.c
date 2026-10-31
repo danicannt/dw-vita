@@ -7,10 +7,14 @@
  * here, but all drivers share one generic implementation that decodes the
  * primitive from its TMD header.
  *
- * Not done (yet): polygon subdivision (the "div" drivers draw like the "fast"
- * ones), fog (GsLMODE_FOG), screen-size clipping of huge polygons.
+ * Polygons the GTE or the GPU cannot take as they are (crossing the near
+ * plane, past the projection limits, too big for the GPU) are clipped and
+ * subdivided whatever the driver; the "div" drivers do nothing else. Not done
+ * (yet): fog (GsLMODE_FOG).
  *
  * Callers set the GTE matrices first (GsSetLsMatrix / GsSetLightMatrix). */
+#include <stdlib.h>
+
 #include <libgpu.h>
 #include <libgte.h>
 #include <libgs.h>
@@ -172,46 +176,34 @@ static GsOT_TAG *ot_entry(GsOT *ot, long otz, int shift)
     return &ot->org[idx];
 }
 
-/* Transform, cull, light and emit one primitive. Returns the next packet. */
-static PACKET *draw_prim(u_long *op, SVECTOR *vp, SVECTOR *np, PACKET *pk, int shift,
-                         GsOT *ot, int light, u_long attr)
+/* lit colours for the vertices of a primitive, or its own */
+static void prim_colours(const PrimType *t, PrimData *d, SVECTOR *np, int light, CVECTOR *col)
 {
-    PrimType t = decode_type(op[0]);
-    PrimData d;
-    int sxy[4], p, flag;
-    short sx[4] = {0}, sy[4] = {0};
-    long otz, nclip;
-    CVECTOR col[4];
-    int i, nv = t.quad ? 4 : 3;
-    int semi = t.abe || (attr & GsALON);
-    int multi;
+    int i, nv = t->quad ? 4 : 3;
 
-    decode_prim(&t, op, &d);
-
-    if (t.quad)
-        otz = RotTransPers4(&vp[d.v[0]], &vp[d.v[1]], &vp[d.v[2]], &vp[d.v[3]],
-                            &sxy[0], &sxy[1], &sxy[2], &sxy[3], &p, &flag);
-    else
-        otz = RotTransPers3(&vp[d.v[0]], &vp[d.v[1]], &vp[d.v[2]],
-                            &sxy[0], &sxy[1], &sxy[2], &p, &flag);
-    if (otz <= 0 || otz < (gs_near_clip >> 2))
-        return pk;
-    nclip = NormalClip(sxy[0], sxy[1], sxy[2]);
-    if (nclip <= 0 && !t.fce)
-        return pk;
-
-    /* colours */
-    if (!t.unlit && light == LIGHT_ON) {
-        int nn = (t.gour || t.grad) ? nv : 1;
+    if (!t->unlit && light == LIGHT_ON) {
+        int nn = (t->gour || t->grad) ? nv : 1;
         for (i = 0; i < nn; i++)
-            NormalColorCol(&np[d.n[i]], &d.c[t.grad ? i : 0], &col[i]);
+            NormalColorCol(&np[d->n[i]], &d->c[t->grad ? i : 0], &col[i]);
         for (; i < nv; i++)
             col[i] = col[0];
     } else {
         for (i = 0; i < nv; i++)
-            col[i] = d.c[i];
+            col[i] = d->c[i];
     }
-    multi = t.gour || t.grad;
+}
+
+/* Emit one projected primitive. Returns the next packet. */
+static PACKET *emit_prim(const PrimType *tp, const PrimData *dp, const CVECTOR *col, const int *sxy,
+                         long otz, PACKET *pk, int shift, GsOT *ot, u_long attr)
+{
+    PrimType t = *tp;
+    PrimData d = *dp;
+    short sx[4] = {0}, sy[4] = {0};
+    int i, nv = t.quad ? 4 : 3;
+    int semi = t.abe || (attr & GsALON);
+    int multi = t.gour || t.grad;
+
     for (i = 0; i < nv; i++) {
         sx[i] = (short)(sxy[i] & 0xffff);
         sy[i] = (short)((unsigned)sxy[i] >> 16);
@@ -301,6 +293,207 @@ static PACKET *draw_prim(u_long *op, SVECTOR *vp, SVECTOR *np, PACKET *pk, int s
         addPrim(ot_entry(ot, otz, shift), f);
         return (PACKET *)(f + 1);
     }
+}
+
+/* ---- clipping --------------------------------------------------------------- */
+
+/* Polygons the GTE or the GPU cannot take as they are: cut at the near plane in
+ * view space, then bisected until each visible piece is small enough for the
+ * GPU. Pieces off screen stop there, so a big floor costs a few dozen. */
+
+#define CLIP_PIECES 300     /* per frame: GS_WORK_BASES has to hold them */
+#define CLIP_DEPTH 8
+#define CLIP_MAX_EDGE 400   /* screen pixels */
+#define CLIP_SCREEN_X 460   /* past any widescreen edge */
+#define CLIP_SCREEN_Y 140
+
+int gs_split_pieces; /* cleared by GsSwapDispBuff */
+
+typedef struct {
+    long x, y, z;  /* view space */
+    long ox, oy, oz; /* object space */
+    int u, v, r, g, b;
+} ClipVert;
+
+static void clip_lerp(const ClipVert *a, const ClipVert *b, int t, ClipVert *m)
+{
+#define CLIP_MIX(f) m->f = a->f + (long)(((long long)(b->f - a->f) * t) >> 12)
+    CLIP_MIX(x); CLIP_MIX(y); CLIP_MIX(z);
+    CLIP_MIX(ox); CLIP_MIX(oy); CLIP_MIX(oz);
+    CLIP_MIX(u); CLIP_MIX(v); CLIP_MIX(r); CLIP_MIX(g); CLIP_MIX(b);
+#undef CLIP_MIX
+}
+
+static void clip_project(const ClipVert *v, long *sx, long *sy)
+{
+    *sx = (long)((long long)v->x * gs_projection / v->z);
+    *sy = (long)((long long)v->y * gs_projection / v->z);
+}
+
+/* draw one triangle in front of the near plane, or its two halves */
+static PACKET *clip_tri(const PrimType *t, PrimData *d, const ClipVert *a, const ClipVert *b,
+                        const ClipVert *c, int depth, PACKET *pk, int shift, GsOT *ot, u_long attr)
+{
+    const ClipVert *v[3];
+    long sx[3], sy[3], e[3];
+    int i, longest;
+
+    v[0] = a; v[1] = b; v[2] = c;
+    for (i = 0; i < 3; i++)
+        clip_project(v[i], &sx[i], &sy[i]);
+    if ((sx[0] < -CLIP_SCREEN_X && sx[1] < -CLIP_SCREEN_X && sx[2] < -CLIP_SCREEN_X) ||
+        (sx[0] > CLIP_SCREEN_X && sx[1] > CLIP_SCREEN_X && sx[2] > CLIP_SCREEN_X) ||
+        (sy[0] < -CLIP_SCREEN_Y && sy[1] < -CLIP_SCREEN_Y && sy[2] < -CLIP_SCREEN_Y) ||
+        (sy[0] > CLIP_SCREEN_Y && sy[1] > CLIP_SCREEN_Y && sy[2] > CLIP_SCREEN_Y))
+        return pk;
+
+    longest = 0;
+    for (i = 0; i < 3; i++) {
+        int j = (i + 1) % 3;
+        long dx = labs(sx[j] - sx[i]), dy = labs(sy[j] - sy[i]);
+        e[i] = dx > dy ? dx : dy;
+        if (e[i] > e[longest])
+            longest = i;
+    }
+
+    if (e[longest] > CLIP_MAX_EDGE && depth < CLIP_DEPTH && gs_split_pieces < CLIP_PIECES) {
+        ClipVert m;
+        const ClipVert *p = v[longest], *q = v[(longest + 1) % 3], *r = v[(longest + 2) % 3];
+
+        clip_lerp(p, q, 0x800, &m);
+        pk = clip_tri(t, d, p, &m, r, depth + 1, pk, shift, ot, attr);
+        return clip_tri(t, d, &m, q, r, depth + 1, pk, shift, ot, attr);
+    }
+
+    if (e[longest] >= 1024)
+        return pk;
+    {
+        PrimType tri = *t;
+        CVECTOR col[4];
+        int sxy[4], p, flag;
+        long otz;
+        SVECTOR o[3];
+
+        tri.quad = 0;
+        for (i = 0; i < 3; i++) {
+            o[i].vx = (short)v[i]->ox; o[i].vy = (short)v[i]->oy;
+            o[i].vz = (short)v[i]->oz; o[i].pad = 0;
+            d->u[i] = (u_char)v[i]->u;
+            d->vv[i] = (u_char)v[i]->v;
+            col[i].r = (u_char)v[i]->r; col[i].g = (u_char)v[i]->g;
+            col[i].b = (u_char)v[i]->b; col[i].cd = 0;
+        }
+        /* through the GTE when it can, so the piece has PGXP positions */
+        otz = RotTransPers3(&o[0], &o[1], &o[2], &sxy[0], &sxy[1], &sxy[2], &p, &flag);
+        if (flag < 0 || otz <= 0) {
+            for (i = 0; i < 3; i++)
+                sxy[i] = (int)(((unsigned)(short)sy[i] << 16) | (u_short)(short)sx[i]);
+            otz = (v[0]->z + v[1]->z + v[2]->z) / 12;
+        }
+        gs_split_pieces++;
+        return emit_prim(&tri, d, col, sxy, otz, pk, shift, ot, attr);
+    }
+}
+
+/* cut a polygon (vertices in order around it) at the near plane and draw it */
+static PACKET *clip_prim(const PrimType *t, PrimData *d, const ClipVert *in, int n,
+                         PACKET *pk, int shift, GsOT *ot, u_long attr)
+{
+    ClipVert out[5];
+    long near_z = gs_near_clip > 4 ? gs_near_clip : 4;
+    int i, m = 0;
+
+    for (i = 0; i < n; i++) {
+        const ClipVert *a = &in[i], *b = &in[(i + 1) % n];
+
+        if (a->z >= near_z)
+            out[m++] = *a;
+        if ((a->z >= near_z) != (b->z >= near_z))
+            clip_lerp(a, b, (int)(((long long)(near_z - a->z) << 12) / (b->z - a->z)), &out[m++]);
+    }
+    for (i = 0; i < m; i++)
+        if (out[i].z < near_z)
+            out[i].z = near_z; /* rounding of clip_lerp */
+    for (i = 1; i + 1 < m; i++)
+        pk = clip_tri(t, d, &out[0], &out[i], &out[i + 1], 0, pk, shift, ot, attr);
+    return pk;
+}
+
+/* a primitive that needs clipping, from its object space vertices */
+static PACKET *clip_start(const PrimType *t, PrimData *d, SVECTOR *vp, const CVECTOR *col,
+                          PACKET *pk, int shift, GsOT *ot, u_long attr)
+{
+    static const int quad_order[4] = {0, 1, 3, 2}; /* TMD quads are a Z */
+    ClipVert v[4];
+    MATRIX m;
+    long long det;
+    int i, nv = t->quad ? 4 : 3;
+
+    ReadRotMatrix(&m);
+    for (i = 0; i < nv; i++) {
+        int k = t->quad ? quad_order[i] : i;
+        const SVECTOR *o = &vp[d->v[k]];
+
+        v[i].ox = o->vx; v[i].oy = o->vy; v[i].oz = o->vz;
+        v[i].x = ((m.m[0][0] * o->vx + m.m[0][1] * o->vy + m.m[0][2] * o->vz) >> 12) + m.t[0];
+        v[i].y = ((m.m[1][0] * o->vx + m.m[1][1] * o->vy + m.m[1][2] * o->vz) >> 12) + m.t[1];
+        v[i].z = ((m.m[2][0] * o->vx + m.m[2][1] * o->vy + m.m[2][2] * o->vz) >> 12) + m.t[2];
+        v[i].u = d->u[k]; v[i].v = d->vv[k];
+        v[i].r = col[k].r; v[i].g = col[k].g; v[i].b = col[k].b;
+    }
+
+    /* the side facing the camera: NormalClip without the projection */
+    det = (long long)v[0].x * ((long long)v[1].y * v[2].z - (long long)v[1].z * v[2].y)
+        - (long long)v[0].y * ((long long)v[1].x * v[2].z - (long long)v[1].z * v[2].x)
+        + (long long)v[0].z * ((long long)v[1].x * v[2].y - (long long)v[1].y * v[2].x);
+    if (det <= 0 && !t->fce)
+        return pk;
+    return clip_prim(t, d, v, nv, pk, shift, ot, attr);
+}
+
+static int prim_too_big(const int *sxy, int nv)
+{
+    int i, x0 = 32767, x1 = -32768, y0 = 32767, y1 = -32768;
+
+    for (i = 0; i < nv; i++) {
+        int x = (short)(sxy[i] & 0xffff), y = (short)((unsigned)sxy[i] >> 16);
+        x0 = x < x0 ? x : x0;
+        x1 = x > x1 ? x : x1;
+        y0 = y < y0 ? y : y0;
+        y1 = y > y1 ? y : y1;
+    }
+    return x1 - x0 >= 1024 || y1 - y0 >= 512;
+}
+
+/* Transform, cull, light and emit one primitive. Returns the next packet. */
+static PACKET *draw_prim(u_long *op, SVECTOR *vp, SVECTOR *np, PACKET *pk, int shift,
+                         GsOT *ot, int light, u_long attr)
+{
+    PrimType t = decode_type(op[0]);
+    PrimData d;
+    int sxy[4], p, flag;
+    long otz;
+    CVECTOR col[4];
+    int nv = t.quad ? 4 : 3;
+
+    decode_prim(&t, op, &d);
+
+    if (t.quad)
+        otz = RotTransPers4(&vp[d.v[0]], &vp[d.v[1]], &vp[d.v[2]], &vp[d.v[3]],
+                            &sxy[0], &sxy[1], &sxy[2], &sxy[3], &p, &flag);
+    else
+        otz = RotTransPers3(&vp[d.v[0]], &vp[d.v[1]], &vp[d.v[2]],
+                            &sxy[0], &sxy[1], &sxy[2], &p, &flag);
+
+    if (flag < 0 || otz <= 0 || otz < (gs_near_clip >> 2) || prim_too_big(sxy, nv)) {
+        prim_colours(&t, &d, np, light, col);
+        return clip_start(&t, &d, vp, col, pk, shift, ot, attr);
+    }
+
+    if (NormalClip(sxy[0], sxy[1], sxy[2]) <= 0 && !t.fce)
+        return pk;
+    prim_colours(&t, &d, np, light, col);
+    return emit_prim(&t, &d, col, sxy, otz, pk, shift, ot, attr);
 }
 
 /* attribute of the object being sorted, for the drivers (PSY-Q passes it in
