@@ -7,10 +7,10 @@ This is not an emulator. The game's code runs natively on the device, with optio
 > **Test build:** This port is playable, but it is still under development. Bugs, performance issues and incomplete features are possible.
 
 <p align="center">
-  <img src="../doc/2026-10-30-012211.jpg" width="49%">
-  <img src="../doc/2026-10-24-005434.jpg" width="49%">
-  <img src="../doc/2026-10-28-174707.jpg" width="49%">
-  <img src="../doc/2026-10-23-213903.jpg" width="49%">
+  <img src="/doc/2026-10-30-012211.jpg" width="49%">
+  <img src="/doc/2026-10-24-005434.jpg" width="49%">
+  <img src="/doc/2026-10-28-174707.jpg" width="49%">
+  <img src="/doc/2026-10-23-213903.jpg" width="49%">
 </p>
 
 **Important:** This is a free, non-commercial fan project. It is not affiliated with or endorsed by Bandai Namco. No game data is included. You must provide your own copy of the game.
