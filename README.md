@@ -1,5 +1,10 @@
 # Digimon World native port (PS Vita / PC)
 
+[`screenshot_1`](doc/2026-10-30-012211.jpg)
+[`screenshot_2`](doc/2026-10-24-005434.jpg)
+[`screenshot_3`](doc/2026-10-28-174707.jpg)
+[`screenshot_4`](doc/2026-10-23-213903.jpg)
+
 **PS Vita test build:** [`release/dw1-vita.vpk`](release/dw1-vita.vpk) — how to install and play: [`release/README.md`](release/README.md).
 
 A native port of *Digimon World* (PlayStation, 1999, USA `SLUS-01032`) built from
